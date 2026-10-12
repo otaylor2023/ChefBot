@@ -1,0 +1,41 @@
+# Robot layer: footprint, control, goal handling, IK.
+# Lengths in meters, angles in degrees, time in seconds.
+
+footprint_radius: 0.35      # circle enclosing the base
+safety_margin: 0.05         # added to the footprint when inflating the grid
+
+# Arm base frame expressed in the base frame (origin on the floor under the
+# base center, x forward). Matches RoboCasa's PandaOmron; change for TidyBot++.
+arm_mount:
+  xyz: [0.0, 0.0, 0.5]
+  yaw_deg: 0.0
+tcp_offset: 0.17            # flange -> fingertip, Robotiq 2F-85
+
+control_rate: 20            # Hz
+gains:
+  kp_pos: 2.0
+  kp_yaw: 2.5
+limits:
+  max_lin_vel: 0.5          # m/s
+  max_ang_vel: 1.0          # rad/s
+  max_lin_acc: 1.0          # m/s^2
+  max_ang_acc: 2.0          # rad/s^2
+tolerances:
+  pos: 0.015
+  yaw_deg: 1.5
+lookahead: 0.3              # carrot distance along the path
+deviation_threshold: 0.2    # distance off the path that counts as blocked
+motion_timeout_s: 60
+
+snap_radius: 0.5            # go_to_pose: how far a goal in collision may be moved
+standoff:                   # align_to_point: candidate rings around the target
+  min: 0.45
+  max: 0.8
+  rings: 4
+  angles: 24
+
+ik:
+  pos_tolerance: 0.01
+  max_iters: 150
+  dt: 0.1
+  damping: 0.001
