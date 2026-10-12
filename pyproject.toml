@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chefbot"
+version = "0.1.0"
+description = "ChefBot navigation tools: env-agnostic agent and robot layers with swappable env backends"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "msgpack",
+    "msgpack-numpy",
+    "websockets>=13",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# The agent needs nothing beyond the base install; the extra exists so
+# `pip install chefbot[agent]` documents intent and stays sim-free.
+agent = []
+robot = ["mujoco>=3.2", "mink"]
+# robosuite and robocasa are installed editable from source (see README).
+robocasa = ["chefbot[robot]"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["chefbot*"]
+
+[tool.setuptools.package-data]
+chefbot = ["config/**/*.yaml", "robot/kinematics/assets/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["chefbot/tests"]
+markers = [
+    "robocasa: integration tests that need robosuite + robocasa installed",
+]
