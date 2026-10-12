@@ -19,7 +19,7 @@ class RobotConfig:
     # Arm base in the base frame (base frame: origin on the floor under the base center)
     arm_mount_xyz: tuple[float, float, float] = (0.0, 0.0, 0.5)
     arm_mount_yaw: float = 0.0
-    tcp_offset: float = 0.17
+    tcp_offset: float = 0.16
     # Base controller
     control_rate: float = 20.0
     kp_pos: float = 2.0

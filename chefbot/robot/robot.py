@@ -6,6 +6,7 @@ control loop on a motion thread next to the env.
 
 from __future__ import annotations
 
+import math
 import threading
 
 import numpy as np
@@ -23,6 +24,10 @@ from chefbot.robot.nav.grid import OccupancyGrid
 # Contact is ignored for this long after a motion starts, so a base that was
 # stopped against something can still drive away from it.
 _CONTACT_GRACE_S = 0.5
+# After a motion ends the command is zero; the base counts as at rest below these speeds.
+_REST_LIN_VEL = 0.005  # m/s
+_REST_ANG_VEL = 0.01  # rad/s
+_MAX_SETTLE_TICKS = 20
 
 
 class Robot(RobotAPI):
@@ -151,8 +156,17 @@ class Robot(RobotAPI):
         finally:
             # Velocity is zeroed on every exit, including exceptions.
             env.set_base_velocity(0.0, 0.0, 0.0)
-        env.wait_for_next_tick(dt)  # let the stop take effect before reporting the pose
+        self._settle(dt)
         return self._result(status, message)
+
+    def _settle(self, dt: float) -> None:
+        """Tick with a zero command until the base has come to rest, so the
+        reported pose is where the robot actually ends up."""
+        for _ in range(_MAX_SETTLE_TICKS):
+            self._env.wait_for_next_tick(dt)
+            vx, vy, vyaw = self._env.get_state().base_velocity
+            if math.hypot(vx, vy) < _REST_LIN_VEL and abs(vyaw) < _REST_ANG_VEL:
+                break
 
     def _result(self, status: str, message: str) -> MotionResult:
         return MotionResult(status, self.get_base_pose(), message)
