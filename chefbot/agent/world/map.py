@@ -1,0 +1,96 @@
+"""Semantic map: named fixtures and objects with rough locations.
+
+Env-agnostic: no sim names, no parts, no geometry beyond a location and an
+optional facing direction (toward open floor).
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+from chefbot.interface.types import Pose2D
+
+_SUFFIX = re.compile(r"_\d+$")
+
+
+def label_of(name: str) -> str:
+    """A map entry's label is its name minus any `_n` suffix (counter_2 -> counter)."""
+    return _SUFFIX.sub("", name)
+
+
+@dataclass(frozen=True)
+class MapEntry:
+    name: str
+    location: tuple[float, float]
+    facing: tuple[float, float] | None = None
+    kind: str = "fixture"  # "fixture" | "object"
+    inside: str | None = None  # objects: name of the fixture holding it
+
+    @property
+    def label(self) -> str:
+        return label_of(self.name)
+
+    def distance_to(self, pose: Pose2D) -> float:
+        return math.hypot(self.location[0] - pose.x, self.location[1] - pose.y)
+
+
+class WorldMap:
+    def __init__(self, entries: list[MapEntry], frame: str = "world"):
+        self.frame = frame
+        self._entries = {e.name: e for e in entries}
+        if len(self._entries) != len(entries):
+            raise ValueError("duplicate names in map")
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "WorldMap":
+        entries = []
+        for kind, section in (("fixture", "fixtures"), ("object", "objects")):
+            for name, spec in (raw.get(section) or {}).items():
+                facing = spec.get("facing")
+                entries.append(
+                    MapEntry(
+                        name=name,
+                        location=(float(spec["location"][0]), float(spec["location"][1])),
+                        facing=(float(facing[0]), float(facing[1])) if facing else None,
+                        kind=kind,
+                        inside=spec.get("in"),
+                    )
+                )
+        return cls(entries, raw.get("frame", "world"))
+
+    @classmethod
+    def load(cls, path: str | Path) -> "WorldMap":
+        return cls.from_dict(yaml.safe_load(Path(path).read_text()))
+
+    def to_dict(self) -> dict:
+        out: dict = {"frame": self.frame, "fixtures": {}, "objects": {}}
+        for e in self._entries.values():
+            spec: dict = {"location": [round(v, 3) for v in e.location]}
+            if e.facing is not None:
+                spec["facing"] = [round(v, 3) for v in e.facing]
+            if e.inside is not None:
+                spec["in"] = e.inside
+            out["fixtures" if e.kind == "fixture" else "objects"][e.name] = spec
+        return out
+
+    def save(self, path: str | Path) -> None:
+        Path(path).write_text(yaml.safe_dump(self.to_dict(), sort_keys=False))
+
+    def get(self, name: str) -> MapEntry | None:
+        return self._entries.get(name)
+
+    def list(self) -> list[MapEntry]:
+        return list(self._entries.values())
+
+    def labels(self) -> set[str]:
+        return {e.label for e in self._entries.values()}
+
+    def in_range(self, pose: Pose2D, radius: float) -> list[MapEntry]:
+        """Entries within `radius` of `pose`, nearest first."""
+        near = [e for e in self._entries.values() if e.distance_to(pose) <= radius]
+        return sorted(near, key=lambda e: e.distance_to(pose))

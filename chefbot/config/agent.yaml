@@ -1,0 +1,23 @@
+# Agent layer: goals and thresholds only. No robot geometry lives here.
+# Lengths in meters.
+
+approach_distance: 1.0      # go_to: how far in front of a fixture's location to stand
+nearby_radius: 2.5          # what counts as "nearby" in nearby() and in detect's map query
+max_align_distance: 2.0     # align: backstop; farther than this means go_to first
+map_match_radius: 0.75      # detect: max distance between a detection and its map entry
+refine_radius: 0.15         # align: max distance between a re-detection and the stored position
+
+default_vocab:              # detect() with no classes
+  - burner
+  - pan
+  - pot
+  - bowl
+  - plate
+  - cup
+  - knife
+  - spatula
+  - fridge handle
+  - microwave handle
+  - cabinet handle
+  - drawer handle
+  - faucet
