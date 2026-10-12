@@ -1,0 +1,104 @@
+"""Layer boundaries from NAV_SPEC.md section 2, enforced on the import graph."""
+
+import ast
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+PACKAGE = Path(__file__).resolve().parent.parent
+REPO = PACKAGE.parent
+SIM_AND_HARDWARE = ("robosuite", "robocasa", "isaaclab", "isaacsim", "omni", "chefbot.envs")
+KINEMATICS_ONLY = ("mujoco", "mink")
+
+
+def modules_under(layer: str) -> list[Path]:
+    return sorted((PACKAGE / layer).rglob("*.py"))
+
+
+def imports_of(path: Path) -> set[str]:
+    """Every module a file imports, as absolute dotted names."""
+    package = ".".join(path.relative_to(REPO).with_suffix("").parts[:-1])
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                parent = package.split(".")[: len(package.split(".")) - (node.level - 1)]
+                base = ".".join(parent + ([base] if base else []))
+            found.add(base)
+            found.update(f"{base}.{alias.name}" for alias in node.names)
+    return found
+
+
+def violations(layer: str, forbidden: tuple[str, ...], allow_under: str | None = None) -> list[str]:
+    out = []
+    for path in modules_under(layer):
+        relative = path.relative_to(PACKAGE).as_posix()
+        if allow_under and relative.startswith(allow_under):
+            continue
+        for module in imports_of(path):
+            if any(module == name or module.startswith(name + ".") for name in forbidden):
+                out.append(f"{relative} imports {module}")
+    return sorted(out)
+
+
+def test_layers_exist():
+    for layer in ("agent", "robot", "interface", "envs"):
+        assert modules_under(layer), layer
+
+
+@pytest.mark.parametrize("layer", ["agent", "robot", "interface"])
+def test_no_simulator_or_hardware_imports(layer):
+    assert violations(layer, SIM_AND_HARDWARE) == []
+
+
+def test_mujoco_and_mink_only_under_robot_kinematics():
+    assert violations("agent", KINEMATICS_ONLY) == []
+    assert violations("interface", KINEMATICS_ONLY) == []
+    assert violations("robot", KINEMATICS_ONLY, allow_under="robot/kinematics/") == []
+
+
+def test_agent_knows_only_the_interface():
+    assert violations("agent", ("chefbot.robot",)) == []
+
+
+def test_interface_depends_on_no_other_layer():
+    assert violations("interface", ("chefbot.agent", "chefbot.robot")) == []
+
+
+def test_robot_does_not_import_the_agent():
+    assert violations("robot", ("chefbot.agent",)) == []
+
+
+def test_envs_do_not_import_the_robot_layer_or_the_agent():
+    # serve.py is the composition root that wires Robot(Env) to the server.
+    assert violations("envs", ("chefbot.robot", "chefbot.agent"), allow_under="envs/robocasa/serve.py") == []
+
+
+def run_pytest_without(blocked: list[str], targets: list[str]) -> subprocess.CompletedProcess:
+    """Run pytest in a fresh interpreter where importing `blocked` modules fails."""
+    code = (
+        "import sys\n"
+        f"for name in {blocked!r}: sys.modules[name] = None\n"
+        "import pytest\n"
+        f"sys.exit(pytest.main(['-q', '-p', 'no:cacheprovider', *{targets!r}]))\n"
+    )
+    return subprocess.run([sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True)
+
+
+def test_agent_suite_passes_without_any_simulator():
+    result = run_pytest_without(
+        ["robosuite", "robocasa", "mujoco", "mink"], ["chefbot/tests/agent"]
+    )
+    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
+
+
+def test_robot_and_transport_suites_pass_without_robosuite_or_robocasa():
+    result = run_pytest_without(
+        ["robosuite", "robocasa"], ["chefbot/tests/robot", "chefbot/tests/transport"]
+    )
+    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
