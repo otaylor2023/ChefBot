@@ -16,6 +16,9 @@ from chefbot.envs.robocasa.build_map import GRID_FILE, SEMANTIC_MAP_FILE, ensure
 from chefbot.envs.robocasa.config import RoboCasaConfig
 from chefbot.envs.robocasa.detector import GroundTruthDetector
 from chefbot.envs.robocasa.env import RoboCasaEnv
+from chefbot.envs.robocasa.fixture_actuator import ScriptedFixtureActuator
+from chefbot.envs.robocasa.grasp_proposer import GroundTruthGraspProposer
+from chefbot.envs.robocasa.placement_proposer import GroundTruthPlacementProposer
 from chefbot.interface.transport.server import RobotServer
 from chefbot.robot.config import RobotConfig
 from chefbot.robot.nav.grid import OccupancyGrid
@@ -41,8 +44,16 @@ def build_stack(
     `render=True` enables the cameras (get_camera_rgbd)."""
     env = RoboCasaEnv(config, render=render)
     map_dir = ensure_map(env)
-    robot = Robot(env, OccupancyGrid.load(map_dir / GRID_FILE), robot_config)
-    return RoboCasaStack(env, robot, GroundTruthDetector(env), map_dir)
+    detector = GroundTruthDetector(env)
+    robot = Robot(
+        env,
+        OccupancyGrid.load(map_dir / GRID_FILE),
+        robot_config,
+        grasp_proposer=GroundTruthGraspProposer(env),
+        placement_proposer=GroundTruthPlacementProposer(env, detector),
+        fixture_actuator=ScriptedFixtureActuator(env, detector),
+    )
+    return RoboCasaStack(env, robot, detector, map_dir)
 
 
 def main() -> None:
@@ -64,7 +75,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        stack.robot.stop_base()
+        stack.robot.stop()
         server.shutdown()
         stack.env.close()
 

@@ -32,7 +32,7 @@ def run(env, command, seconds, frame="world"):
 
 @pytest.fixture
 def env(stack):
-    stack.robot.stop_base()
+    stack.robot.stop()
     stack.env.teleport_base(stack.free_starts(1, seed=5)[0])
     yield stack.env
     stack.env.set_base_velocity(0.0, 0.0, 0.0)
@@ -180,8 +180,6 @@ def test_detector_respects_occlusion(stack, env):
 def test_get_camera_rgbd_requires_rendering(env):
     with pytest.raises(RuntimeError, match="render=True"):
         env.get_camera_rgbd(env.config.shoulder_camera)
-    with pytest.raises(NotImplementedError):
-        env.set_arm_joint_targets(np.zeros(7))
 
 
 def test_shoulder_camera_rgbd_agrees_with_ground_truth():

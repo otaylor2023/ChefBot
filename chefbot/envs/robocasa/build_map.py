@@ -17,7 +17,7 @@ import numpy as np
 import yaml
 
 from chefbot.envs.robocasa.config import RoboCasaConfig
-from chefbot.envs.robocasa.detector import FixtureBox, map_fixtures, scene_objects
+from chefbot.envs.robocasa.detector import FixtureBox, named_fixtures, numbered, scene_objects
 from chefbot.envs.robocasa.env import RoboCasaEnv
 
 GRID_FILE, GRID_META_FILE, SEMANTIC_MAP_FILE = "grid.npy", "grid.yaml", "semantic_map.yaml"
@@ -100,23 +100,12 @@ def _facing(box: FixtureBox, occupied: np.ndarray, meta: dict) -> list[float] | 
 
 def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> dict:
     with env.lock:
-        fixtures = map_fixtures(env)
+        fixtures = named_fixtures(env)
         objects = [(label, env.data.xpos[body].copy()) for _, label, body in scene_objects(env)]
 
-    def numbered(labels: list[str]) -> list[str]:
-        """Unique names: a lone label keeps its name, repeats become label_1, label_2, ..."""
-        totals = {label: labels.count(label) for label in labels}
-        seen: dict[str, int] = {}
-        names = []
-        for label in labels:
-            seen[label] = seen.get(label, 0) + 1
-            names.append(label if totals[label] == 1 else f"{label}_{seen[label]}")
-        return names
-
-    fixtures.sort(key=lambda f: (f[1], round(float(f[2].center[0]), 2), round(float(f[2].center[1]), 2)))
-    fixture_names = numbered([label for _, label, _ in fixtures])
+    fixture_names = [f.name for f in fixtures]
     out: dict = {"frame": "world", "fixtures": {}, "objects": {}}
-    for name, (_, _, box) in zip(fixture_names, fixtures):
+    for name, box in ((f.name, f.box) for f in fixtures):
         entry: dict = {"location": [round(float(box.center[0]), 3), round(float(box.center[1]), 3)]}
         facing = _facing(box, occupied, meta)
         if facing is not None:
@@ -132,7 +121,7 @@ def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> di
         taken.add(name)
         entry = {"location": [round(float(position[0]), 3), round(float(position[1]), 3)]}
         holder = next(
-            (n for n, (_, _, box) in zip(fixture_names, fixtures) if box.contains_xy(position[0], position[1])),
+            (f.name for f in fixtures if f.box.contains_xy(position[0], position[1])),
             None,
         )
         if holder is not None:

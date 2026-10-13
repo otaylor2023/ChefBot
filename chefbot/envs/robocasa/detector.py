@@ -127,6 +127,38 @@ def map_fixtures(env: RoboCasaEnv) -> list[tuple[str, str, FixtureBox]]:
     return out
 
 
+@dataclass(frozen=True)
+class NamedFixture:
+    name: str  # ChefBot map name, e.g. "counter_2"
+    sim_name: str  # RoboCasa fixture name
+    label: str
+    box: FixtureBox
+
+    @property
+    def root(self) -> str:
+        """Name of the fixture's top-level sim body."""
+        return f"{self.sim_name}_main"
+
+
+def numbered(labels: list[str]) -> list[str]:
+    """Unique names: a lone label keeps its name, repeats become label_1, label_2, ..."""
+    totals = {label: labels.count(label) for label in labels}
+    seen: dict[str, int] = {}
+    names = []
+    for label in labels:
+        seen[label] = seen.get(label, 0) + 1
+        names.append(label if totals[label] == 1 else f"{label}_{seen[label]}")
+    return names
+
+
+def named_fixtures(env: RoboCasaEnv) -> list[NamedFixture]:
+    """The map fixtures under their ChefBot map names (sorted by label, then position)."""
+    fixtures = map_fixtures(env)
+    fixtures.sort(key=lambda f: (f[1], round(float(f[2].center[0]), 2), round(float(f[2].center[1]), 2)))
+    names = numbered([label for _, label, _ in fixtures])
+    return [NamedFixture(name, sim, label, box) for name, (sim, label, box) in zip(names, fixtures)]
+
+
 def scene_objects(env: RoboCasaEnv) -> list[tuple[str, str, int]]:
     """(RoboCasa name, ChefBot label, body id) for every loose object in the scene."""
     out = []
@@ -148,6 +180,8 @@ class _Item:
     id: int = -1
     root: str = ""  # top-level body the item belongs to
     box: FixtureBox | None = None
+    fixture: str = ""  # sim name of the fixture it is, or is part of
+    owner_label: str = ""  # that fixture's label
 
 
 # Rays are cast against collision geometry only (group 0): visual group 1 also
@@ -156,6 +190,10 @@ _RAY_GROUPS = np.array([1, 0, 0, 0, 0, 0], dtype=np.uint8)
 _OCCLUSION_TOLERANCE = 0.05  # a hit this close to the target point is the target itself
 _NEAR_PLANE = 0.05
 _FACE_SAMPLES = (0.1, 0.5, 0.9)
+_WORK_SURFACE_MAX_HEIGHT = 1.2  # fixtures no taller than this have a top to work on
+_SURFACE_INSET = 0.2
+_SURFACE_LATTICE = 0.1
+_SURFACE_CLEAR = 0.15  # radius that must be flat and empty around a work spot: room for the open gripper
 
 
 class GroundTruthDetector(Detector):
@@ -173,11 +211,35 @@ class GroundTruthDetector(Detector):
     def detect(self, classes: list[str]) -> list[Detection]:
         wanted = set(classes)
         with self._env.lock:
+            # An object in the gripper is not reported: it is the robot's, not the scene's.
+            held = self._env.grasped_bodies()
+            base = self._env.get_state().base_pose
             return [
-                Detection(item.label, self._position(item), 1.0)
+                Detection(item.label, self._position(item), 1.0, self._near_point(item, base.xy))
                 for item in self._items
-                if item.label in wanted and self._visible(item)
+                if item.label in wanted
+                and not (item.kind == "body" and int(self._env.model.body_rootid[item.id]) in held)
+                and self._visible(item)
             ]
+
+    def fixture_label(self, sim_name: str) -> str:
+        """Label of the fixture with this sim name ("" if it has no detectable item)."""
+        return next((item.owner_label for item in self._items if item.fixture == sim_name), "")
+
+    def locate(self, detection: Detection, radius: float = 0.3) -> _Item | None:
+        """The scene item a detection refers to: same label, nearest position."""
+        position = np.asarray(detection.position_world, dtype=float)
+        best, best_distance = None, radius
+        with self._env.lock:
+            for item in self._items:
+                if item.label != detection.label:
+                    continue
+                distance = float(np.linalg.norm(self._position(item) - position))
+                if item.kind == "fixture" and item.box.contains_xy(position[0], position[1]):
+                    distance = 0.0  # anywhere on a fixture refers to that fixture
+                if distance <= best_distance:
+                    best, best_distance = item, distance
+        return best
 
     # -- scene index ----------------------------------------------------------
 
@@ -190,7 +252,7 @@ class GroundTruthDetector(Detector):
             if label:
                 owners[f"{name}_main"] = (name, label)
         for name, label, box in map_fixtures(env):
-            items.append(_Item(label, "fixture", root=f"{name}_main", box=box))
+            items.append(_Item(label, "fixture", root=f"{name}_main", box=box, fixture=name, owner_label=label))
 
         def add_parts(kind: str, count: int, name_of, body_of) -> None:
             for i in range(count):
@@ -201,7 +263,7 @@ class GroundTruthDetector(Detector):
                 local = name_of(i).removeprefix(fixture_name + "_")
                 for rule_owner, rule_kind, pattern, label in PART_RULES:
                     if rule_owner == owner_label and rule_kind == kind and pattern.search(local):
-                        items.append(_Item(label, kind, i, root))
+                        items.append(_Item(label, kind, i, root, fixture=fixture_name, owner_label=owner_label))
                         break
 
         add_parts("geom", model.ngeom, lambda g: model.geom(g).name, lambda g: model.geom_bodyid[g])
@@ -223,7 +285,42 @@ class GroundTruthDetector(Detector):
         # Fixtures: the middle of the work surface if there is one within reach,
         # otherwise the middle of the front face.
         box = item.box
-        return box.point(0.5, 0.5, 1.0) if box.top <= 1.2 else box.point(0.5, 0.0, 0.5)
+        return box.point(0.5, 0.5, 1.0) if box.top <= _WORK_SURFACE_MAX_HEIGHT else box.point(0.5, 0.0, 0.5)
+
+    def _near_point(self, item: _Item, robot_xy: np.ndarray) -> np.ndarray | None:
+        """For a work surface: the free, flat spot on its top nearest the robot
+        (not over a sink or a cooktop set into it, not under an object). None
+        for everything else."""
+        if item.kind != "fixture" or item.box.top > _WORK_SURFACE_MAX_HEIGHT:
+            return None
+        from chefbot.envs.robocasa.spawn import _flat_height
+
+        box = item.box
+        best, best_distance = None, math.inf
+        lattices = []
+        for edge in (box.width, box.depth):
+            length = float(np.linalg.norm(edge))
+            inset = min(_SURFACE_INSET, length / 2)
+            lattices.append(np.arange(inset, length - inset + 1e-9, _SURFACE_LATTICE) / length)
+        for u in lattices[0]:
+            for v in lattices[1]:
+                point = box.point(u, v, 1.0)
+                distance = float(np.linalg.norm(point[:2] - robot_xy))
+                if distance >= best_distance:
+                    continue
+                height = _flat_height(self._env, item, point[0], point[1], _SURFACE_CLEAR, box.top + 0.25)
+                if height is not None and abs(height - box.top) <= 0.03:
+                    best, best_distance = np.array([point[0], point[1], height]), distance
+        if best is not None:
+            return best
+        # Nothing free: the nearest point of the top, kept in from the edges.
+        fractions = []
+        for edge in (box.width, box.depth):
+            length = float(np.linalg.norm(edge))
+            along = float((robot_xy - box.origin[:2]) @ edge[:2]) / (length * length)
+            inset = min(_SURFACE_INSET / length, 0.5)
+            fractions.append(min(max(along, inset), 1.0 - inset))
+        return box.point(fractions[0], fractions[1], 1.0)
 
     def _visible(self, item: _Item) -> bool:
         if item.kind == "fixture":

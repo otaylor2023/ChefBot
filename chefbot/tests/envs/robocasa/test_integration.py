@@ -4,6 +4,7 @@ in-process and over RemoteRobot."""
 from __future__ import annotations
 
 import math
+import time
 
 import numpy as np
 import pytest
@@ -97,12 +98,16 @@ def test_map_entry_out_of_view_is_not_visible_and_not_alignable(session):
     assert stack.env.get_state().base_pose == pose  # none of that moved the base
 
 
-def test_go_to_without_waiting_then_stop_halts_the_base(session):
+def test_go_to_without_waiting_then_stop_halts_the_base(session, monkeypatch):
     stack = session.stack
     stove, fridge = stack.world_map.get("stove"), stack.world_map.get("fridge")
     assert session.call("go_to", place="stove").success
     start = stack.env.get_state().base_pose
 
+    # The simulator runs many times faster than real time: without this the
+    # whole drive can be over before `stop` is called.
+    tick = stack.env.wait_for_next_tick
+    monkeypatch.setattr(stack.env, "wait_for_next_tick", lambda dt: (time.sleep(0.01), tick(dt))[1])
     started = session.call("go_to", place="fridge", wait=False)
     assert started.success and started.data["status"] == "moving"
     assert session.call("wait", timeout_s=0.3).data["status"] == "moving"

@@ -8,6 +8,7 @@ seed: 0
 
 control_freq: 20            # Hz; one env step per control tick, so keep equal to robot.yaml control_rate
 physics_timestep: 0.002
+noslip_iterations: 4        # MuJoCo no-slip solver passes: without them a held object creeps out of the fingers
 
 shoulder_camera: robot0_frontview  # mast-like view: 0.5 m behind the base center, 1.65 m up
 camera:
@@ -18,6 +19,36 @@ grid:
   resolution: 0.05
   height_band: [0.05, 1.8]  # collision geometry in this band is projected onto the floor
   margin: 0.5               # free border kept around the scene
+
+arm:
+  kp: 150                   # joint position gain of the sim arm's servo
+
+# Loose objects added to the kitchen at reset (envs/robocasa/spawn.py).
+# `category` is a RoboCasa object category; `surface` is a fixture label ("counter":
+# any counter with room) or a map name ("counter_1"); `inside` puts it on a shelf
+# inside a fixture. `model` pins one model of the category (a folder under
+# robocasa's objects/objaverse); without it RoboCasa picks one at random, and
+# which one depends on what else was built earlier in the same process.
+objects:
+  - {category: egg, model: egg/egg_9, inside: fridge}
+  - {category: mug, model: mug/mug_8, surface: counter}
+  - {category: bowl, model: bowl/bowl_10, surface: counter}
+  - {category: bottled_water, model: bottled_water/bottled_water_1, surface: counter}
+  - {category: pan, model: pan/pan_24, surface: counter}   # a light pan: heavier ones pivot in the fingers
+  - {category: cutting_board, model: cutting_board/cutting_board_9, surface: counter}
+spawn:
+  spacing: 0.12             # free gap kept between spawned objects
+  front_inset: 0.12         # preferred distance from the fixture's front edge to the object's center;
+                            # further back, wall cabinets get in the way of a top-down grasp
+
+# Ground-truth proposers (envs/robocasa/grasp_proposer.py, placement_proposer.py)
+grasp:
+  depth: 0.04               # fingertips this far below the top of a tall object
+  side_min_height: 0.12     # objects at least this tall also get side grasps
+  pregrasp_offset: 0.10     # back-off along the approach axis before the final approach
+place:
+  clearance: 0.01           # object's bottom this far above the surface at release
+  preplace_offset: 0.10     # approach the release pose from this far above
 
 maps_dir: maps              # relative to the repo root; one folder per layout/style
 

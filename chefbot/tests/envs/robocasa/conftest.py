@@ -7,6 +7,7 @@ either in-process or through RemoteRobot / RemoteDetector over a websocket.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -19,8 +20,11 @@ from chefbot.agent.tools.registry import ToolRegistry  # noqa: E402
 from chefbot.agent.world.map import WorldMap  # noqa: E402
 from chefbot.envs.robocasa.build_map import build_map  # noqa: E402
 from chefbot.envs.robocasa.config import RoboCasaConfig  # noqa: E402
-from chefbot.envs.robocasa.detector import GroundTruthDetector  # noqa: E402
+from chefbot.envs.robocasa.detector import GroundTruthDetector, scene_objects  # noqa: E402
 from chefbot.envs.robocasa.env import RoboCasaEnv  # noqa: E402
+from chefbot.envs.robocasa.fixture_actuator import ScriptedFixtureActuator  # noqa: E402
+from chefbot.envs.robocasa.grasp_proposer import GroundTruthGraspProposer  # noqa: E402
+from chefbot.envs.robocasa.placement_proposer import GroundTruthPlacementProposer  # noqa: E402
 from chefbot.interface.detector import Detector  # noqa: E402
 from chefbot.interface.robot_api import RobotAPI  # noqa: E402
 from chefbot.interface.transport.client import RemoteDetector, RemoteRobot  # noqa: E402
@@ -45,6 +49,19 @@ class Stack:
     world_map: WorldMap
     robot_config: RobotConfig
 
+    map_dir: Path = None
+
+    def reset(self) -> None:
+        """A fresh episode: objects and doors back, nothing held, arm stowed, map as built."""
+        self.robot.reset()
+        self.env.reset_scene()
+        self.env.set_arm_joints(np.array(self.robot_config.arm_stow))
+        self.world_map = WorldMap.load(self.map_dir / "semantic_map.yaml")
+
+    def object_position(self, label: str) -> np.ndarray:
+        body = next(b for _, l, b in scene_objects(self.env) if l == label)
+        return self.env.data.xpos[body].copy()
+
     def free_starts(self, count: int, seed: int) -> list[Pose2D]:
         """Random collision-free base poses with some room around them."""
         inflated = self.grid.inflate(self.robot_config.inflation_radius + 0.1)
@@ -67,20 +84,30 @@ def stacks(tmp_path_factory):
             map_dir = build_map(env, tmp_path_factory.mktemp(f"map_layout{layout}"))
             grid = OccupancyGrid.load(map_dir / "grid.npy")
             robot_config = RobotConfig.load()
+            detector = GroundTruthDetector(env)
+            robot = Robot(
+                env,
+                grid,
+                robot_config,
+                grasp_proposer=GroundTruthGraspProposer(env),
+                placement_proposer=GroundTruthPlacementProposer(env, detector),
+                fixture_actuator=ScriptedFixtureActuator(env, detector),
+            )
             built[layout] = Stack(
                 layout,
                 env,
-                Robot(env, grid, robot_config),
-                GroundTruthDetector(env),
+                robot,
+                detector,
                 grid,
                 WorldMap.load(map_dir / "semantic_map.yaml"),
                 robot_config,
+                map_dir,
             )
         return built[layout]
 
     yield get
     for stack in built.values():
-        stack.robot.stop_base()
+        stack.robot.stop()
         stack.env.close()
 
 
@@ -104,7 +131,7 @@ class Session:
 
 @pytest.fixture(params=["inprocess", "remote"])
 def session(request, stack) -> Session:
-    stack.robot.stop_base()
+    stack.reset()
     server = None
     if request.param == "remote":
         server = RobotServer(stack.robot, stack.detector, port=0)
@@ -114,7 +141,7 @@ def session(request, stack) -> Session:
         robot, detector = stack.robot, stack.detector
     registry = ToolRegistry(robot, detector, stack.world_map, AgentConfig.load())
     yield Session(stack, robot, detector, registry)
-    stack.robot.stop_base()
+    stack.robot.stop()
     if server is not None:
         robot.close()
         detector.close()

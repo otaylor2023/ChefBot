@@ -37,4 +37,22 @@ fixtures:
   toaster oven:
     location: [2.135, -0.245]
     facing: [0.0, -1.0]
-objects: {}
+objects:
+  bottled water:
+    location: [1.804, -0.464]
+    in: counter_1
+  bowl:
+    location: [2.425, -0.455]
+    in: counter_1
+  cutting board:
+    location: [4.011, -0.462]
+    in: counter_1
+  egg:
+    location: [4.525, -3.997]
+    in: fridge
+  mug:
+    location: [1.62, -0.488]
+    in: counter_1
+  pan:
+    location: [3.65, -0.46]
+    in: counter_1
