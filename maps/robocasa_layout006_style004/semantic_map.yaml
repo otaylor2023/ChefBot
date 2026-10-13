@@ -1,0 +1,47 @@
+frame: world
+fixtures:
+  coffee machine:
+    location: [0.365, -2.92]
+    facing: [1.0, 0.0]
+  counter_1:
+    location: [0.3, -2.1]
+    facing: [1.0, 0.0]
+  counter_2:
+    location: [0.3, -0.65]
+  counter_3:
+    location: [0.35, -0.3]
+  counter_4:
+    location: [2.2, -0.3]
+    facing: [0.0, -1.0]
+  counter_5:
+    location: [4.05, -0.3]
+  counter_6:
+    location: [4.1, -2.215]
+    facing: [-1.0, 0.0]
+  counter_7:
+    location: [4.1, -0.95]
+    facing: [-1.0, 0.0]
+  counter_8:
+    location: [4.1, -0.65]
+  dishwasher:
+    location: [2.525, -0.3]
+    facing: [0.0, -1.0]
+  fridge:
+    location: [3.98, -2.91]
+    facing: [-1.0, 0.0]
+  microwave:
+    location: [4.175, -1.582]
+    facing: [-1.0, 0.0]
+  sink:
+    location: [1.69, -0.318]
+    facing: [0.0, -1.0]
+  stove:
+    location: [4.07, -1.582]
+    facing: [-1.0, 0.0]
+  toaster:
+    location: [4.128, -2.258]
+    facing: [-1.0, 0.0]
+  toaster oven:
+    location: [3.282, -0.255]
+    facing: [0.0, -1.0]
+objects: {}

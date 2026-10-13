@@ -43,6 +43,10 @@ python -m chefbot.scripts.demo_nav --env robocasa
 python -m chefbot.envs.robocasa.serve                              # terminal 1
 python -m chefbot.scripts.demo_nav --remote ws://127.0.0.1:8765    # terminal 2
 
+# Record a rollout to rollouts/<trace>_layoutNNN_styleNNN.mp4 (+ .json tool log);
+# traces: demo, tour, stop
+python -m chefbot.scripts.record_rollout --trace tour --layout 2 --style 2
+
 # Rebuild a kitchen's map files (maps/robocasa_layoutNNN_styleNNN/)
 python -m chefbot.envs.robocasa.build_map --layout 2 --style 2
 ```

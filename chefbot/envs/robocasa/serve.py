@@ -34,9 +34,12 @@ class RoboCasaStack:
         return self.map_dir / SEMANTIC_MAP_FILE
 
 
-def build_stack(config: RoboCasaConfig | None = None, robot_config: RobotConfig | None = None) -> RoboCasaStack:
-    """Simulator, robot layer and detector for one kitchen. Builds the map files if missing."""
-    env = RoboCasaEnv(config)
+def build_stack(
+    config: RoboCasaConfig | None = None, robot_config: RobotConfig | None = None, render: bool = False
+) -> RoboCasaStack:
+    """Simulator, robot layer and detector for one kitchen. Builds the map files if missing.
+    `render=True` enables the cameras (get_camera_rgbd)."""
+    env = RoboCasaEnv(config, render=render)
     map_dir = ensure_map(env)
     robot = Robot(env, OccupancyGrid.load(map_dir / GRID_FILE), robot_config)
     return RoboCasaStack(env, robot, GroundTruthDetector(env), map_dir)
