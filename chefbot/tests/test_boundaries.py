@@ -34,7 +34,7 @@ def imports_of(path: Path) -> set[str]:
     return found
 
 
-def violations(layer: str, forbidden: tuple[str, ...], allow_under: str | None = None) -> list[str]:
+def violations(layer: str, forbidden: tuple[str, ...], allow_under: str | tuple[str, ...] = ()) -> list[str]:
     out = []
     for path in modules_under(layer):
         relative = path.relative_to(PACKAGE).as_posix()
@@ -56,10 +56,17 @@ def test_no_simulator_or_hardware_imports(layer):
     assert violations(layer, SIM_AND_HARDWARE) == []
 
 
-def test_mujoco_and_mink_only_under_robot_kinematics():
+def test_mujoco_and_mink_only_in_the_robot_kinematics_code():
     assert violations("agent", KINEMATICS_ONLY) == []
     assert violations("interface", KINEMATICS_ONLY) == []
-    assert violations("robot", KINEMATICS_ONLY, allow_under="robot/kinematics/") == []
+    # The one IK module (MANIP_SPEC §5.2) and the reachability checker built on it.
+    assert violations("robot", KINEMATICS_ONLY, allow_under=("robot/kinematics/", "robot/arm/ik.py")) == []
+
+
+def test_agent_never_sees_grasps_joints_or_tcp_frames():
+    # MANIP_SPEC §10: the agent deals in ids and results only.
+    hidden = tuple(f"chefbot.interface.types.{name}" for name in ("Grasp", "Placement", "EnvState"))
+    assert violations("agent", hidden + ("chefbot.interface.proposers", "chefbot.interface.fixtures")) == []
 
 
 def test_agent_knows_only_the_interface():

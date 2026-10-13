@@ -4,7 +4,18 @@ import numpy as np
 import pytest
 
 from chefbot.interface.transport.protocol import Request, Response, pack, unpack
-from chefbot.interface.types import RGBD, Detection, EnvState, MotionResult, Pose2D, ToolResult
+from chefbot.interface.types import (
+    RGBD,
+    ActuationResult,
+    Detection,
+    EnvState,
+    Grasp,
+    HeldObject,
+    MotionResult,
+    Placement,
+    Pose2D,
+    ToolResult,
+)
 
 
 def same(a, b) -> bool:
@@ -27,6 +38,21 @@ DETECTION = Detection("fridge handle", np.array([0.6, 2.1, 1.05]), 0.87)
 MESSAGES = [
     POSE,
     DETECTION,
+    Detection("counter", np.array([3.0, 0.3, 0.92]), 1.0, near_point_world=np.array([3.0, 0.5, 0.92])),
+    MotionResult("success", POSE, "the fridge is now open (scripted)", {"scripted": True}),
+    EnvState(
+        POSE, np.zeros(3), False, 3.0, arm_q=np.linspace(-1, 1, 7), arm_qd=np.zeros(7),
+        gripper_width=0.045, gripper_closed_cmd=True, arm_in_contact=True, ee_wrench=np.arange(6.0),
+    ),  # fmt: skip
+    Grasp(np.eye(4), 0.1, 0.045, 0.9, retreat=np.array([-0.16, 0.0, 0.02])),
+    Grasp(np.eye(4), 0.1, 0.045),
+    Placement(np.eye(4), 0.1, 0.8),
+    HeldObject("egg", 0.045, np.array([4.5, -0.6, 1.39])),
+    ActuationResult(True, True, "open", "fridge_main_group", np.array([[4.9, -1.0], [4.9, -1.1]])),
+    ActuationResult(False, True, "egg is not an openable fixture"),
+    Request(7, "robot", "pick", [DETECTION]),
+    Request(8, "robot", "actuate_fixture", [DETECTION, True]),
+    Response(9, True, HeldObject("mug", 0.07, np.zeros(3))),
     MotionResult("success", POSE, "reached the goal"),
     MotionResult("idle", None, ""),
     EnvState(POSE, np.array([0.1, -0.2, 0.3]), True, 12.5),
@@ -60,7 +86,7 @@ def test_round_trip(message):
 
 
 def test_arrays_keep_dtype_and_shape():
-    rgbd = unpack(pack(MESSAGES[5]))
+    rgbd = unpack(pack(next(m for m in MESSAGES if isinstance(m, RGBD))))
     assert rgbd.rgb.dtype == np.uint8 and rgbd.rgb.shape == (2, 3, 3)
     assert rgbd.depth.dtype == np.float32
 

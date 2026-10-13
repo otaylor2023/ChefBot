@@ -2,6 +2,7 @@
 
     python -m chefbot.scripts.record_rollout --trace demo --layout 1 --style 1
     python -m chefbot.scripts.record_rollout --trace tour --layout 2 --style 2 --out rollouts
+    python -m chefbot.scripts.record_rollout --trace manip      # fridge -> egg -> counter
 
 Each frame shows a third-person view, the robot's shoulder camera (with the
 current detections marked), and the occupancy map with the path driven so far.
@@ -31,6 +32,7 @@ from chefbot.agent.world.map import WorldMap
 from chefbot.envs.robocasa.config import RoboCasaConfig
 from chefbot.envs.robocasa.serve import RoboCasaStack, build_stack
 from chefbot.interface.types import MotionStatus, Pose2D, ToolResult
+from chefbot.scripts.demo_manip import manip_trace
 from chefbot.scripts.demo_nav import TRACE as DEMO_TRACE
 
 VIEW_W, VIEW_H = 640, 480
@@ -279,7 +281,7 @@ def stop_trace(run: Callable[[str, dict], ToolResult], world_map: WorldMap) -> N
         run("align", {"id": found[0]["id"]})
 
 
-TRACES = {"demo": demo_trace, "tour": tour_trace, "stop": stop_trace}
+TRACES = {"demo": demo_trace, "tour": tour_trace, "stop": stop_trace, "manip": manip_trace}
 
 
 def record(trace: str, layout: int | None, style: int | None, out_dir: Path, speed: int = 1) -> tuple[Path, list[dict]]:
@@ -307,7 +309,7 @@ def record(trace: str, layout: int | None, style: int | None, out_dir: Path, spe
         )
         # The motion thread is capturing while a wait=False motion is under way.
         if result.data.get("status") != MotionStatus.MOVING:
-            recorder.hold(2.0 if name in ("detect", "nearby") else 1.0)
+            recorder.hold(1.5 if name in ("detect", "nearby") else 0.8)
         return result
 
     try:
@@ -315,7 +317,7 @@ def record(trace: str, layout: int | None, style: int | None, out_dir: Path, spe
         recorder.hold(1.0)
         TRACES[trace](run, world_map)
     finally:
-        stack.robot.stop_base()
+        stack.robot.stop()
         recorder.close()
         stack.env.close()
     (out_dir / f"{stem}.json").write_text(json.dumps(log, indent=2))

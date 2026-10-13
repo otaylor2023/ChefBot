@@ -64,7 +64,7 @@ def main() -> int:
         stack = build_stack(RoboCasaConfig.load(layout=args.layout, style=args.style))
         robot, detector = stack.robot, stack.detector
         map_path = args.map or stack.semantic_map_path
-        close = [stack.robot.stop_base, stack.env.close]
+        close = [stack.robot.stop, stack.env.close]
     else:
         from chefbot.envs.robocasa.config import RoboCasaConfig
         from chefbot.interface.transport.client import RemoteDetector, RemoteRobot

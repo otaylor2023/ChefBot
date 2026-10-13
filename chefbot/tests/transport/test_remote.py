@@ -9,13 +9,15 @@ from chefbot.agent.config import AgentConfig
 from chefbot.agent.tools.registry import ToolRegistry
 from chefbot.agent.world.map import WorldMap
 from chefbot.interface.detector import Detector
+from chefbot.interface.proposers import GraspProposer, PlacementProposer
 from chefbot.interface.transport.client import RemoteDetector, RemoteError, RemoteRobot, _Channel
 from chefbot.interface.transport.server import RobotServer
-from chefbot.interface.types import Detection, MotionStatus, Pose2D
+from chefbot.interface.types import Detection, Grasp, HeldObject, MotionStatus, Placement, Pose2D
 from chefbot.robot.config import RobotConfig
+from chefbot.robot.kinematics.reachability import ReachabilityChecker
 from chefbot.robot.nav.grid import OccupancyGrid
 from chefbot.robot.robot import Robot
-from chefbot.tests.robot.fake_env import FakeEnv
+from chefbot.tests.robot.fake_env import FakeEnv, FakeObject
 
 CFG = RobotConfig(footprint_radius=0.2, safety_margin=0.05)
 
@@ -47,7 +49,7 @@ def served():
     server.start()
     robot, remote_detector = RemoteRobot(server.url), RemoteDetector(server.url)
     yield robot, remote_detector, env, detector, server
-    robot.stop_base()
+    robot.stop()
     robot.close()
     remote_detector.close()
     server.shutdown()
@@ -85,7 +87,7 @@ def test_wait_timeout_returns_moving_over_the_wire(served):
     assert robot.wait().status == MotionStatus.SUCCESS
 
 
-def test_stop_base_while_remote_wait_is_in_progress(served):
+def test_stop_while_remote_wait_is_in_progress(served):
     robot, _, env, _, _ = served
     env.tick_sleep = 0.005
     robot.go_to_pose(Pose2D(5.0, 5.0, 0.0))
@@ -94,7 +96,7 @@ def test_stop_base_while_remote_wait_is_in_progress(served):
     waiter.start()
     time.sleep(0.15)
     assert waiter.is_alive(), "wait() should still be blocking on the server"
-    robot.stop_base()
+    robot.stop()
     waiter.join(timeout=5.0)
     assert not waiter.is_alive()
     assert waited["result"].status == MotionStatus.STOPPED
@@ -136,3 +138,86 @@ def test_agent_tools_run_over_the_remote_pair(served):
     assert robot.wait(timeout_s=0.05).status == MotionStatus.MOVING
     assert registry.dispatch("stop").success
     assert registry.dispatch("get_status").error == "stopped"
+
+
+# -- manipulation over the wire --------------------------------------------------
+
+
+class OneGrasp(GraspProposer):
+    def propose(self, target):
+        pose = np.eye(4)
+        pose[:3, :3] = [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]]
+        pose[:3, 3] = target.position_world
+        return [Grasp(pose, 0.10, 0.05, 1.0)]
+
+
+class OnePlacement(PlacementProposer):
+    def propose(self, surface, held):
+        pose = np.eye(4)
+        pose[:3, :3] = [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]]
+        pose[:3, 3] = surface.position_world
+        return [Placement(pose, 0.10, 1.0)]
+
+
+@pytest.fixture
+def served_arm():
+    config = RobotConfig(footprint_radius=0.2, safety_margin=0.05, arm_mount_xyz=(0.2, 0.0, 0.7))
+    frames = ReachabilityChecker(config)
+    start = Pose2D(3.0, 3.0, 0.0)
+    env = FakeEnv(
+        start,
+        arm_q=config.arm_ready,
+        tcp_world=lambda base, q: frames.pose_to_world(base, frames.ik.fk(q))[:3, 3],
+    )
+    occupied = np.zeros((120, 120), dtype=bool)
+    occupied[[0, -1], :] = occupied[:, [0, -1]] = True
+    local = Robot(
+        env, OccupancyGrid(occupied, 0.05, (0.0, 0.0)), config,
+        grasp_proposer=OneGrasp(), placement_proposer=OnePlacement(),
+    )  # fmt: skip
+    server = RobotServer(local, StaticDetector(), port=0)
+    server.start()
+    robot = RemoteRobot(server.url)
+    yield robot, env
+    robot.stop()
+    robot.close()
+    server.shutdown()
+
+
+def test_remote_pick_place_and_get_held(served_arm):
+    robot, env = served_arm
+    at = np.array([3.75, 3.0, 0.95])
+    egg = FakeObject(at.copy(), width=0.045)
+    env.objects.append(egg)
+    assert robot.get_held() is None
+    assert robot.pick(Detection("egg", at)) is None
+    assert robot.wait().status == MotionStatus.SUCCESS
+    held = robot.get_held()
+    assert isinstance(held, HeldObject) and held.label == "egg"
+    assert tuple(held.picked_from) == tuple(at)
+    robot.pick(Detection("mug", at))
+    assert robot.wait().status == MotionStatus.ALREADY_HOLDING
+    spot = at + [0.0, 0.15, 0.0]
+    robot.place(Detection("counter", spot))
+    assert robot.wait().status == MotionStatus.SUCCESS
+    assert robot.get_held() is None and egg.position == pytest.approx(spot, abs=0.005)
+
+
+def test_remote_stop_halts_the_arm_mid_pick(served_arm):
+    robot, env = served_arm
+    env.tick_sleep = 0.003
+    env.objects.append(FakeObject(np.array([3.75, 3.0, 0.95])))
+    robot.pick(Detection("egg", np.array([3.75, 3.0, 0.95])))
+    assert robot.wait(timeout_s=0.05).status == MotionStatus.MOVING
+    robot.stop()
+    assert robot.get_status().status == MotionStatus.STOPPED
+    halted = env.arm_q.copy()
+    time.sleep(0.05)
+    assert env.arm_q == pytest.approx(halted)
+
+
+def test_remote_actuate_without_an_actuator_is_unsupported(served_arm):
+    robot, _ = served_arm
+    robot.actuate_fixture(Detection("fridge", np.array([3.7, 3.0, 1.0])), True)
+    result = robot.wait()
+    assert result.status == MotionStatus.UNSUPPORTED and result.data == {}
