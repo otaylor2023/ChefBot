@@ -12,7 +12,7 @@ from chefbot.interface.types import RGBD, EnvState
 class Env(ABC):
     @abstractmethod
     def get_state(self) -> EnvState:
-        """Base pose, base velocity, base_in_contact, time."""
+        """Base pose and velocity, arm joints, gripper width, contacts, time."""
 
     @abstractmethod
     def set_base_velocity(self, vx: float, vy: float, vyaw: float, frame: str = "world") -> None:
@@ -21,7 +21,11 @@ class Env(ABC):
 
     @abstractmethod
     def set_arm_joint_targets(self, q: np.ndarray) -> None:
-        """Unused by nav v0.1; present for later."""
+        """7-DoF joint position targets (rad). They hold until the next call."""
+
+    @abstractmethod
+    def set_gripper(self, closed: bool) -> None:
+        """Command the gripper fully closed or fully open. Holds until the next call."""
 
     @abstractmethod
     def get_camera_rgbd(self, cam: str) -> RGBD: ...

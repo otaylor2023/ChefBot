@@ -1,7 +1,7 @@
 """RemoteRobot / RemoteDetector: the RobotAPI and Detector over a websocket.
 
 Each calling thread gets its own connection, so a blocking `wait()` on one
-thread never holds up `stop_base()` on another.
+thread never holds up `stop()` on another.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from websockets.sync.client import ClientConnection, connect
 from chefbot.interface.detector import Detector
 from chefbot.interface.robot_api import RobotAPI
 from chefbot.interface.transport.protocol import DETECTOR, ROBOT, Request, Response, pack, unpack
-from chefbot.interface.types import Detection, MotionResult, Pose2D
+from chefbot.interface.types import Detection, HeldObject, MotionResult, Pose2D
 
 
 class RemoteError(RuntimeError):
@@ -78,8 +78,20 @@ class RemoteRobot(RobotAPI):
     def get_status(self) -> MotionResult:
         return self._channel.call("get_status")
 
-    def stop_base(self) -> None:
-        self._channel.call("stop_base")
+    def stop(self) -> None:
+        self._channel.call("stop")
+
+    def pick(self, target: Detection) -> None:
+        self._channel.call("pick", target)
+
+    def place(self, surface: Detection) -> None:
+        self._channel.call("place", surface)
+
+    def actuate_fixture(self, fixture: Detection, open: bool) -> None:
+        self._channel.call("actuate_fixture", fixture, bool(open))
+
+    def get_held(self) -> HeldObject | None:
+        return self._channel.call("get_held")
 
     def get_base_pose(self) -> Pose2D:
         return self._channel.call("get_base_pose")

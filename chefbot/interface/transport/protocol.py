@@ -12,7 +12,18 @@ from typing import Any
 import msgpack
 import msgpack_numpy
 
-from chefbot.interface.types import RGBD, Detection, EnvState, MotionResult, Pose2D, ToolResult
+from chefbot.interface.types import (
+    RGBD,
+    ActuationResult,
+    Detection,
+    EnvState,
+    Grasp,
+    HeldObject,
+    MotionResult,
+    Placement,
+    Pose2D,
+    ToolResult,
+)
 
 ROBOT = "robot"
 DETECTOR = "detector"
@@ -20,7 +31,10 @@ DETECTOR = "detector"
 # Methods a client may invoke, per target. Anything else is rejected.
 ALLOWED_METHODS: dict[str, frozenset[str]] = {
     ROBOT: frozenset(
-        {"go_to_pose", "align_to_point", "wait", "get_status", "stop_base", "get_base_pose"}
+        {
+            "go_to_pose", "align_to_point", "wait", "get_status", "stop", "get_base_pose",
+            "pick", "place", "actuate_fixture", "get_held",
+        }  # fmt: skip
     ),
     DETECTOR: frozenset({"detect"}),
 }
@@ -45,7 +59,10 @@ class Response:
 _TYPE_KEY = "__chefbot__"
 _TYPES: dict[str, type] = {
     cls.__name__: cls
-    for cls in (Pose2D, Detection, MotionResult, EnvState, RGBD, ToolResult, Request, Response)
+    for cls in (
+        Pose2D, Detection, MotionResult, EnvState, RGBD, ToolResult, Request, Response,
+        Grasp, Placement, HeldObject, ActuationResult,
+    )  # fmt: skip
 }
 
 
