@@ -106,13 +106,13 @@ def test_timeout():
     assert_stopped(env)
 
 
-def test_stop_base_stops_within_one_control_tick():
+def test_stop_stops_within_one_control_tick():
     robot, env = make(tick_sleep=0.002)
     robot.go_to_pose(Pose2D(5.0, 5.0, 0.0))
     time.sleep(0.1)
     assert robot.get_status().status == MotionStatus.MOVING
     ticks_before = env.ticks
-    robot.stop_base()
+    robot.stop()
     # At most the tick already in flight, plus the settling tick after the stop.
     assert env.ticks - ticks_before <= 2
     result = robot.get_status()
@@ -123,9 +123,9 @@ def test_stop_base_stops_within_one_control_tick():
     assert env.pose == pose and env.ticks - ticks_before <= 2
 
 
-def test_stop_base_when_idle_is_harmless():
+def test_stop_when_idle_is_harmless():
     robot, env = make()
-    robot.stop_base()
+    robot.stop()
     assert robot.get_status().status == MotionStatus.IDLE
     assert robot.wait().status == MotionStatus.IDLE
     assert_stopped(env)

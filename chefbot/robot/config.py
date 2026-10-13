@@ -19,7 +19,10 @@ class RobotConfig:
     # Arm base in the base frame (base frame: origin on the floor under the base center)
     arm_mount_xyz: tuple[float, float, float] = (0.0, 0.0, 0.5)
     arm_mount_yaw: float = 0.0
-    tcp_offset: float = 0.16
+    # TCP relative to the flange
+    tcp_xyz: tuple[float, float, float] = (0.0, 0.0, 0.16)
+    tcp_yaw: float = 0.0
+    joint_limits: tuple | None = None  # 7 x (low, high); None: the FR3's own
     # Base controller
     control_rate: float = 20.0
     kp_pos: float = 2.0
@@ -35,11 +38,37 @@ class RobotConfig:
     motion_timeout_s: float = 60.0
     # Goal handling
     snap_radius: float = 0.5
+    reach_clearance: float = 0.20
+    top_down_max_height: float = 1.2
     standoff_min: float = 0.45
     standoff_max: float = 0.8
     standoff_rings: int = 4
     standoff_angles: int = 24
+    # Arm
+    arm_stow: tuple = (0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785)
+    arm_carry: tuple = (0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785)
+    arm_ready: tuple = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)
+    max_joint_vel: float = 1.2
+    max_joint_acc: float = 3.0
+    cart_speed: float = 0.12
+    cart_acc: float = 0.5
+    cart_step: float = 0.01
+    max_joint_jump: float = 0.25
+    joint_tolerance: float = 0.02
+    tracking_tolerance: float = 0.25
+    arm_settle_s: float = 1.5
+    # Gripper
+    gripper_open_width: float = 0.085
+    min_holding_width: float = 0.012
+    gripper_settle_s: float = 1.2
+    grasp_settle_s: float = 0.3
+    # Skills
+    lift_height: float = 0.12
+    retreat_height: float = 0.10
+    skill_timeout_s: float = 60.0
     # IK
+    ik_pose_pos_tolerance: float = 0.002
+    ik_pose_rot_tolerance: float = math.radians(1.0)
     ik_pos_tolerance: float = 0.01
     ik_max_iters: int = 150
     ik_dt: float = 0.1
@@ -58,12 +87,37 @@ class RobotConfig:
         raw = yaml.safe_load(Path(path or DEFAULT_PATH).read_text())
         mount, gains, limits = raw["arm_mount"], raw["gains"], raw["limits"]
         tol, standoff, ik = raw["tolerances"], raw["standoff"], raw["ik"]
+        tcp, arm, gripper, skills = raw["tcp"], raw["arm"], raw["gripper"], raw["skills"]
+        joint_limits = raw.get("joint_limits")
         return cls(
             footprint_radius=raw["footprint_radius"],
             safety_margin=raw["safety_margin"],
             arm_mount_xyz=tuple(mount["xyz"]),
             arm_mount_yaw=math.radians(mount["yaw_deg"]),
-            tcp_offset=raw["tcp_offset"],
+            tcp_xyz=tuple(tcp["xyz"]),
+            tcp_yaw=math.radians(tcp["yaw_deg"]),
+            joint_limits=tuple(tuple(pair) for pair in joint_limits) if joint_limits else None,
+            arm_stow=tuple(arm["stow"]),
+            arm_carry=tuple(arm["carry"]),
+            arm_ready=tuple(arm["ready"]),
+            max_joint_vel=arm["max_joint_vel"],
+            max_joint_acc=arm["max_joint_acc"],
+            cart_speed=arm["cart_speed"],
+            cart_acc=arm["cart_acc"],
+            cart_step=arm["cart_step"],
+            max_joint_jump=arm["max_joint_jump"],
+            joint_tolerance=arm["joint_tolerance"],
+            tracking_tolerance=arm["tracking_tolerance"],
+            arm_settle_s=arm["settle_s"],
+            gripper_open_width=gripper["open_width"],
+            min_holding_width=gripper["min_holding_width"],
+            gripper_settle_s=gripper["settle_s"],
+            grasp_settle_s=gripper["grasp_settle_s"],
+            lift_height=skills["lift_height"],
+            retreat_height=skills["retreat_height"],
+            skill_timeout_s=skills["motion_timeout_s"],
+            ik_pose_pos_tolerance=ik["pose_pos_tolerance"],
+            ik_pose_rot_tolerance=math.radians(ik["pose_rot_tolerance_deg"]),
             control_rate=raw["control_rate"],
             kp_pos=gains["kp_pos"],
             kp_yaw=gains["kp_yaw"],
@@ -77,6 +131,8 @@ class RobotConfig:
             deviation_threshold=raw["deviation_threshold"],
             motion_timeout_s=raw["motion_timeout_s"],
             snap_radius=raw["snap_radius"],
+            reach_clearance=raw["reach_clearance"],
+            top_down_max_height=raw["top_down_max_height"],
             standoff_min=standoff["min"],
             standoff_max=standoff["max"],
             standoff_rings=standoff["rings"],
