@@ -19,6 +19,12 @@ class DetectionEntry:
     seen_from: Pose2D
     timestamp: float
     map_name: str | None = None  # set when matched to a map entry
+    near_point_world: np.ndarray | None = None  # big things: the part nearest the robot when seen
+
+    @property
+    def target_world(self) -> np.ndarray:
+        """Where to align to and act on it."""
+        return self.position_world if self.near_point_world is None else self.near_point_world
 
     def distance_to(self, pose: Pose2D) -> float:
         return math.hypot(self.position_world[0] - pose.x, self.position_world[1] - pose.y)
@@ -36,6 +42,9 @@ class Detections:
     def get(self, id: str) -> DetectionEntry | None:
         return self._entries.get(id)
 
+    def remove(self, id: str) -> None:
+        self._entries.pop(id, None)
+
     def all(self) -> list[DetectionEntry]:
         return list(self._entries.values())
 
@@ -43,11 +52,18 @@ class Detections:
         return {e.map_name for e in self._entries.values() if e.map_name is not None}
 
     def refine(
-        self, id: str, position_world: np.ndarray, confidence: float, seen_from: Pose2D, timestamp: float
+        self,
+        id: str,
+        position_world: np.ndarray,
+        confidence: float,
+        seen_from: Pose2D,
+        timestamp: float,
+        near_point_world: np.ndarray | None = None,
     ) -> None:
         """Update one entry in place after a closer look; all others are untouched."""
         entry = self._entries[id]
         entry.position_world = np.asarray(position_world, dtype=float)
+        entry.near_point_world = None if near_point_world is None else np.asarray(near_point_world, dtype=float)
         entry.confidence = confidence
         entry.seen_from = seen_from
         entry.timestamp = timestamp

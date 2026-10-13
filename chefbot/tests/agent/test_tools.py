@@ -359,15 +359,22 @@ def test_get_pose_reports_degrees():
 
 def test_schemas_cover_every_tool_and_state_the_workflow():
     names = [s["function"]["name"] for s in TOOL_SCHEMAS]
-    assert names == ["go_to", "detect", "nearby", "align", "wait", "get_status", "stop", "get_pose"]
+    assert names == [
+        "go_to", "detect", "nearby", "align", "wait", "get_status", "stop", "get_pose",
+        "pick", "place", "open", "close", "holding",
+    ]  # fmt: skip
     for schema in TOOL_SCHEMAS:
         function = schema["function"]
         assert schema["type"] == "function" and function["description"]
         assert function["parameters"]["type"] == "object"
         assert set(function["parameters"]["required"]) <= set(function["parameters"]["properties"])
     described = {s["function"]["name"]: s["function"]["description"] for s in TOOL_SCHEMAS}
-    assert "go_to a fixture -> detect what you need -> nearby" in described["go_to"]
+    workflow = "go_to a fixture -> detect what you need -> align to it -> pick it -> go_to where it goes"
+    assert workflow in described["go_to"] and "-> detect -> align to the spot -> place" in described["go_to"]
     assert "visible" in described["align"] and "nearby()" in described["align"]
+    for tool in ("open", "close"):
+        assert "scripted" in described["open"] and "open" in described[tool]
+    assert "base and the arm" in described["stop"]
     assert "wait=false" in described["stop"]
 
 

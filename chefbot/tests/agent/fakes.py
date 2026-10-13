@@ -8,7 +8,7 @@ import numpy as np
 
 from chefbot.interface.detector import Detector
 from chefbot.interface.robot_api import RobotAPI
-from chefbot.interface.types import Detection, MotionResult, MotionStatus, Pose2D, wrap_angle
+from chefbot.interface.types import Detection, HeldObject, MotionResult, MotionStatus, Pose2D, wrap_angle
 
 
 class FakeRobot(RobotAPI):
@@ -22,6 +22,11 @@ class FakeRobot(RobotAPI):
         self.goals: list[Pose2D] = []
         self.align_targets: list[np.ndarray] = []
         self.stops = 0
+        self.held: HeldObject | None = None
+        self.picks: list[Detection] = []
+        self.places: list[Detection] = []
+        self.actuations: list[tuple[Detection, bool]] = []
+        self.openable = {"fridge", "fridge handle"}  # labels actuate_fixture works on
         self._result: MotionResult | None = None
         self._pending: Pose2D | None = None
 
@@ -39,8 +44,30 @@ class FakeRobot(RobotAPI):
         xy = target[:2] + 0.6 * away
         self._start(Pose2D(float(xy[0]), float(xy[1]), math.atan2(-away[1], -away[0])))
 
-    def _start(self, goal: Pose2D) -> None:
+    def pick(self, target: Detection) -> None:
+        self.picks.append(target)
+        self._start(self.pose, lambda: setattr(self, "held", HeldObject(target.label, 0.05, target.position_world)))
+
+    def place(self, surface: Detection) -> None:
+        self.places.append(surface)
+        self._start(self.pose, lambda: setattr(self, "held", None))
+
+    def actuate_fixture(self, fixture: Detection, open: bool) -> None:
+        self.actuations.append((fixture, open))
+        if fixture.label not in self.openable:
+            self._pending = None
+            self._result = MotionResult(
+                MotionStatus.UNSUPPORTED, self.pose, f"{fixture.label} is not an openable fixture"
+            )
+            return
+        self._start(self.pose, data={"scripted": True})
+
+    def get_held(self) -> HeldObject | None:
+        return self.held
+
+    def _start(self, goal: Pose2D, effect=None, data: dict | None = None) -> None:
         self._pending, self._result = goal, None
+        self._effect, self._data = effect, data or {}
         if not self.hold:
             self.finish()
 
@@ -49,7 +76,9 @@ class FakeRobot(RobotAPI):
             return
         if self.outcome == MotionStatus.SUCCESS:
             self.pose = self._pending
-        self._result = MotionResult(self.outcome, self.pose, "")
+            if self._effect is not None:
+                self._effect()
+        self._result = MotionResult(self.outcome, self.pose, "", dict(self._data))
         self._pending = None
 
     def wait(self, timeout_s: float | None = None) -> MotionResult:
@@ -60,7 +89,7 @@ class FakeRobot(RobotAPI):
             return MotionResult(MotionStatus.MOVING, self.pose, "")
         return self._result or MotionResult(MotionStatus.IDLE, self.pose, "")
 
-    def stop_base(self) -> None:
+    def stop(self) -> None:
         self.stops += 1
         if self._pending is not None:
             self._pending = None

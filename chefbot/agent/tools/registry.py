@@ -1,5 +1,8 @@
 """Tool registry: function-calling schemas for the LLM, and dispatch.
 
+The workflow the descriptions teach:
+    go_to -> detect -> align -> pick -> go_to -> detect -> align -> place
+
 Constructed with a RobotAPI and a Detector; it never knows which env is behind them.
 """
 
@@ -9,6 +12,7 @@ import inspect
 from typing import Any
 
 from chefbot.agent.config import AgentConfig
+from chefbot.agent.tools.manip import ManipTools
 from chefbot.agent.tools.nav import NavTools
 from chefbot.agent.world.map import WorldMap
 from chefbot.interface.detector import Detector
@@ -47,9 +51,12 @@ TOOL_SCHEMAS: list[dict] = [
         "Drive across the kitchen to a place on the map (a fixture such as the stove or fridge, "
         "or a mapped object). This is coarse navigation: it leaves the robot standing near the "
         "place and facing it, not within arm's reach of anything in particular. It is step 1 of "
-        "the navigation workflow: go_to a fixture -> detect what you need -> nearby to see "
-        "everything around you -> align to a visible id. Fails with unknown_place (the message "
-        "lists the known places), no_path, blocked, timeout or stopped.",
+        "the workflow for moving something: go_to a fixture -> detect what you need -> align to "
+        "it -> pick it -> go_to where it goes -> detect -> align to the spot -> place. (nearby "
+        "lists everything around you at any point.) The arm tucks itself in before the base "
+        "moves, and keeps hold of whatever it is carrying. Fails with unknown_place (the message "
+        "lists the known places), no_path, blocked, timeout or stopped; grasp_failed means the "
+        "carried object was dropped on the way.",
         {
             "place": {"type": "string", "description": 'Map name, e.g. "stove", "fridge", "counter_2".'},
             "wait": _WAIT_PARAM,
@@ -76,12 +83,14 @@ TOOL_SCHEMAS: list[dict] = [
         "nearby",
         "List what is around the robot right now, nearest first, without looking again. "
         '"visible" items were seen by the last detect and can be passed to align. "not_visible" '
-        "items are on the map and close by but were not seen (behind the robot, hidden, or "
-        "missed): go_to them first, then detect again.",
+        "items are on the map and close by but were not seen (behind the robot, hidden, for "
+        "example inside a closed fridge, or missed): go_to them first, then detect again. Also "
+        "says what the gripper is holding.",
     ),
     _tool(
         "align",
-        "Fine positioning: move the base so the arm can reach one specific item. The id must be "
+        "Fine positioning: move the base so the arm can reach one specific item. Do this before "
+        "pick, place, open or close. The id must be "
         "a visible item from nearby() (which includes everything the last detect returned). "
         "Fails with unknown_id (the message lists what is nearby), not_visible (go_to it first), "
         "too_far (go_to first), unreachable (no place to stand from which the arm reaches it), "
@@ -107,20 +116,76 @@ TOOL_SCHEMAS: list[dict] = [
     _tool("get_status", "Report the status of the current or last motion without waiting."),
     _tool(
         "stop",
-        "Stop the base immediately. Works at any time, including in the middle of a go_to or "
-        "align that was started with wait=false.",
+        "Stop the base and the arm immediately. Works at any time, including in the middle of a "
+        "motion that was started with wait=false. An object in the gripper stays in the gripper.",
     ),
     _tool("get_pose", "Return the robot base's current position (meters) and heading (degrees)."),
+    _tool(
+        "pick",
+        "Pick up one visible object with the gripper and lift it. Align to the object first: pick "
+        "does not move the base. Only one object can be held at a time. Fails with unknown_id, "
+        "not_visible, already_holding (place what you hold first), no_grasp (the id is not "
+        "something the gripper can pick up, such as a counter), unreachable (align to it first), "
+        "grasp_failed (the gripper closed on nothing or the object slipped; detect and try "
+        "again), collision (the arm touched something and stopped where it was), stopped or "
+        "timeout.",
+        {
+            "id": {"type": "string", "description": 'A visible id from nearby(), e.g. "egg_1" or "mug".'},
+            "wait": _WAIT_PARAM,
+        },
+        ["id"],
+    ),
+    _tool(
+        "place",
+        "Set the held object down on a visible surface or into a visible container: a counter, a "
+        "burner, a pan, a plate, a cutting board. The id names where it goes, not the object. "
+        "Align to that id first: place does not move the base. Fails with unknown_id, "
+        "not_visible, not_holding, no_placement (no free spot there), unreachable (align to it "
+        "first), collision (the arm touched something and stopped; the object is still held), "
+        "stopped or timeout.",
+        {
+            "id": {"type": "string", "description": 'Where to put it: a visible id, e.g. "counter_1", "burner_2", "pan".'},
+            "wait": _WAIT_PARAM,
+        },
+        ["id"],
+    ),
+    _tool(
+        "open",
+        "Open a fixture: a fridge, microwave, dishwasher, oven, cabinet or drawer, named by its "
+        "own id or the id of its handle. Align to the fixture or its handle first. Opening is "
+        'scripted for now (the result says "scripted": true): the door moves by itself, and the '
+        "robot steps back out of its way if it has to, so detect again afterwards. An open door "
+        "blocks the floor in front of it until it is closed. Fails with unknown_id, not_visible, "
+        "unreachable (align to it first), unsupported (the id is not something that opens), "
+        "blocked or stopped.",
+        {
+            "id": {"type": "string", "description": 'A visible id, e.g. "fridge" or "fridge handle_1".'},
+            "wait": _WAIT_PARAM,
+        },
+        ["id"],
+    ),
+    _tool(
+        "close",
+        "Close a fixture that open works on. Same rules and errors as open.",
+        {
+            "id": {"type": "string", "description": 'A visible id, e.g. "fridge" or "fridge handle_1".'},
+            "wait": _WAIT_PARAM,
+        },
+        ["id"],
+    ),
+    _tool("holding", "Say what the gripper is holding, if anything."),
 ]
 
 
 class ToolRegistry:
     def __init__(self, robot: RobotAPI, detector: Detector, world_map: WorldMap, config: AgentConfig):
         self.tools = NavTools(robot, detector, world_map, config)
-        self._handlers = {
-            schema["function"]["name"]: getattr(self.tools, schema["function"]["name"])
-            for schema in TOOL_SCHEMAS
-        }
+        self.manip = ManipTools(robot, self.tools)
+        self._handlers = {}
+        for schema in TOOL_SCHEMAS:
+            name = schema["function"]["name"]
+            owner = self.manip if hasattr(self.manip, name) else self.tools
+            self._handlers[name] = getattr(owner, name)
 
     @property
     def schemas(self) -> list[dict]:

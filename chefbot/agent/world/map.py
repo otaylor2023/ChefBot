@@ -84,6 +84,10 @@ class WorldMap:
     def get(self, name: str) -> MapEntry | None:
         return self._entries.get(name)
 
+    def remove(self, name: str) -> None:
+        """Forget an entry (an object that has been picked up is no longer where the map says)."""
+        self._entries.pop(name, None)
+
     def list(self) -> list[MapEntry]:
         return list(self._entries.values())
 

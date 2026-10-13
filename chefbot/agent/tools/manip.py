@@ -1,0 +1,86 @@
+"""Manipulation tools: pick, place, open, close, holding.
+
+Like the nav tools, these only choose what to act on (a visible id); the
+robot layer decides how. Nothing here knows a grasp pose or a joint angle.
+"""
+
+from __future__ import annotations
+
+from chefbot.agent.tools.nav import NavTools
+from chefbot.agent.world.detections import DetectionEntry
+from chefbot.interface.robot_api import RobotAPI
+from chefbot.interface.types import Detection, MotionResult, MotionStatus, ToolResult
+
+
+class ManipTools:
+    def __init__(self, robot: RobotAPI, nav: NavTools):
+        self._robot = robot
+        self._nav = nav  # shares the detections, the map and the held object
+
+    # -- pick / place ---------------------------------------------------------
+
+    def pick(self, id: str, wait: bool = True) -> ToolResult:
+        nav = self._nav
+        entry = nav.visible_entry(id)
+        if isinstance(entry, ToolResult):
+            return entry
+        if nav.held is not None:
+            return ToolResult(
+                False,
+                MotionStatus.ALREADY_HOLDING,
+                f'Already holding {nav.held["id"]}; place it somewhere before picking up something else.',
+            )
+
+        def on_done(result: MotionResult) -> None:
+            if self._robot.get_held() is None:
+                return
+            # In the gripper now: it is no longer a thing in the scene to align to or pick.
+            nav.held = {"id": entry.id, "label": entry.label}
+            nav.detections.remove(entry.id)
+            if entry.map_name is not None:
+                nav._map.remove(entry.map_name)
+
+        self._robot.pick(_detection(entry))
+        return nav.motion_tool_result(wait, f'pick("{id}")', {"id": id}, on_done)
+
+    def place(self, id: str, wait: bool = True) -> ToolResult:
+        nav = self._nav
+        entry = nav.visible_entry(id)
+        if isinstance(entry, ToolResult):
+            return entry
+        if nav.held is None:
+            return ToolResult(False, MotionStatus.NOT_HOLDING, "The gripper is not holding anything.")
+        held = nav.held
+
+        def on_done(result: MotionResult) -> None:
+            if self._robot.get_held() is None:
+                nav.held = None  # set down (or dropped): it shows up again in the next detect
+
+        self._robot.place(_detection(entry))
+        return nav.motion_tool_result(wait, f'place("{id}")', {"id": id, "object": held["id"]}, on_done)
+
+    def holding(self) -> ToolResult:
+        held = self._nav.held
+        if held is None:
+            return ToolResult(True, None, "Holding nothing.", {"holding": None})
+        return ToolResult(True, None, f'Holding {held["id"]}.', {"holding": dict(held)})
+
+    # -- open / close -----------------------------------------------------------
+
+    def open(self, id: str, wait: bool = True) -> ToolResult:
+        return self._actuate(id, True, wait)
+
+    def close(self, id: str, wait: bool = True) -> ToolResult:
+        return self._actuate(id, False, wait)
+
+    def _actuate(self, id: str, open: bool, wait: bool) -> ToolResult:
+        verb = "open" if open else "close"
+        entry = self._nav.visible_entry(id)
+        if isinstance(entry, ToolResult):
+            return entry
+        self._robot.actuate_fixture(_detection(entry), open)
+        return self._nav.motion_tool_result(wait, f'{verb}("{id}")', {"id": id})
+
+
+def _detection(entry: DetectionEntry) -> Detection:
+    return Detection(entry.label, entry.target_world, entry.confidence)
