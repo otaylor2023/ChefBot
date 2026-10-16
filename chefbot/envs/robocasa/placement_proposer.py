@@ -9,7 +9,7 @@ import numpy as np
 
 from chefbot.envs.robocasa.detector import GroundTruthDetector, named_fixtures
 from chefbot.envs.robocasa.env import RoboCasaEnv
-from chefbot.envs.robocasa.objects import ARM_ABOVE_TCP, ceiling_above, find_object, object_points
+from chefbot.envs.robocasa.objects import find_object, object_points
 from chefbot.envs.robocasa.spawn import _footprint, _ray_down
 from chefbot.interface.proposers import PlacementProposer
 from chefbot.interface.types import Detection, HeldObject, Placement
@@ -17,7 +17,6 @@ from chefbot.interface.types import Detection, HeldObject, Placement
 _PAD = 0.02  # free border kept around the object's footprint
 _LATTICE = 0.05  # spacing of candidate spots on a fixture's top
 _MAX_SPOTS = 10
-_MIN_PREPLACE = 0.04  # the least room over a spot to bring an object down onto it
 _REACH = (0.45, 0.95)  # candidate spots lie this far from the base center
 _FLATNESS = 0.008
 # Other gripper headings to offer if the current one cannot reach, nearest first.
@@ -48,28 +47,17 @@ class GroundTruthPlacementProposer(PlacementProposer):
         # Where the object sits relative to the grip point, and how high the grip point is above its bottom.
         offset = np.append(middle - tcp[:3, 3][:2], 0.0)
         grip_height = tcp[2, 3] - bottom
-        coming_down = tcp[2, 2] < -0.5
-        rank = 0
-        for x, y, z in spots:
+        # Whether the arm can get the object down onto a spot around what is near
+        # it (a wall cabinet) is the robot layer's call, from its depth camera.
+        for rank, (x, y, z) in enumerate(spots[:_MAX_SPOTS], start=1):
             release_height = z + cfg.place_clearance + grip_height
-            with env.lock:
-                ceiling = ceiling_above(env, np.array([x, y]), release_height, {int(env.model.body_rootid[body])})
-            # With the gripper pointing down the wrist is well above the grip point:
-            # under a wall cabinet, approach from less far up, or skip the spot.
-            room = ceiling - ARM_ABOVE_TCP - release_height if coming_down else math.inf
-            if room < _MIN_PREPLACE:
-                continue
-            rank += 1
-            if rank > _MAX_SPOTS:
-                break
             for turn, yaw in enumerate(_YAWS_DEG):
                 c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
                 rotate = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
                 pose = np.eye(4)
                 pose[:3, :3] = rotate @ tcp[:3, :3]
                 pose[:3, 3] = np.array([x, y, release_height]) - rotate @ offset
-                preplace = min(cfg.preplace_offset, room)
-                placements.append(Placement(pose, preplace, 1.0 - 0.05 * rank - 0.005 * turn))
+                placements.append(Placement(pose, cfg.preplace_offset, 1.0 - 0.05 * rank - 0.005 * turn))
         return sorted(placements, key=lambda p: -p.score)
 
     def _spots(self, surface: Detection, robot_xy: np.ndarray, radius: float, held_body: int) -> list[tuple]:

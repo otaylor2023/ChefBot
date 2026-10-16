@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import mujoco
 import numpy as np
@@ -62,6 +63,10 @@ class RoboCasaEnv(Env):
         cfg = self.config
         robosuite_macros.SIMULATION_TIMESTEP = cfg.physics_timestep
         self._render = render
+        # All camera rendering happens on this one thread: on macOS, MuJoCo's GL
+        # context stays bound to the thread that last used it, and the robot
+        # layer (motion thread), the detector and recorders all ask for images.
+        self._render_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="render") if render else None
         controller_config = load_composite_controller_config(robot=cfg.robot)
         # The arm takes absolute joint position targets; robosuite turns them
         # into torques (PD plus gravity compensation) at the physics rate.
@@ -218,8 +223,12 @@ class RoboCasaEnv(Env):
             self._gripper_closed = bool(closed)
 
     def get_camera_rgbd(self, cam: str) -> RGBD:
+        """Do not call with `lock` held: the render thread takes it."""
         if not self._render:
             raise RuntimeError("RoboCasaEnv was created with render=False; pass render=True for cameras")
+        return self._render_thread.submit(self._render_rgbd, cam).result()
+
+    def _render_rgbd(self, cam: str) -> RGBD:
         cfg = self.config
         with self.lock:
             sim = self.suite.sim
@@ -288,6 +297,8 @@ class RoboCasaEnv(Env):
             return self._grasped_roots()
 
     def close(self) -> None:
+        if self._render_thread is not None:
+            self._render_thread.shutdown()
         with self.lock:
             self.suite.close()
 

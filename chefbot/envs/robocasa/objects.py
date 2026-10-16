@@ -11,10 +11,6 @@ from chefbot.interface.types import Detection
 
 # A detection is matched to the sim object of the same label within this distance.
 MATCH_RADIUS = 0.15
-# With the gripper pointing down, the wrist reaches this far above the grip
-# point and this far to the side of it (the last arm links, not the elbow).
-ARM_ABOVE_TCP = 0.37
-ARM_RADIUS = 0.065
 
 
 def find_object(env: RoboCasaEnv, detection: Detection) -> int | None:
@@ -57,22 +53,3 @@ def object_points(env: RoboCasaEnv, body: int) -> np.ndarray:
             local = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
         clouds.append(local @ data.geom_xmat[geom].reshape(3, 3).T + data.geom_xpos[geom])
     return np.concatenate(clouds) if clouds else np.zeros((0, 3))
-
-
-def ceiling_above(env: RoboCasaEnv, xy: np.ndarray, z: float, ignore_roots: set[int] = frozenset()) -> float:
-    """Height of the lowest thing above `z` over the point `xy` or within an
-    arm's width of it (inf if open). Uses bounding boxes, so thin things like
-    cabinet handles count. The robot and `ignore_roots` (root body ids) do not."""
-    import math
-
-    model, data = env.model, env.data
-    other = (model.geom_contype != 0) | (model.geom_conaffinity != 0)
-    other &= ~np.isin(model.body_rootid[model.geom_bodyid], list(ignore_roots))
-    other[list(env.robot_geoms)] = False
-    frames = data.geom_xmat.reshape(-1, 3, 3)
-    center = data.geom_xpos + np.einsum("gij,gj->gi", frames, model.geom_aabb[:, :3])
-    half = np.einsum("gij,gj->gi", np.abs(frames), model.geom_aabb[:, 3:])
-    near = np.all(np.abs(center[:, :2] - np.asarray(xy, dtype=float)) <= half[:, :2] + ARM_RADIUS, axis=1)
-    bottoms = center[:, 2] - half[:, 2]
-    over = bottoms[other & near & (bottoms >= z)]
-    return float(over.min()) if len(over) else math.inf

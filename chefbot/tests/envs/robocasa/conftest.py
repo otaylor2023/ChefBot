@@ -80,7 +80,7 @@ def stacks(tmp_path_factory):
 
     def get(layout: int) -> Stack:
         if layout not in built:
-            env = RoboCasaEnv(RoboCasaConfig.load(layout=layout, style=layout))
+            env = RoboCasaEnv(RoboCasaConfig.load(layout=layout, style=layout), render=True)
             map_dir = build_map(env, tmp_path_factory.mktemp(f"map_layout{layout}"))
             grid = OccupancyGrid.load(map_dir / "grid.npy")
             robot_config = RobotConfig.load()

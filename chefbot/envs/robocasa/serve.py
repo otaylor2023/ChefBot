@@ -19,6 +19,7 @@ from chefbot.envs.robocasa.env import RoboCasaEnv
 from chefbot.envs.robocasa.fixture_actuator import ScriptedFixtureActuator
 from chefbot.envs.robocasa.grasp_proposer import GroundTruthGraspProposer
 from chefbot.envs.robocasa.placement_proposer import GroundTruthPlacementProposer
+from chefbot.interface.fixtures import CLOSED, OPEN
 from chefbot.interface.transport.server import RobotServer
 from chefbot.robot.config import RobotConfig
 from chefbot.robot.nav.grid import OccupancyGrid
@@ -38,20 +39,24 @@ class RoboCasaStack:
 
 
 def build_stack(
-    config: RoboCasaConfig | None = None, robot_config: RobotConfig | None = None, render: bool = False
+    config: RoboCasaConfig | None = None, robot_config: RobotConfig | None = None, render: bool = True
 ) -> RoboCasaStack:
     """Simulator, robot layer and detector for one kitchen. Builds the map files if missing.
-    `render=True` enables the cameras (get_camera_rgbd)."""
+    `render=False` disables the cameras (get_camera_rgbd), and with them the
+    robot layer's collision checks of arm motion."""
     env = RoboCasaEnv(config, render=render)
     map_dir = ensure_map(env)
     detector = GroundTruthDetector(env)
+    actuator = ScriptedFixtureActuator(env, detector)
+    # Doors report open / closed when detected (burner knobs: AGENT_SPEC stage 2).
+    detector.state_of = lambda det: {OPEN: "open", CLOSED: "closed"}.get(actuator.get_state(det))
     robot = Robot(
         env,
         OccupancyGrid.load(map_dir / GRID_FILE),
         robot_config,
         grasp_proposer=GroundTruthGraspProposer(env),
         placement_proposer=GroundTruthPlacementProposer(env, detector),
-        fixture_actuator=ScriptedFixtureActuator(env, detector),
+        fixture_actuator=actuator,
     )
     return RoboCasaStack(env, robot, detector, map_dir)
 

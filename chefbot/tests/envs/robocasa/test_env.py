@@ -177,7 +177,8 @@ def test_detector_respects_occlusion(stack, env):
     assert stack.detector.detect(["dishwasher handle"]) == []
 
 
-def test_get_camera_rgbd_requires_rendering(env):
+def test_get_camera_rgbd_requires_rendering(env, monkeypatch):
+    monkeypatch.setattr(env, "_render", False)  # as if built with render=False
     with pytest.raises(RuntimeError, match="render=True"):
         env.get_camera_rgbd(env.config.shoulder_camera)
 

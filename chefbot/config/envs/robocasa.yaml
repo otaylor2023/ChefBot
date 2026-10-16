@@ -34,7 +34,7 @@ objects:
   - {category: mug, model: mug/mug_8, surface: counter}
   - {category: bowl, model: bowl/bowl_10, surface: counter}
   - {category: bottled_water, model: bottled_water/bottled_water_1, surface: counter}
-  - {category: pan, model: pan/pan_24, surface: counter}   # a light pan: heavier ones pivot in the fingers
+  - {category: pan, model: pan/pan_24, surface: counter}
   - {category: cutting_board, model: cutting_board/cutting_board_9, surface: counter}
 spawn:
   spacing: 0.12             # free gap kept between spawned objects

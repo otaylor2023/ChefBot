@@ -199,6 +199,9 @@ _SURFACE_CLEAR = 0.15  # radius that must be flat and empty around a work spot: 
 class GroundTruthDetector(Detector):
     def __init__(self, env: RoboCasaEnv, camera: str | None = None, max_range: float = 8.0):
         self._env = env
+        # Set by serve.build_stack: open / closed of a door (or its handle) from its
+        # joint, the way a door-state classifier would report it. None: no state.
+        self.state_of = None
         self._camera = env.model.camera(camera or env.config.shoulder_camera).id
         self._aspect = env.config.camera_width / env.config.camera_height
         self._max_range = max_range
@@ -214,13 +217,17 @@ class GroundTruthDetector(Detector):
             # An object in the gripper is not reported: it is the robot's, not the scene's.
             held = self._env.grasped_bodies()
             base = self._env.get_state().base_pose
-            return [
+            found = [
                 Detection(item.label, self._position(item), 1.0, self._near_point(item, base.xy))
                 for item in self._items
                 if item.label in wanted
                 and not (item.kind == "body" and int(self._env.model.body_rootid[item.id]) in held)
                 and self._visible(item)
             ]
+            if self.state_of is not None:
+                for det in found:
+                    det.state = self.state_of(det)
+            return found
 
     def fixture_label(self, sim_name: str) -> str:
         """Label of the fixture with this sim name ("" if it has no detectable item)."""
