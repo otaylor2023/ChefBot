@@ -42,6 +42,11 @@ class Detection:
     # For something too big to work on at its middle (a long counter): the part
     # of it nearest the robot, (3,). None: work at `position_world`.
     near_point_world: np.ndarray | None = None
+    # What the detector can tell about its state: "open" / "closed" (doors, and
+    # their handles), "on" / "off" (burners, appliances). None: unknown or n/a.
+    state: str | None = None
+    # Seen in the gripper, inside what it holds (the egg in a held egg cracker).
+    in_gripper: bool = False
 
 
 class MotionStatus:
@@ -62,10 +67,11 @@ class MotionStatus:
     ALREADY_HOLDING = "already_holding"
     COLLISION = "collision"
     UNSUPPORTED = "unsupported"
+    FAILED = "failed"  # it did not work this time (a slip, a jam): trying again may
 
     ALL = (
         IDLE, MOVING, SUCCESS, STOPPED, BLOCKED, NO_PATH, UNREACHABLE, TIMEOUT, ERROR,
-        GRASP_FAILED, NO_GRASP, NO_PLACEMENT, NOT_HOLDING, ALREADY_HOLDING, COLLISION, UNSUPPORTED,
+        GRASP_FAILED, NO_GRASP, NO_PLACEMENT, NOT_HOLDING, ALREADY_HOLDING, COLLISION, UNSUPPORTED, FAILED,
     )  # fmt: skip
 
 
@@ -113,6 +119,10 @@ class Grasp:
     # World-frame displacement (3,) to carry the object clear after closing.
     # None: straight up by the robot's `lift_height`.
     retreat: np.ndarray | None = None
+    # World-frame box (2, 3: min and max corners) around the object being
+    # grasped. The arm's collision checks treat it as the target, not an
+    # obstacle. None: nothing is excluded.
+    object_box: np.ndarray | None = None
 
 
 @dataclass
@@ -127,6 +137,9 @@ class HeldObject:
     label: str
     grasp_width: float  # m between the pads when the grasp was verified
     picked_from: np.ndarray  # (3,) world position the object was detected at
+    # Corners (8, 3) of the object's box in the TCP frame, from the grasp's
+    # `object_box`: where it hangs from the gripper. None if not known.
+    box_in_tcp: np.ndarray | None = None
 
 
 @dataclass

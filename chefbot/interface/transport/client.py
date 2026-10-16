@@ -90,6 +90,15 @@ class RemoteRobot(RobotAPI):
     def actuate_fixture(self, fixture: Detection, open: bool) -> None:
         self._channel.call("actuate_fixture", fixture, bool(open))
 
+    def capabilities(self) -> frozenset[str]:
+        return frozenset(self._channel.call("capabilities"))
+
+    def use_tool(self, action: str, target: Detection | None = None, seconds: float | None = None) -> None:
+        self._channel.call("use_tool", action, target, seconds)
+
+    def set_power(self, appliance: Detection, on: bool) -> None:
+        self._channel.call("set_power", appliance, bool(on))
+
     def get_held(self) -> HeldObject | None:
         return self._channel.call("get_held")
 

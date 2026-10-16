@@ -33,7 +33,7 @@ ALLOWED_METHODS: dict[str, frozenset[str]] = {
     ROBOT: frozenset(
         {
             "go_to_pose", "align_to_point", "wait", "get_status", "stop", "get_base_pose",
-            "pick", "place", "actuate_fixture", "get_held",
+            "pick", "place", "actuate_fixture", "set_power", "use_tool", "capabilities", "get_held",
         }  # fmt: skip
     ),
     DETECTOR: frozenset({"detect"}),
@@ -67,6 +67,8 @@ _TYPES: dict[str, type] = {
 
 
 def _encode(obj: Any) -> Any:
+    if isinstance(obj, (set, frozenset)):
+        return sorted(obj)
     if dataclasses.is_dataclass(obj) and type(obj).__name__ in _TYPES:
         out = {f.name: getattr(obj, f.name) for f in dataclasses.fields(obj)}
         out[_TYPE_KEY] = type(obj).__name__
