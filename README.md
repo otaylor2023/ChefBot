@@ -117,11 +117,17 @@ scored by.
 | `breakfast` | long horizon: egg and toast, plate and mug from cabinets, all off and closed |
 | `scrambled_eggs` | handheld tools: egg cracker, electric whisk, spoon (scramble), pouring |
 | `scrambled_eggs_spoon_only` | the same with no whisk: mix with the spoon |
+| `fried_sausage`, `mixed_grill` | frying on burners in RoboCasa too (`--env robocasa`) |
+| `stir_fry` | stir-frying with a wooden spoon (lower_into, stir, lift_out), served in the pan |
+| `stir_fry_served` | the same, then the pan is carried by its handle and poured into a bowl |
 
 **Which tools the agent gets** follows the robot: `RobotAPI.capabilities()`
 (`base`, `grasp`, `articulate`, `appliances`, `handheld_tools`, `pour`) and
 each tool's needs (`TOOL_NEEDS` in `agent/tools/registry.py`). RoboCasa offers
-no burner or handheld tools yet; the symbolic robot offers all of them. A run
+burners, spoons (lower_into, stir, lift_out) and pouring, not trigger tools
+(egg cracker, whisk); the symbolic robot offers all of them. In RoboCasa,
+utensils and pans have an adaptive handle: they lock in the closed gripper (as
+a form-fit or magnetic handle would) instead of pivoting in a two-finger pinch. A run
 can withhold more: `tools: {exclude: [...], only: [...]}` in a task file, or
 `tools_exclude` / `tools_only` in `agent.yaml`. The system prompt gets a
 section for each kind of tool offered (`agent/loop/prompts/`).

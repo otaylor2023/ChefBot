@@ -1,0 +1,50 @@
+name: stir_fry_served
+goal: "Stir-fried tomato and mushroom, poured from the pan into a serving bowl"
+limits: {max_turns: 260, max_llm_cost_usd: 5.0}
+steps:
+  - id: s1
+    goal: "Put the pan on a burner"
+    done_when: "the pan is on a burner"
+  - id: s2
+    goal: "Put the tomato and the mushroom in the pan"
+    done_when: "the tomato and the mushroom are both inside the pan"
+    depends_on: [s1]
+  - id: s3
+    goal: "Stir-fry them: cook them on the burner while stirring with the wooden spoon"
+    done_when: "the tomato and the mushroom are inside the pan on a lit burner, both cooked (cook state 'cooked', not 'raw', 'warm' or 'burnt') and both stir-fried"
+    depends_on: [s2]
+    hint: "pick up the wooden spoon before turning the burner on (food left on a lit burner burns), then lower it into the pan and stir in turns of about 30 s; it needs about a minute of stirring in all and about 2-4 minutes of heat"
+  - id: s4
+    goal: "Turn off the burner and put the spoon down"
+    done_when: "every burner is off and the wooden spoon is not held"
+    depends_on: [s3]
+    hint: "put the spoon down on a counter, not on the stove (next to the pan it blocks the pan's handle)"
+  - id: s5
+    goal: "Serve: pour the stir-fry from the pan into the bowl"
+    done_when: "the tomato and the mushroom are both inside the bowl"
+    depends_on: [s4]
+    hint: "pick up the pan (by its handle) with the food still in it, take it to the bowl and pour"
+symbolic:
+  objects:
+    - {name: tomato, on: counter_2}
+    - {name: mushroom, on: counter_2}
+    - {name: pan, on: counter_1}
+    - {name: wooden_spoon, on: counter_1}
+    - {name: bowl, on: counter_2}
+  success:
+    require: ["tomato: inside bowl", "mushroom: inside bowl", "tomato: cook state = cooked", "mushroom: cook state = cooked",
+              "tomato: stir-fried", "mushroom: stir-fried"]
+    forbid: ["burner_\\w+: on", "burnt"]
+robocasa:
+  layout: 2
+  style: 2
+  objects:
+    - {category: tomato, model: tomato/tomato_0, surface: counter}
+    - {category: mushroom, model: mushroom/mushroom_0, surface: counter}
+    - {category: pan, model: pan/pan_24, surface: counter}
+    - {category: wooden_spoon, model: lightwheel/wooden_spoon/WoodenSpoon001, surface: counter}
+    - {category: bowl, model: bowl/bowl_2, surface: counter}
+  success:
+    require: ["tomato: inside bowl", "mushroom: inside bowl", "tomato: cook state = cooked", "mushroom: cook state = cooked",
+              "tomato: stir-fried", "mushroom: stir-fried"]
+    forbid: ["burner_\\w+: on", "burnt"]
