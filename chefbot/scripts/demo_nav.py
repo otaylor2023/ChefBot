@@ -23,7 +23,7 @@ TRACE: list[tuple[str, dict]] = [
     ("go_to", {"place": "stove"}),
     ("detect", {"classes": ["burner", "pan"]}),
     ("nearby", {}),
-    ("align", {"id": "burner_1"}),
+    ("align", {"id": "burner_3"}),  # a front burner (front left) in both test kitchens
     ("go_to", {"place": "fridge"}),
     ("detect", {"classes": ["fridge handle"]}),
     ("align", {"id": "fridge handle_1"}),

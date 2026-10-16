@@ -1,0 +1,51 @@
+name: mixed_grill
+goal: "A mixed grill: a sausage and a steak, each fried in its own pan, both served on the plate"
+limits: {max_turns: 220, max_llm_cost_usd: 4.0}
+steps:
+  - id: s1
+    goal: "Put both pans on burners (one each)"
+    done_when: "the two pans are each on a burner"
+  - id: s2
+    goal: "Put the steak in one pan and the sausage in the other"
+    done_when: "the steak is inside one pan and the sausage is inside the other pan"
+    depends_on: [s1]
+  - id: s3
+    goal: "Fry the steak until it is cooked"
+    done_when: "the steak is in a pan on a burner that is on, and its cook state is 'cooked' (not 'raw', 'cooking' or 'burnt')"
+    depends_on: [s2]
+    hint: "about 5 minutes; it burns after about 10"
+  - id: s4
+    goal: "Fry the sausage until it is cooked"
+    done_when: "the sausage is in a pan on a burner that is on, and its cook state is 'cooked' (not 'raw', 'cooking' or 'burnt')"
+    depends_on: [s2]
+    hint: "about 4 minutes; it burns after about 8"
+  - id: s5
+    goal: "Turn off the burners"
+    done_when: "every burner is off"
+    depends_on: [s3, s4]
+  - id: s6
+    goal: "Serve the steak and the sausage on the plate"
+    done_when: "the steak and the sausage are both on the plate"
+    depends_on: [s3, s4]
+symbolic:
+  objects:
+    - {name: sausage, on: counter_2}
+    - {name: steak, on: counter_2}
+    - {name: pan, on: counter_2}
+    - {name: pan_2, kind: pan, on: counter_1}
+    - {name: plate, on: counter_1}
+  success:
+    require: ["sausage: on plate", "steak: on plate", "sausage: cook state = cooked", "steak: cook state = cooked"]
+    forbid: ["burner_\\w+: on", "burnt"]
+robocasa:
+  layout: 2
+  style: 2
+  objects:
+    - {category: sausage, model: aigen_objs/sausage/sausage_0, surface: counter}
+    - {category: steak, model: aigen_objs/steak/steak_0, surface: counter}
+    - {category: pan, model: pan/pan_24, surface: counter}
+    - {category: pan, model: pan/pan_24, surface: counter}
+    - {category: plate, model: plate/plate_0, surface: counter}
+  success:
+    require: ["sausage: on plate", "steak: on plate", "sausage: cook state = cooked", "steak: cook state = cooked"]
+    forbid: ["burner_\\w+: on", "burnt"]

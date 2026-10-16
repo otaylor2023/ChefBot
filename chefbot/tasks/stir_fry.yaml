@@ -1,0 +1,42 @@
+name: stir_fry
+goal: "Stir-fried tomato and corn, served in the pan off the heat"
+limits: {max_turns: 220, max_llm_cost_usd: 4.0}
+steps:
+  - id: s1
+    goal: "Put the pan on a burner"
+    done_when: "the pan is on a burner"
+  - id: s2
+    goal: "Put the tomato and the corn in the pan"
+    done_when: "the tomato and the corn are both inside the pan"
+    depends_on: [s1]
+  - id: s3
+    goal: "Stir-fry them: cook them on the burner while stirring with the wooden spoon"
+    done_when: "the tomato and the corn are inside the pan on a lit burner, both cooked (cook state 'cooked', not 'raw', 'warm' or 'burnt') and both stir-fried"
+    depends_on: [s2]
+    hint: "pick up the wooden spoon before turning the burner on (food left on a lit burner burns), then lower it into the pan and stir in turns of about 30 s; it needs about a minute of stirring in all and about 2-4 minutes of heat"
+  - id: s4
+    goal: "Serve: turn off the burner and put the spoon down, leaving the stir-fry in the pan"
+    done_when: "every burner is off, the wooden spoon is not held, and the tomato and the corn are still inside the pan"
+    depends_on: [s3]
+symbolic:
+  objects:
+    - {name: tomato, on: counter_2}
+    - {name: corn, on: counter_2}
+    - {name: pan, on: counter_1}
+    - {name: wooden_spoon, on: counter_1}
+  success:
+    require: ["tomato: inside pan", "corn: inside pan", "tomato: cook state = cooked", "corn: cook state = cooked",
+              "tomato: stir-fried", "corn: stir-fried"]
+    forbid: ["burner_\\w+: on", "burnt"]
+robocasa:
+  layout: 2
+  style: 2
+  objects:
+    - {category: tomato, model: tomato/tomato_0, surface: counter}
+    - {category: corn, model: corn/corn_0, surface: counter}
+    - {category: pan, model: pan/pan_24, surface: counter}
+    - {category: wooden_spoon, model: lightwheel/wooden_spoon/WoodenSpoon001, surface: counter}
+  success:
+    require: ["tomato: inside pan", "corn: inside pan", "tomato: cook state = cooked", "corn: cook state = cooked",
+              "tomato: stir-fried", "corn: stir-fried"]
+    forbid: ["burner_\\w+: on", "burnt"]

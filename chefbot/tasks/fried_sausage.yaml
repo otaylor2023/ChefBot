@@ -1,0 +1,42 @@
+name: fried_sausage
+goal: "A fried sausage, served on the plate"
+limits: {max_turns: 150}
+steps:
+  - id: s1
+    goal: "Put the pan on a burner"
+    done_when: "the pan is on a burner"
+  - id: s2
+    goal: "Put the sausage in the pan"
+    done_when: "the sausage is inside the pan"
+    depends_on: [s1]
+  - id: s3
+    goal: "Fry the sausage until it is cooked"
+    done_when: "the sausage is inside the pan, the pan is on a burner that is on, and the sausage is cooked (its cook state is 'cooked', not 'raw', 'cooking' or 'burnt')"
+    depends_on: [s2]
+    hint: "turn on the burner under the pan; it takes about 4 minutes and burns after about 8. Set a timer and/or watch this step"
+  - id: s4
+    goal: "Turn off the burner"
+    done_when: "every burner is off"
+    depends_on: [s3]
+  - id: s5
+    goal: "Serve the sausage on the plate"
+    done_when: "the sausage is on the plate"
+    depends_on: [s3]
+symbolic:
+  objects:
+    - {name: sausage, on: counter_2}
+    - {name: pan, on: counter_2}
+    - {name: plate, on: counter_1}
+  success:
+    require: ["sausage: on plate", "sausage: cook state = cooked"]
+    forbid: ["burner_\\w+: on", "burnt", "fridge: open"]
+robocasa:
+  layout: 2
+  style: 2
+  objects:
+    - {category: sausage, model: aigen_objs/sausage/sausage_0, surface: counter}
+    - {category: pan, model: pan/pan_24, surface: counter}
+    - {category: plate, model: plate/plate_0, surface: counter}
+  success:
+    require: ["sausage: on plate", "sausage: cook state = cooked"]
+    forbid: ["burner_\\w+: on", "burnt", "fridge: open"]
