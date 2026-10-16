@@ -215,7 +215,7 @@ def test_carry_a_mug_to_the_stove_and_place_it_on_a_burner(session):
     assert np.linalg.norm(mug[:2] - target[:2]) <= 0.05, "the mug is more than 5 cm from the burner's center"
     assert env.data.xmat[body_of(stack, "mug")].reshape(3, 3)[2, 2] > 0.95  # upright
     assert session.call("holding").data["holding"] is None
-    assert ids(session.call("detect", classes=["mug"])) == ["mug_1"]  # back in the scene, under a fresh id
+    assert ids(session.call("detect", classes=["mug"])) == ["mug"]  # back on the map where it was put, same name
     assert env.contact_ticks == contacts, f"unexpected contact during a successful run: {env.last_contact}"
 
 

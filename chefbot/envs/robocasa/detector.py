@@ -288,7 +288,11 @@ class GroundTruthDetector(Detector):
         if item.kind == "site":
             return data.site_xpos[item.id].copy()
         if item.kind == "body":
-            return data.xpos[item.id].copy()
+            # The middle of its geometry: a model's origin can sit well off it (a pan's, toward the handle's far side).
+            from chefbot.envs.robocasa.objects import object_points  # objects imports this module
+
+            points = object_points(self._env, item.id)
+            return (points.min(axis=0) + points.max(axis=0)) / 2.0 if len(points) else data.xpos[item.id].copy()
         # Fixtures: the middle of the work surface if there is one within reach,
         # otherwise the middle of the front face.
         box = item.box
@@ -336,7 +340,21 @@ class GroundTruthDetector(Detector):
             samples += [box.point(u, v, 1.0) for u in _FACE_SAMPLES for v in _FACE_SAMPLES]
             return any(self._point_visible(p, item.root) for p in samples)
         own_root = item.root if item.kind == "body" else None
-        return self._point_visible(self._position(item), own_root)
+        if self._point_visible(self._position(item), own_root):
+            return True
+        if item.kind != "body":
+            return False
+        # Its middle can be hidden by what is in it (a tomato in a pan): try across its top.
+        from chefbot.envs.robocasa.objects import object_points  # objects imports this module
+
+        points = object_points(self._env, item.id)
+        if not len(points):
+            return False
+        lo, hi = points.min(axis=0), points.max(axis=0)
+        return any(
+            self._point_visible(np.array([lo[0] + u * (hi[0] - lo[0]), lo[1] + v * (hi[1] - lo[1]), hi[2]]), own_root)
+            for u in _FACE_SAMPLES for v in _FACE_SAMPLES
+        )
 
     def _point_visible(self, point: np.ndarray, own_root: str | None) -> bool:
         """In the camera frustum and not occluded. A ray that ends on `own_root`'s

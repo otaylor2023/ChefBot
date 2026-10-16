@@ -54,7 +54,15 @@ def _model_path(spec: dict) -> str:
     random), or the path of one model when the spec pins it with `model`."""
     if "model" not in spec:
         return spec["category"]
-    return os.path.join(robocasa.models.assets_root, "objects", "objaverse", spec["model"], "model.xml")
+    # "objaverse/..." is the default set; "aigen_objs/..." and "lightwheel/..." name theirs.
+    model = spec["model"]
+    head = model.split("/", 1)[0]
+    root = os.path.join(robocasa.models.assets_root, "objects")
+    path = os.path.join(root, model) if head in _ASSET_SETS else os.path.join(root, "objaverse", model)
+    return os.path.join(path, "model.xml")
+
+
+_ASSET_SETS = {"objaverse", "aigen_objs", "lightwheel"}
 
 
 def object_names(specs) -> list[str]:

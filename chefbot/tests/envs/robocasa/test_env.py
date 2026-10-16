@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 
 import numpy as np
 import pytest
@@ -119,8 +120,10 @@ def test_semantic_map_uses_chefbot_names_only(stack):
     assert len([n for n in names if n.startswith("counter")]) >= 2
     for name in names:
         assert "main_group" not in name and name == name.lower()
-    # Parts are found by detection, not stored on the map.
-    assert not any("burner" in n or "handle" in n for n in names)
+    # Parts are found by detection, not stored on the map; burners are the exception
+    # (fixed parts the agent must tell apart: burner_1, burner_2, ...).
+    assert not any("handle" in n for n in names)
+    assert all(re.fullmatch(r"burner_\d+", n) for n in names if "burner" in n)
     assert stack.world_map.labels() <= stack.detector.labels()
 
 

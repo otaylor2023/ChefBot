@@ -23,12 +23,13 @@ KITCHENS = Path(__file__).resolve().parent / "kitchens"
 # What a place accepts, by kind. Fixtures and objects not listed accept anything.
 COOKWARE = {"pan", "pot", "kettle"}
 FOOD = {"egg", "cracked egg", "bread", "bacon", "pancake", "sausage", "tomato", "onion", "cheese", "butter", "milk",
-        "water", "rice", "pasta"}  # fmt: skip
+        "water", "rice", "pasta", "steak", "hot dog", "corn", "potato", "mushroom", "carrot", "broccoli", "fish",
+        "chicken breast", "pork chop"}  # fmt: skip
 # Handheld tools: an egg cracker holds an egg and cracks it into what it is over when
 # squeezed; an electric whisk runs while squeezed and beats what it is lowered into.
 CRACKER, WHISK = "egg cracker", "whisk"
 SHELL, TRASH = "eggshell", "trash can"  # cracking leaves the shell in the cracker; it goes to the trash (or scraps)
-UTENSILS = {"spoon", "spatula"}  # stirred by hand (stir): mixes in a bowl, scrambles in a hot pan
+UTENSILS = {"spoon", "wooden spoon", "spatula"}  # stirred by hand (stir): mixes in a bowl, scrambles in a hot pan
 LOWER_TARGETS = {"bowl", "pan", "pot", "mug", "plate"}  # containers a tool can be lowered into / over  # containers a tool can be lowered into / over
 ACCEPTS = {
     "burner": COOKWARE,
@@ -492,8 +493,8 @@ class World:
             for food in self.contents(self.tool_into):
                 if food.kind == "cracked egg":
                     food.whisked += dt * self.timing.spoon_rate
-                    if self._heated(food):
-                        food.stirred_hot += dt
+                if food.kind in FOOD and self._heated(food):
+                    food.stirred_hot += dt
         for thing in self.things.values():
             if thing.kind in FOOD and self._heated(thing):
                 thing.heat += dt
@@ -566,6 +567,9 @@ class World:
         for thing in sorted(self.things.values(), key=lambda t: t.name):
             if thing.kind in FOOD and (thing.heat > 0 or thing.kind in self.timing.cooking):
                 lines.append(f"{thing.name}: cook state = {thing.stage} ({_clock(thing.heat)} of heat)")
+            if thing.kind in FOOD and thing.kind != "cracked egg" and thing.heat > 0:
+                texture = "stir-fried" if thing.stirred_hot >= self.timing.scrambled_after else "not stirred while cooking"
+                lines.append(f"{thing.name}: {texture} ({_clock(thing.stirred_hot)} stirred while cooking)")
             if thing.kind == "cracked egg":
                 beaten = "beaten" if thing.whisked >= self.timing.beaten_after else "not beaten"
                 lines.append(f"{thing.name}: {beaten} ({_clock(thing.whisked)} whisked)")

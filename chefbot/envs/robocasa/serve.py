@@ -19,7 +19,7 @@ from chefbot.envs.robocasa.env import RoboCasaEnv
 from chefbot.envs.robocasa.fixture_actuator import ScriptedFixtureActuator
 from chefbot.envs.robocasa.grasp_proposer import GroundTruthGraspProposer
 from chefbot.envs.robocasa.placement_proposer import GroundTruthPlacementProposer
-from chefbot.interface.fixtures import CLOSED, OPEN
+from chefbot.interface.fixtures import CLOSED, OFF, ON, OPEN
 from chefbot.interface.transport.server import RobotServer
 from chefbot.robot.config import RobotConfig
 from chefbot.robot.nav.grid import OccupancyGrid
@@ -45,11 +45,17 @@ def build_stack(
     `render=False` disables the cameras (get_camera_rgbd), and with them the
     robot layer's collision checks of arm motion."""
     env = RoboCasaEnv(config, render=render)
-    map_dir = ensure_map(env)
+    return wire_stack(env, ensure_map(env), robot_config)
+
+
+def wire_stack(env: RoboCasaEnv, map_dir: Path, robot_config: RobotConfig | None = None) -> RoboCasaStack:
+    """The robot layer and detector on an env, with the map in `map_dir`."""
     detector = GroundTruthDetector(env)
     actuator = ScriptedFixtureActuator(env, detector)
-    # Doors report open / closed when detected (burner knobs: AGENT_SPEC stage 2).
-    detector.state_of = lambda det: {OPEN: "open", CLOSED: "closed"}.get(actuator.get_state(det))
+    # Detections say whether doors are open and burners lit (from their joints), like a state classifier.
+    detector.state_of = lambda det: {OPEN: "open", CLOSED: "closed", ON: "on", OFF: "off"}.get(
+        actuator.get_power(det) if det.label == "burner" else actuator.get_state(det)
+    )
     robot = Robot(
         env,
         OccupancyGrid.load(map_dir / GRID_FILE),

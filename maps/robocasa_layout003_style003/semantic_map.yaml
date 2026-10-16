@@ -30,13 +30,25 @@ fixtures:
     facing: [0.0, -1.0]
   stove:
     location: [4.87, -1.527]
-    facing: [-1.0, 0.0]
+    facing: &id001 [-1.0, 0.0]
   toaster:
     location: [5.04, -2.985]
     facing: [-1.0, 0.0]
   toaster oven:
     location: [2.135, -0.245]
     facing: [0.0, -1.0]
+  burner_1:
+    location: [5.013, -1.357]
+    facing: *id001
+  burner_2:
+    location: [5.011, -1.692]
+    facing: *id001
+  burner_3:
+    location: [4.727, -1.364]
+    facing: *id001
+  burner_4:
+    location: [4.727, -1.701]
+    facing: *id001
 objects:
   bottled water:
     location: [1.804, -0.464]

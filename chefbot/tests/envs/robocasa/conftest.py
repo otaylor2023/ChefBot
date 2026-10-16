@@ -19,6 +19,7 @@ from chefbot.agent.config import AgentConfig  # noqa: E402
 from chefbot.agent.tools.registry import ToolRegistry  # noqa: E402
 from chefbot.agent.world.map import WorldMap  # noqa: E402
 from chefbot.envs.robocasa.build_map import build_map  # noqa: E402
+from chefbot.envs.robocasa.serve import wire_stack  # noqa: E402
 from chefbot.envs.robocasa.config import RoboCasaConfig  # noqa: E402
 from chefbot.envs.robocasa.detector import GroundTruthDetector, scene_objects  # noqa: E402
 from chefbot.envs.robocasa.env import RoboCasaEnv  # noqa: E402
@@ -84,20 +85,12 @@ def stacks(tmp_path_factory):
             map_dir = build_map(env, tmp_path_factory.mktemp(f"map_layout{layout}"))
             grid = OccupancyGrid.load(map_dir / "grid.npy")
             robot_config = RobotConfig.load()
-            detector = GroundTruthDetector(env)
-            robot = Robot(
-                env,
-                grid,
-                robot_config,
-                grasp_proposer=GroundTruthGraspProposer(env),
-                placement_proposer=GroundTruthPlacementProposer(env, detector),
-                fixture_actuator=ScriptedFixtureActuator(env, detector),
-            )
+            wired = wire_stack(env, map_dir, robot_config)  # as serve.py and run_agent wire it
             built[layout] = Stack(
                 layout,
                 env,
-                robot,
-                detector,
+                wired.robot,
+                wired.detector,
                 grid,
                 WorldMap.load(map_dir / "semantic_map.yaml"),
                 robot_config,

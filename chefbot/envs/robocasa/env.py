@@ -35,6 +35,7 @@ _BASE_JOINTS = ("mobilebase0_joint_mobile_forward", "mobilebase0_joint_mobile_si
 _BASE_ACTUATORS = ("mobilebase0_actuator_mobile_forward", "mobilebase0_actuator_mobile_side", "mobilebase0_actuator_mobile_yaw")
 _ARM_JOINTS = tuple(f"robot0_joint{i}" for i in range(1, 8))
 _ARM_PART, _GRIPPER_PART = "right", "right_gripper"
+TOOL_BIT = 1 << 3  # collision bit a locked utensil keeps: only geoms with it in their conaffinity touch it
 _GRIPPER_PREFIX = "gripper0_right_"
 # Arm links that count for `arm_in_contact`. The first two links sit on the
 # base and never reach anything; the gripper body counts, its fingers do not.
@@ -98,6 +99,8 @@ class RoboCasaEnv(Env):
             chef_objects=cfg.objects,
             layout_ids=cfg.layout,
             style_ids=cfg.style,
+            # aigen has foods the others lack (sausage, bacon, steak); every object we spawn is pinned.
+            obj_registries=("objaverse", "lightwheel", "aigen"),
             seed=cfg.seed,
             control_freq=cfg.control_freq,
             has_renderer=False,
@@ -161,6 +164,17 @@ class RoboCasaEnv(Env):
         self.grip_site = model.site(_GRIPPER_PREFIX + "grip_site").id
         self._arm_target = self.data.qpos[self._arm_qpos].copy()  # hold the starting pose
         self._gripper_closed = False
+        # Objects with an adaptive handle (utensils): once the closed gripper has
+        # them between both pads they lock to it, as a form-fit or magnetic
+        # handle would, until it opens. Root body ids; the lock is (body, pose in
+        # the grip frame).
+        self.lockable: set[int] = set()
+        self._locked: tuple[int, np.ndarray] | None = None
+        # While locked it touches only geoms with TOOL_BIT in their conaffinity
+        # (the food): held rigidly it would shove the pan along by its rim.
+        self._unlocked_bits: dict[int, tuple[int, int]] = {}
+        for geom in set().union(*self._pad_geoms.values()):  # the pads keep their grip on it
+            model.geom_conaffinity[geom] |= TOOL_BIT
 
         place_objects(self)
         # The scene as spawned, for reset_scene(): everything that is not a robot joint.
@@ -245,6 +259,7 @@ class RoboCasaEnv(Env):
         for _ in range(steps):
             with self.lock:
                 self.suite.step(self._action())
+                self._hold_locked()
                 if any(self._contacts()):
                     self.contact_ticks += 1
                     self.last_contact = self._contact_names()
@@ -279,6 +294,7 @@ class RoboCasaEnv(Env):
             self.data.qvel[:] = 0.0
             mujoco.mj_forward(self.model, self.data)
             self._gripper_closed = False
+            self._set_locked(None)
             self._command_world = np.zeros(3)
         for _ in range(10):
             self.wait_for_next_tick(1.0 / self.config.control_freq)
@@ -317,7 +333,57 @@ class RoboCasaEnv(Env):
     def _root_of_geom(self, geom: int) -> int:
         return int(self.model.body_rootid[self.model.geom_bodyid[geom]])
 
+    def _grip_pose(self) -> np.ndarray:
+        pose = np.eye(4)
+        pose[:3, :3] = self.data.site_xmat[self.grip_site].reshape(3, 3)
+        pose[:3, 3] = self.data.site_xpos[self.grip_site]
+        return pose
+
+    def _body_pose(self, body: int) -> np.ndarray:
+        pose = np.eye(4)
+        pose[:3, :3] = self.data.xmat[body].reshape(3, 3)
+        pose[:3, 3] = self.data.xpos[body]
+        return pose
+
+    def _hold_locked(self) -> None:
+        """Keep a locked utensil where the grip holds it; lock or release with the gripper."""
+        if not self._gripper_closed:
+            if self._locked is not None:
+                self._set_locked(None)
+            return
+        if self._locked is None:
+            grasped = self._grasped_roots() & self.lockable
+            if grasped:
+                body = min(grasped)
+                self._set_locked((body, np.linalg.inv(self._grip_pose()) @ self._body_pose(body)))
+            return
+        body, in_grip = self._locked
+        pose = self._grip_pose() @ in_grip
+        joint = int(self.model.body_jntadr[body])
+        if joint < 0 or self.model.jnt_type[joint] != mujoco.mjtJoint.mjJNT_FREE:
+            return
+        qpos, dof = int(self.model.jnt_qposadr[joint]), int(self.model.jnt_dofadr[joint])
+        quat = np.zeros(4)
+        mujoco.mju_mat2Quat(quat, pose[:3, :3].reshape(-1))
+        self.data.qpos[qpos : qpos + 7] = np.concatenate([pose[:3, 3], quat])
+        self.data.qvel[dof : dof + 6] = 0.0
+        mujoco.mj_kinematics(self.model, self.data)
+
+    def _set_locked(self, lock: tuple[int, np.ndarray] | None) -> None:
+        model = self.model
+        for geom, (contype, conaffinity) in self._unlocked_bits.items():
+            model.geom_contype[geom], model.geom_conaffinity[geom] = contype, conaffinity
+        self._unlocked_bits = {}
+        self._locked = lock
+        if lock is not None:
+            for geom in np.flatnonzero(model.body_rootid[model.geom_bodyid] == lock[0]):
+                geom = int(geom)
+                if model.geom_contype[geom] or model.geom_conaffinity[geom]:
+                    self._unlocked_bits[geom] = (int(model.geom_contype[geom]), int(model.geom_conaffinity[geom]))
+                    model.geom_contype[geom] = model.geom_conaffinity[geom] = TOOL_BIT
+
     def _grasped_roots(self, pairs: list[tuple[int, int]] | None = None) -> set[int]:
+        locked = {self._locked[0]} if self._locked is not None else set()
         pairs = self._touching() if pairs is None else pairs
         touched = {"left": set(), "right": set()}
         for a, b in pairs:
@@ -326,7 +392,7 @@ class RoboCasaEnv(Env):
                     touched[side].add(self._root_of_geom(b))
                 elif b in pads and a not in self.robot_geoms:
                     touched[side].add(self._root_of_geom(a))
-        return touched["left"] & touched["right"]
+        return (touched["left"] & touched["right"]) | locked
 
     def _contacts(self) -> tuple[bool, bool]:
         """(base_in_contact, arm_in_contact).

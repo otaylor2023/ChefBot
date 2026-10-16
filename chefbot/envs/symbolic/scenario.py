@@ -33,6 +33,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from chefbot.envs.success import check_success
 from chefbot.envs.symbolic.perception import SymbolicDetector, SymbolicObserver
 from chefbot.envs.symbolic.robot import SymbolicClock, SymbolicRobot
 from chefbot.envs.symbolic.world import Rates, World
@@ -120,24 +121,9 @@ class Scenario:
     # -- success ----------------------------------------------------------------
 
     def success(self, tools_called: list[str] = ()) -> dict:
-        """Ground truth at the end against the task's rules; `tools_called` (succeeded)
-        for `expect_tools` (e.g. request_replan when an ingredient is missing)."""
+        """Ground truth at the end against the task's rules (envs/success.py)."""
         rules = (self.task.get("symbolic") or {}).get("success") or {}
-        if "any_of" in rules:  # alternatives: the first that holds wins; otherwise report the first
-            results = [self._check(alt, tools_called) for alt in rules["any_of"]]
-            return next((r for r in results if r["success"]), results[0])
-        return self._check(rules, tools_called)
-
-    def _check(self, rules: dict, tools_called: list[str]) -> dict:
-        lines = self.world.describe().splitlines()
-        missing = [p for p in rules.get("require", []) if not any(re.search(p, line) for line in lines)]
-        missing += [f"call {t}" for t in rules.get("expect_tools", []) if t not in tools_called]
-        broken = [p for p in rules.get("forbid", []) if any(re.search(p, line) for line in lines)]
-        broken += [f"call {t}" for t in rules.get("forbid_tools", []) if t in tools_called]
-        for pattern, most in (rules.get("at_most") or {}).items():  # count the lines that match
-            if sum(bool(re.search(pattern, line)) for line in lines) > int(most):
-                broken.append(f"more than {most} of {pattern}")
-        return {"success": not missing and not broken, "missing": missing, "forbidden_present": broken}
+        return check_success(rules, self.world.describe().splitlines(), tools_called)
 
     # -- disturbances -------------------------------------------------------------
 

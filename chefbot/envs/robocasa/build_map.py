@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from chefbot.envs.robocasa.appliances import burner_position, burners
 from chefbot.envs.robocasa.config import RoboCasaConfig
 from chefbot.envs.robocasa.detector import FixtureBox, named_fixtures, numbered, scene_objects
 from chefbot.envs.robocasa.env import RoboCasaEnv
@@ -111,6 +112,15 @@ def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> di
         if facing is not None:
             entry["facing"] = facing
         out["fixtures"][name] = entry
+
+    # Burners are fixed parts: on the map so they keep their names (burner_1, ...) between detects.
+    stove_facing = {f.sim_name: out["fixtures"].get(f.name, {}).get("facing") for f in fixtures}
+    for burner in burners(env):
+        xy = burner_position(env, burner)[:2]
+        entry = {"location": [round(float(xy[0]), 3), round(float(xy[1]), 3)]}
+        if stove_facing.get(burner.stove):
+            entry["facing"] = stove_facing[burner.stove]
+        out["fixtures"][burner.name] = entry
 
     objects.sort(key=lambda o: (o[0], round(float(o[1][0]), 2), round(float(o[1][1]), 2)))
     taken = set(fixture_names)

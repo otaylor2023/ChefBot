@@ -8,7 +8,8 @@ import numpy as np
 
 from chefbot.envs.robocasa.detector import GroundTruthDetector
 from chefbot.envs.robocasa.env import RoboCasaEnv
-from chefbot.interface.fixtures import CLOSED, OPEN, UNKNOWN, FixtureActuator
+from chefbot.envs.robocasa.appliances import burner_on, nearest_burner, set_burner
+from chefbot.interface.fixtures import CLOSED, OFF, ON, OPEN, UNKNOWN, FixtureActuator
 from chefbot.interface.types import ActuationResult, Detection
 
 # Which compartment of a fridge a label refers to.
@@ -54,6 +55,24 @@ class ScriptedFixtureActuator(FixtureActuator):
         # Where each handle was detected when its fixture was last actuated: a
         # handle moves with its door, so a later call may still name the old spot.
         self._actuated_from: list[tuple[str, np.ndarray, str]] = []  # (label, position, sim fixture)
+        self._rng = np.random.RandomState(0)  # RoboCasa picks a knob angle within "on"
+
+    def get_power(self, appliance: Detection) -> str:
+        if appliance.label != "burner":
+            return UNKNOWN
+        with self._env.lock:
+            burner = nearest_burner(self._env, appliance.position_world)
+            return UNKNOWN if burner is None else (ON if burner_on(self._env, burner) else OFF)
+
+    def set_power(self, appliance: Detection, on: bool) -> ActuationResult:
+        env = self._env
+        with env.lock:
+            burner = nearest_burner(env, appliance.position_world) if appliance.label == "burner" else None
+            if burner is None:
+                return ActuationResult(False, True, f"the {appliance.label} cannot be turned on or off here")
+            set_burner(env, burner, on, self._rng)
+            mujoco.mj_forward(env.model, env.data)
+        return ActuationResult(True, True, f"{burner.name} is now {'on' if on else 'off'} (scripted)", fixture=burner.name)
 
     def get_state(self, fixture: Detection) -> str:
         with self._env.lock:

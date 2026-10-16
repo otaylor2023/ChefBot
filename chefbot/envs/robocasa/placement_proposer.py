@@ -17,6 +17,7 @@ from chefbot.interface.types import Detection, HeldObject, Placement
 _PAD = 0.02  # free border kept around the object's footprint
 _LATTICE = 0.05  # spacing of candidate spots on a fixture's top
 _MAX_SPOTS = 10
+_OBJECT_LATTICE = 0.03  # spacing of candidate spots on an object (a plate)
 _REACH = (0.45, 0.95)  # candidate spots lie this far from the base center
 _FLATNESS = 0.008
 # Other gripper headings to offer if the current one cannot reach, nearest first.
@@ -63,7 +64,7 @@ class GroundTruthPlacementProposer(PlacementProposer):
     def _spots(self, surface: Detection, robot_xy: np.ndarray, radius: float, held_body: int) -> list[tuple]:
         """(x, y, surface height) to set the object's middle down on, best first."""
         env = self._env
-        ignore = int(env.model.body_rootid[held_body])
+        ignore = _carried(env, int(env.model.body_rootid[held_body]))
         position = np.asarray(surface.position_world, dtype=float)
         item = self._detector.locate(surface)
 
@@ -87,32 +88,55 @@ class GroundTruthPlacementProposer(PlacementProposer):
                         spots.append((from_target, (float(point[0]), float(point[1]), z)))
             return [spot for _, spot in sorted(spots)]
 
-        # A burner, or an object to put things on or in (pan, plate, cutting board): its middle.
+        # An object to put things on or in (plate, pan, cutting board): free spots on
+        # its own surface, nearest its middle first (something may be on it already).
         target = find_object(env, surface)
         if target is not None:
             cloud = object_points(env, target)
-            xy = (cloud[:, :2].min(axis=0) + cloud[:, :2].max(axis=0)) / 2
-            start = float(cloud[:, 2].max()) + 0.05
-        elif item is not None:
+            lo, hi = cloud[:, :2].min(axis=0), cloud[:, :2].max(axis=0)
+            middle, start = (lo + hi) / 2, float(cloud[:, 2].max()) + 0.05
+            root = int(env.model.body_rootid[target])
+            spots = []
+            for x in np.arange(lo[0], hi[0] + 1e-9, _OBJECT_LATTICE):
+                for y in np.arange(lo[1], hi[1] + 1e-9, _OBJECT_LATTICE):
+                    geom, z = self._ray(x, y, start, ignore)
+                    if geom < 0 or int(env.model.body_rootid[env.model.geom_bodyid[geom]]) != root:
+                        continue  # off the object, or on something already on it
+                    if radius > 0.02 and not self._clear_on(x, y, z, radius * 0.6, start, ignore, root):
+                        continue
+                    spots.append((float(np.hypot(x - middle[0], y - middle[1])), (float(x), float(y), z)))
+            if spots:
+                return [spot for _, spot in sorted(spots)][:_MAX_SPOTS]
+            geom, z = self._ray(middle[0], middle[1], start, ignore)
+            return [(float(middle[0]), float(middle[1]), z)] if geom >= 0 else []
+        if item is not None:
             xy, start = position[:2], position[2] + 0.25
         else:
             return []
         geom, z = self._ray(xy[0], xy[1], start, ignore)
         return [(float(xy[0]), float(xy[1]), z)] if geom >= 0 else []
 
-    def _ray(self, x: float, y: float, z: float, ignore_root: int) -> tuple[int, float]:
-        """First surface below (x, y, z) that is neither the robot nor the held object."""
+    def _clear_on(self, x, y, z, radius, from_z, ignore_root: set[int], root) -> bool:
+        """The object's footprint around (x, y) lands on `root` everywhere, near height z."""
+        for px, py in _footprint(x, y, radius):
+            geom, h = self._ray(px, py, from_z, ignore_root)
+            if geom < 0 or int(self._env.model.body_rootid[self._env.model.geom_bodyid[geom]]) != root or abs(h - z) > 0.03:
+                return False
+        return True
+
+    def _ray(self, x: float, y: float, z: float, ignore_root: set[int]) -> tuple[int, float]:
+        """First surface below (x, y, z) that is neither the robot nor what it carries (`ignore_root`)."""
         env = self._env
         for _ in range(16):
             geom, height = _ray_down(env, x, y, z)
             if geom < 0:
                 return -1, -math.inf
-            if geom not in env.robot_geoms and int(env.model.body_rootid[env.model.geom_bodyid[geom]]) != ignore_root:
+            if geom not in env.robot_geoms and int(env.model.body_rootid[env.model.geom_bodyid[geom]]) not in ignore_root:
                 return geom, height
             z = height - 1e-4
         return -1, -math.inf
 
-    def _flat_height(self, x, y, radius, from_z, root: str, ignore_root: int) -> float | None:
+    def _flat_height(self, x, y, radius, from_z, root: str, ignore_root: set[int]) -> float | None:
         env = self._env
         heights = []
         for px, py in _footprint(x, y, radius):
@@ -121,3 +145,24 @@ class GroundTruthPlacementProposer(PlacementProposer):
                 return None
             heights.append(z)
         return float(np.mean(heights)) if max(heights) - min(heights) <= _FLATNESS else None
+
+
+def _carried(env: RoboCasaEnv, held_root: int) -> set[int]:
+    """The held object's root and the roots of what rides in or on it (food in a carried pan)."""
+    from chefbot.envs.robocasa.detector import scene_objects
+
+    held = object_points(env, held_root)
+    lo, hi = held.min(axis=0), held.max(axis=0)
+    out = {held_root}
+    for _, _, body in scene_objects(env):
+        root = int(env.model.body_rootid[body])
+        if root in out:
+            continue
+        pts = object_points(env, body)
+        if not len(pts):
+            continue
+        middle = (pts.min(axis=0) + pts.max(axis=0)) / 2
+        if np.all(middle[:2] >= lo[:2]) and np.all(middle[:2] <= hi[:2]) and lo[2] - 0.01 <= pts[:, 2].min() <= hi[2]:
+            out.add(root)
+    return out
+

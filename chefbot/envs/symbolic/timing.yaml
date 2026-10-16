@@ -24,6 +24,12 @@ cooking:                    # stage -> seconds of heat it takes to get there
   bacon: {cooking: 20, crispy: 360, burnt: 600}
   pancake: {cooking: 15, cooked: 150, burnt: 330}
   water: {warm: 30, boiling: 300}
+  sausage: {cooking: 15, cooked: 240, burnt: 480}         # browned all round in a pan
+  hot dog: {cooking: 15, cooked: 150, burnt: 360}
+  steak: {cooking: 15, cooked: 300, burnt: 600}            # medium
+  tomato: {warm: 15, cooked: 120, burnt: 360}              # blistered in a pan
+  corn: {warm: 20, cooked: 180, burnt: 480}                # kernels in a pan
+  potato: {warm: 30, cooked: 600, burnt: 1200}
   default: {cooking: 15, cooked: 180, burnt: 420}
 whisk:
   beaten_after: 30.0        # electric whisk: seconds to beat eggs
