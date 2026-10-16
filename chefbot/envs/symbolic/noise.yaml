@@ -1,0 +1,12 @@
+# Default failure injection for the symbolic kitchen (probability per attempt),
+# used by `run_agent --noise on` / `eval_agent --noise on` under every task's own
+# `failures:`. `--noise off` turns all random failures off (clean runs);
+# `--noise task` (the default) uses only what each task file sets.
+grasp: 0.10         # pick: the gripper closes on nothing
+place: 0.05         # place: the object ends up next to the target, not on it
+nav: 0.05           # go_to: blocked on the way
+detect_miss: 0.05   # detect: a visible object is missed
+actuate: 0.10       # open / close: the gripper slips off the handle
+power: 0.05         # turn_on / turn_off: the knob or button does not take
+tool: 0.05          # lower_into, squeeze, stir, pour: the tool slips or jams
+crack_early: 0.10   # an egg cracks as it goes into the egg cracker and is lost

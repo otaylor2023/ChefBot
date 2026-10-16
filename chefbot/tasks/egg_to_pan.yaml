@@ -1,0 +1,21 @@
+name: egg_to_pan
+goal: "The egg in the pan, the fridge closed"
+steps:
+  - id: s1
+    goal: "Get the egg out of the fridge"
+    done_when: "the egg is out of the fridge (held or put down somewhere)"
+  - id: s2
+    goal: "Put the egg in the pan"
+    done_when: "the egg is inside the pan"
+    depends_on: [s1]
+  - id: s3
+    goal: "Close the fridge"
+    done_when: "the fridge is closed"
+    depends_on: [s1]
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: pan, on: counter_2}
+    - {name: plate, on: counter_1}
+  success:
+    require: ["egg: inside pan", "fridge: closed"]

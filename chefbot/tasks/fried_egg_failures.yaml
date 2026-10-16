@@ -1,0 +1,36 @@
+name: fried_egg_failures
+goal: "A fried egg, served on a plate on the table"
+steps:
+  - id: s1
+    goal: "Put the pan on a burner"
+    done_when: "the pan is on a burner"
+  - id: s2
+    goal: "Get the egg from the fridge into the pan, and close the fridge"
+    done_when: "the egg is inside the pan and the fridge is closed"
+    depends_on: [s1]
+  - id: s3
+    goal: "Cook the egg until the whites are set"
+    done_when: "the egg is inside the pan, the pan is on a burner that is on, and the egg is cooked through (its cook state is 'set', not 'raw' or 'cooking')"
+    depends_on: [s2]
+    hint: "turn the burner under the pan on; it takes about 3 minutes and overcooks after about 6. Set a timer and/or watch this step, and set out the plate meanwhile"
+  - id: s4
+    goal: "Put a plate on the table"
+    done_when: "a plate is on the table"
+  - id: s5
+    goal: "Turn off the burner"
+    done_when: "every burner is off"
+    depends_on: [s3]
+  - id: s6
+    goal: "Serve the egg on the plate"
+    done_when: "the egg is on the plate and the plate is on the table"
+    depends_on: [s3, s4]
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: pan, on: counter_2}
+    - {name: plate, on: counter_1}
+    - {name: mug, on: counter_1}
+  success:
+    require: ["egg: on plate", "plate: on table", "egg: cook state = set"]
+    forbid: ["burner_\\w+: on", "overcooked", "fridge: open"]
+  failures: {grasp: 0.25, place: 0.1, detect_miss: 0.15}

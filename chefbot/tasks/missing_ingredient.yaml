@@ -1,0 +1,29 @@
+name: missing_ingredient
+goal: "A fried egg, served on a plate on the table"
+steps:
+  - id: s1
+    goal: "Put the pan on a burner"
+    done_when: "the pan is on a burner"
+  - id: s2
+    goal: "Get the egg from the fridge into the pan, and close the fridge"
+    done_when: "the egg is inside the pan and the fridge is closed"
+    depends_on: [s1]
+  - id: s3
+    goal: "Cook the egg until the whites are set"
+    done_when: "the egg is inside the pan, the pan is on a burner that is on, and the egg is cooked through (its cook state is 'set', not 'raw' or 'cooking')"
+    depends_on: [s2]
+  - id: s4
+    goal: "Serve the egg on a plate on the table"
+    done_when: "the egg is on the plate and the plate is on the table"
+    depends_on: [s3]
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: pan, on: counter_2}
+    - {name: plate, on: counter_1}
+    - {name: bread, in: fridge}
+  disturbances:
+    - {at: start, do: remove, object: egg, note: "the egg is gone (the map still lists it)"}
+  success:
+    expect_tools: [request_replan]
+    forbid: ["burner_\\w+: on"]

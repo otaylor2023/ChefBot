@@ -1,0 +1,12 @@
+name: mug_to_counter
+goal: "The mug on counter_2"
+steps:
+  - id: s1
+    goal: "Move the mug from counter_1 to counter_2"
+    done_when: "the mug is on counter_2"
+symbolic:
+  objects:
+    - {name: mug, on: counter_1}
+    - {name: plate, on: counter_1}
+  success:
+    require: ["mug: on counter_2"]

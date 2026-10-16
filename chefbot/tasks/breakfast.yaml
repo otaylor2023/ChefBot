@@ -1,0 +1,49 @@
+name: breakfast
+goal: "Breakfast on the table: a fried egg and toast on a plate, a mug next to it; everything off and closed"
+steps:
+  - id: s1
+    goal: "Put the pan on a burner"
+    done_when: "the pan is on a burner"
+  - id: s2
+    goal: "Get the egg from the fridge into the pan"
+    done_when: "the egg is inside the pan"
+    depends_on: [s1]
+  - id: s3
+    goal: "Cook the egg until the whites are set"
+    done_when: "the egg is inside the pan, the pan is on a burner that is on, and the egg is cooked through (its cook state is 'set', not 'raw' or 'cooking')"
+    depends_on: [s2]
+    hint: "about 3 minutes; overcooks after about 6"
+  - id: s4
+    goal: "Get the bread from cabinet_1 into the toaster"
+    done_when: "the bread is inside the toaster"
+  - id: s5
+    goal: "Toast the bread"
+    done_when: "the bread is toasted (its cook state is 'toasted', not 'raw', 'warm' or 'burnt')"
+    depends_on: [s4]
+    hint: "the toaster pops up by itself after about 2.5 minutes; bread left in a toaster you switch on again burns"
+  - id: s6
+    goal: "Put a plate and the mug on the table"
+    done_when: "a plate and the mug are both on the table"
+  - id: s7
+    goal: "Serve the egg on the plate"
+    done_when: "the egg is on the plate and the plate is on the table"
+    depends_on: [s3, s6]
+  - id: s8
+    goal: "Serve the toast on the plate"
+    done_when: "the bread is on the plate and the plate is on the table"
+    depends_on: [s5, s6]
+  - id: s9
+    goal: "Turn everything off and close the fridge and cabinets"
+    done_when: "every burner is off, the toaster is off, and the fridge and both cabinets are closed"
+    depends_on: [s3, s5]
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: milk, in: fridge}
+    - {name: pan, on: counter_2}
+    - {name: bread, in: cabinet_1}
+    - {name: plate, in: cabinet_2}
+    - {name: mug, on: counter_1}
+  success:
+    require: ["egg: on plate", "bread: on plate", "plate: on table", "mug: on table", "egg: cook state = set", "bread: cook state = toasted"]
+    forbid: ["burner_\\w+: on", "toaster: on", "overcooked", "burnt", "fridge: open", "cabinet_\\d: open"]

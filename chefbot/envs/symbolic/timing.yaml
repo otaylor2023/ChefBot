@@ -1,0 +1,35 @@
+# Semi-realistic timings for the symbolic kitchen (seconds unless noted). Robot
+# numbers are for a mobile manipulator like ours: careful, not fast. Cooking
+# numbers are home-kitchen ballparks on a medium burner. A task file can
+# override any of these under `symbolic: {timing: {...}}`.
+robot:
+  drive_speed: 0.35        # m/s
+  turn_speed: 0.8          # rad/s
+  drive_overhead: 3.0      # planning, accelerating, settling at the goal
+  align: 6.0               # extra for the fine positioning of align
+  detect: 2.0              # look and process one camera frame
+  pick: 25.0               # approach, close the gripper, lift, back to ready
+  place: 18.0
+  open_close: 12.0         # a fridge or cabinet door
+  power: 7.0               # turn a burner knob or press an appliance button
+  lower_into: 6.0
+  lift_out: 4.0
+  squeeze: 2.0
+  release: 1.0
+  pour: 10.0
+cooking:                    # stage -> seconds of heat it takes to get there
+  egg: {cooking: 15, set: 180, overcooked: 360}            # fried in a pan
+  cracked egg: {cooking: 15, set: 120, overcooked: 300}    # scrambled / omelette
+  bread: {warm: 20, toasted: 150, burnt: 270}              # in the toaster
+  bacon: {cooking: 20, crispy: 360, burnt: 600}
+  pancake: {cooking: 15, cooked: 150, burnt: 330}
+  water: {warm: 30, boiling: 300}
+  default: {cooking: 15, cooked: 180, burnt: 420}
+whisk:
+  beaten_after: 30.0        # electric whisk: seconds to beat eggs
+  spoon_rate: 0.4           # mixing with a spoon beats this fast (relative to the whisk)
+  scrambled_after: 60.0     # stirred this long while cooking: scrambled
+appliances:
+  toaster_cycle: 150.0      # a toaster pops (turns itself off) this long after it is started
+safety:
+  empty_burner_s: 30.0

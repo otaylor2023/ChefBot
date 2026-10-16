@@ -1,0 +1,54 @@
+name: scrambled_eggs_fragile
+goal: "Scrambled eggs (two eggs; there are only two in the kitchen, beaten, scrambled in the pan) served on a plate on the table"
+limits: {max_turns: 250, max_llm_cost_usd: 5.0}   # a long task
+steps:
+  - id: s1
+    goal: "Crack both eggs from the fridge into the bowl, using the egg cracker, and close the fridge"
+    done_when: "two cracked eggs are inside the bowl, with no eggshell in the bowl, and the fridge is closed"
+    hint: "the egg cracker takes one egg at a time: put an egg in it, pick it up, lower it over the bowl, squeeze; then empty the shell into the trash can before the next egg"
+  - id: s2
+    goal: "Beat the eggs with the electric whisk"
+    done_when: "the cracked eggs in the bowl are beaten, and none of them is splattered"
+    depends_on: [s1]
+  - id: s3
+    goal: "Put the pan on a burner and turn that burner on"
+    done_when: "the pan is on a burner that is on"
+  - id: s4
+    goal: "Pour the beaten eggs into the pan"
+    done_when: "both cracked eggs are inside the pan"
+    depends_on: [s2, s3]
+  - id: s5
+    goal: "Scramble the eggs with the spoon until they are cooked"
+    done_when: "the cracked eggs in the pan are scrambled and cooked (cook state 'set', not 'raw', 'cooking' or 'overcooked')"
+    depends_on: [s4]
+    hint: "about 2 minutes on the heat, stirring for at least 1 minute of it (stir in 20-30 s turns); they overcook after about 5"
+  - id: s6
+    goal: "Turn off the burner"
+    done_when: "every burner is off"
+    depends_on: [s5]
+  - id: s7
+    goal: "Serve: put a plate on the table and pour the eggs onto it"
+    done_when: "both cracked eggs are on the plate and the plate is on the table"
+    depends_on: [s5]
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: egg_2, kind: egg, in: fridge}
+    - {name: milk, in: fridge}
+    - {name: egg_cracker, kind: "egg cracker", on: counter_1}
+    - {name: bowl, on: counter_1}
+    - {name: plate, on: counter_1}
+    - {name: pan, on: counter_2}
+    - {name: whisk, on: counter_2}
+    - {name: spoon, on: counter_2}
+  failures: {crack_early: 0.5}   # eggs often crack going into the cracker; there are only two
+  success:
+    any_of:
+      - require: ["cracked_egg_1: on plate", "cracked_egg_2: on plate", "plate: on table",
+                  "cracked_egg_1: beaten", "cracked_egg_2: beaten",
+                  "cracked_egg_1: scrambled", "cracked_egg_2: scrambled",
+                  "cracked_egg_1: cook state = set", "cracked_egg_2: cook state = set"]
+        forbid: ["burner_\\w+: on", "overcooked", "splattered", "fridge: open", "has eggshell in it"]
+      - expect_tools: [request_replan]      # an egg lost: two eggs are no longer possible, a new plan is right
+        forbid: ["burner_\\w+: on"]
+        at_most: {"^(egg(_\\d+)?|cracked_egg_\\d+): (inside|on|held)": 1}   # ... but only once fewer than two are left
