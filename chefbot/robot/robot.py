@@ -24,6 +24,8 @@ from chefbot.interface.robot_api import (
     HANDHELD_TOOLS,
     LIFT_OUT,
     LOWER_INTO,
+    POUR,
+    POUR_INTO,
     STIR,
     RobotAPI,
 )
@@ -40,6 +42,7 @@ from chefbot.robot.safety import base_at_rest, require_base_at_rest, tuck_arm_fo
 from chefbot.robot.skills.common import ArmStack
 from chefbot.robot.skills.pick import run_pick
 from chefbot.robot.skills.place import run_place
+from chefbot.robot.skills.pour import run_pour
 from chefbot.robot.skills.tool_use import run_lift_out, run_lower_into, run_stir
 
 # Contact is ignored for this long after a motion starts, so a base that was
@@ -105,9 +108,9 @@ class Robot(RobotAPI):
         self._motion.start(lambda preempt: self._run_actuate(fixture, bool(open), preempt))
 
     def capabilities(self) -> frozenset[str]:
-        # Burners and appliances through the fixture actuator; utensils (lower, stir, lift).
-        # Not (yet): squeezed / powered gadgets, pouring.
-        return frozenset({BASE, GRASP, ARTICULATE, HANDHELD_TOOLS} | ({APPLIANCES} if self._fixture_actuator is not None else set()))
+        # Burners and appliances through the fixture actuator; utensils (lower, stir, lift); pouring.
+        # Not (yet): squeezed / powered gadgets.
+        return frozenset({BASE, GRASP, ARTICULATE, HANDHELD_TOOLS, POUR} | ({APPLIANCES} if self._fixture_actuator is not None else set()))
 
     def use_tool(self, action: str, target: Detection | None = None, seconds: float | None = None) -> None:
         self._motion.start(lambda preempt: self._run_tool(action, target, seconds, preempt))
@@ -119,6 +122,8 @@ class Robot(RobotAPI):
             result = run_stir(self._arm, float(seconds or 20.0), self._held, preempt)
         elif action == LIFT_OUT:
             result = run_lift_out(self._arm, preempt)
+        elif action == POUR_INTO and target is not None:
+            result = run_pour(self._arm, target, self._held, preempt)
         else:
             return self._result(MotionStatus.UNSUPPORTED, f"{action} is not supported by this robot")
         return self._from_arm(result)

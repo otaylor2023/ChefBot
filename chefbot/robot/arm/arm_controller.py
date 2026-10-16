@@ -111,9 +111,10 @@ class ArmController:
         return self._run(lambda s: start + s * (goal - start), duration, goal, preempt, expect_contact)
 
     def follow(
-        self, waypoints: list[np.ndarray], preempt: threading.Event, expect_contact: bool = False
+        self, waypoints: list[np.ndarray], preempt: threading.Event, expect_contact: bool = False, speed: float = 1.0
     ) -> ArmResult:
-        """Execute joint waypoints from `plan_line` at the Cartesian speed limit."""
+        """Execute joint waypoints from `plan_line` at the Cartesian speed limit
+        (times `speed`: below 1 for gentle moves, like pouring)."""
         cfg = self._cfg
         if len(waypoints) < 2:
             return OK
@@ -123,7 +124,7 @@ class ArmController:
         duration = max(
             move_duration(length, cfg.cart_speed, cfg.cart_acc),
             move_duration(joint_distance, cfg.max_joint_vel, cfg.max_joint_acc),
-        )
+        ) / speed
 
         def along(s: float) -> np.ndarray:
             position = s * (len(points) - 1)

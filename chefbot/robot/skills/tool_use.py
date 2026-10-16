@@ -132,10 +132,8 @@ def _held_ends(stack: ArmStack, held: HeldObject, points: np.ndarray) -> tuple[n
         return None
     a, b = (lo + hi) / 2.0, (lo + hi) / 2.0
     a[axis], b[axis] = hi[axis], lo[axis]
-    tcp = stack.tcp_world()
-    local = (points - tcp[:3, 3]) @ tcp[:3, :3] if len(points) else np.zeros((0, 3))
-    mine = local[np.all((local >= lo - SEEN_MARGIN) & (local <= hi + SEEN_MARGIN), axis=1)]
-    if len(mine) < MIN_SEEN:
+    mine = held_points(stack, held, points)
+    if mine is None:
         return a, b
     middle = mine.mean(axis=0)
     direction = np.linalg.svd(mine - middle)[2][0]
@@ -143,6 +141,19 @@ def _held_ends(stack: ArmStack, held: HeldObject, points: np.ndarray) -> tuple[n
         direction = -direction
     along = (mine - middle) @ direction
     return middle + along.max() * direction, middle + along.min() * direction
+
+
+def held_points(stack: ArmStack, held: HeldObject, points: np.ndarray) -> np.ndarray | None:
+    """The depth points (TCP frame) on the held object now, in and around its
+    grasp-time box. None without a box or if too few are seen."""
+    if held.box_in_tcp is None or not len(points):
+        return None
+    corners = np.asarray(held.box_in_tcp, dtype=float)
+    lo, hi = corners.min(axis=0), corners.max(axis=0)
+    tcp = stack.tcp_world()
+    local = (points - tcp[:3, 3]) @ tcp[:3, :3]
+    mine = local[np.all((local >= lo - SEEN_MARGIN) & (local <= hi + SEEN_MARGIN), axis=1)]
+    return mine if len(mine) >= MIN_SEEN else None
 
 
 def _tip_poses(
