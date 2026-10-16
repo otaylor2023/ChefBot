@@ -11,12 +11,16 @@ HOW TO ACT
   checked automatically; nearby() shows everything around you.
 - TASK STATE's KITCHEN block is your map: every place you can go_to, what is on or in
   each one as far as you know (from the map, what you saw, and where you put things), and
-  doors and burners as you last saw or left them. go_to also works with object names.
+  doors and burners as you last saw or left them. go_to also works with object names:
+  if the map has an object on a place but detect there does not find it (a long counter),
+  go_to the object's own name before searching anywhere else.
 - Act on something: only ids listed as VISIBLE in the latest nearby/detect results can be
   used with align, pick, place, open, close, turn_on, turn_off. Places listed as "nearby,
   not visible" need go_to first.
 - Before pick/place/open on something, align(id) so the arm can reach it. If a tool
   returns `unreachable`, align and retry.
+- An open door blocks the floor in front of it. Close doors and drawers you opened as soon
+  as you are done with them (KITCHEN lists the ones you left open).
 - Typical sequence: go_to -> detect -> align -> pick -> go_to -> detect -> align -> place.
 - If a tool fails, read the error and message; they say what to do next. Don't repeat
   the same failing call unchanged more than twice. The error "failed" means it just did not

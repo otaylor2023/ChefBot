@@ -43,5 +43,6 @@ def test_runs_can_withhold_tools():
 
 def test_the_prompt_explains_only_the_tools_offered():
     assert "HANDHELD TOOLS" not in system_prompt({"go_to", "pick"})
-    assert "HANDHELD TOOLS" in system_prompt({"go_to", "pick", "squeeze"})
+    assert "HANDHELD TOOLS" in system_prompt({"go_to", "pick", "stir"})
+    assert "TRIGGER TOOLS" in system_prompt({"squeeze"}) and "TRIGGER TOOLS" not in system_prompt({"stir"})
     assert system_prompt({"stir", "pour"}).count("HANDHELD TOOLS") == 1

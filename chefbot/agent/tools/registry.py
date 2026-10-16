@@ -16,7 +16,16 @@ from chefbot.agent.tools.manip import HandheldTools, KitchenTools, ManipTools
 from chefbot.agent.tools.nav import NavTools
 from chefbot.agent.world.map import WorldMap
 from chefbot.interface.detector import Detector
-from chefbot.interface.robot_api import APPLIANCES, ARTICULATE, BASE, GRASP, HANDHELD_TOOLS, POUR, RobotAPI
+from chefbot.interface.robot_api import (
+    APPLIANCES,
+    ARTICULATE,
+    BASE,
+    GRASP,
+    HANDHELD_TOOLS,
+    POUR,
+    TRIGGER_TOOLS,
+    RobotAPI,
+)
 from chefbot.interface.types import ToolResult
 
 _WAIT_PARAM = {
@@ -242,7 +251,7 @@ TOOL_NEEDS: dict[str, frozenset[str]] = {
     "open": frozenset({ARTICULATE}), "close": frozenset({ARTICULATE}),
     "turn_on": frozenset({APPLIANCES}), "turn_off": frozenset({APPLIANCES}),
     "lower_into": frozenset({HANDHELD_TOOLS}), "lift_out": frozenset({HANDHELD_TOOLS}),
-    "squeeze": frozenset({HANDHELD_TOOLS}), "release": frozenset({HANDHELD_TOOLS}),
+    "squeeze": frozenset({TRIGGER_TOOLS}), "release": frozenset({TRIGGER_TOOLS}),
     "stir": frozenset({HANDHELD_TOOLS}),
     "pour": frozenset({POUR}),
 }  # fmt: skip

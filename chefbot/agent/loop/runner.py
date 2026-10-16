@@ -139,12 +139,14 @@ class AgentRunner:
         wall_clock: Callable[[], float] = time.monotonic,
         before_turn: Callable[["AgentSession"], None] | None = None,
         after_action: Callable[["AgentSession", str, dict, ToolResult, str | None], None] | None = None,
+        before_action: Callable[["AgentSession", str, dict, str | None], None] | None = None,
     ):
         self.s = session
         self._llm = llm
         self._on_limit = on_limit  # e.g. turn the burners off
         self._before_turn = before_turn  # test harnesses: disturbances
         self._after_action = after_action  # (session, tool, args, result, reasoning): printing, disturbances
+        self._before_action = before_action  # (session, tool, args, reasoning): video captions
         self._wall = wall_clock
         self._wall_start = wall_clock()
         self._last_error: str | None = None
@@ -225,6 +227,8 @@ class AgentRunner:
             args, result = {}, ToolResult(False, "invalid_arguments", f"{call.name}: arguments are not valid JSON ({exc})")
         else:
             s._in_wait = call.name == "wait" or call.name in _MOTION_TOOLS
+            if self._before_action is not None:
+                self._before_action(s, call.name, args, reply.text)
             try:
                 result = s.registry.dispatch(call.name, args)
             finally:

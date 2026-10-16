@@ -199,7 +199,13 @@ class NavTools:
                 continue
             on = described[e.id].get("on")
             holder_entry = next((x for x in entries if x.id == on), None) if on else None
-            holder = (holder_entry.map_name or holder_entry.id) if holder_entry else self._nearest_fixture(e.position_world)
+            known = self._map.get(e.map_name) if e.map_name else None
+            if holder_entry is not None:
+                holder = holder_entry.map_name or holder_entry.id
+            elif known is not None and known.inside and _xy_dist(e.position_world, known.location) <= _SAME_SPOT:
+                holder = self.kitchen.where[e.map_name].value if e.map_name in self.kitchen.where else known.inside
+            else:
+                holder = self._nearest_fixture(e.position_world)
             if holder is None:
                 continue
             name = e.map_name or e.id
@@ -252,8 +258,17 @@ class NavTools:
     def record_state(self, target: DetectionEntry, state: str) -> None:
         """You opened / closed / turned on / turned off `target` (a fixture, its handle, a burner)."""
         name = target.map_name or self.fixture_of_handle(target)
-        if name is not None:
-            self.kitchen.set_state(name, state, YOU, self.now())
+        if name is None:
+            # A door that is not on the map (one of many cabinets): it joins the map, so
+            # you can go_to it and close it again later.
+            base = target.label.removesuffix(" handle").replace(" ", "_")
+            n = 1
+            while self._map.get(f"{base}_{n}") is not None:
+                n += 1
+            name = f"{base}_{n}"
+            xy = target.position_world
+            self._map.put(MapEntry(name, (float(xy[0]), float(xy[1]))))
+        self.kitchen.set_state(name, state, YOU, self.now())
 
     def describe_where(self, obj: str) -> str:
         fact = self.kitchen.where.get(obj)
@@ -479,6 +494,7 @@ def _described(entry, entries) -> dict:
     return out
 
 
+_SAME_SPOT = 0.3  # m: an object seen this close to where you thought it was has not moved
 _PARTS = {"burner", "faucet", "knob", "shelf"}  # parts of fixtures, never loose objects
 _CONTAINERS = {"fridge", "cabinet", "microwave", "drawer", "oven", "toaster", "pan", "pot", "bowl", "mug", "sink", "egg cracker"}
 

@@ -24,7 +24,7 @@ from chefbot.interface.types import MotionStatus, ToolResult
 
 SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system.md"
 # Extra sections, included when the registry offers their tools.
-PROMPT_SECTIONS = {"squeeze": "handheld.md", "stir": "handheld.md", "pour": "handheld.md"}
+PROMPT_SECTIONS = {"stir": "handheld.md", "pour": "handheld.md", "squeeze": "trigger_tools.md"}
 
 
 def system_prompt(tool_names: set[str]) -> str:
@@ -220,7 +220,8 @@ class TaskState:
         how = [f"lowered into {use['lowered_into']}"] if use.get("lowered_into") else []
         how += ["squeezed"] if use.get("squeezing") else []
         holding = (obj_text(held) + (f"   [{', '.join(how)}]" if how else "")) if held else "nothing"
-        lines = ["KITCHEN  (what you know: from the map, and from what you have seen and done)",
+        lines = ["KITCHEN  (what you know: from the map, and from what you have seen and done;"
+                 " go_to an object's own name to stand in front of it)",
                  f"  holding: {holding}"]  # fmt: skip
         burners = [f for f in fixtures if f.label == "burner"]
         quiet = []
@@ -247,6 +248,9 @@ class TaskState:
             lines.append("  " + ", ".join(fixture_text(b.name) for b in burners))
         if quiet:
             lines.append("  " + ", ".join(quiet) + "   (nothing known on them)")
+        others = [n for n in belief.states if self._map.get(n) is None]  # doors not on the map (cabinets)
+        if others:
+            lines.append("  other doors: " + ", ".join(fixture_text(n) for n in others))
         known = {f.name for f in fixtures} | set(holder_of) | {"", held_id}
         stray = [o for o, h in holder_of.items() if h not in known]
         if stray:
