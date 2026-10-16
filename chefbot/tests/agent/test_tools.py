@@ -361,7 +361,7 @@ def test_schemas_cover_every_tool_and_state_the_workflow():
     names = [s["function"]["name"] for s in TOOL_SCHEMAS]
     assert names == [
         "go_to", "detect", "nearby", "align", "wait", "get_status", "stop", "get_pose",
-        "pick", "place", "open", "close", "holding",
+        "pick", "place", "open", "close", "turn_on", "turn_off", "holding",
     ]  # fmt: skip
     for schema in TOOL_SCHEMAS:
         function = schema["function"]

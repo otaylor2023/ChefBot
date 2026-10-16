@@ -25,7 +25,8 @@ def test_labels_drop_numeric_suffix():
     assert label_of("counter_2") == "counter"
     assert label_of("stove") == "stove"
     assert label_of("fridge handle_1") == "fridge handle"
-    assert label_of("egg_carton") == "egg_carton"
+    assert label_of("egg_carton") == "egg carton"  # underscores read as spaces
+    assert label_of("cutting_board_2") == "cutting board"
 
 
 def test_map_get_list_and_fields():
@@ -37,7 +38,7 @@ def test_map_get_list_and_fields():
     egg = world_map.get("egg_carton")
     assert (egg.kind, egg.inside) == ("object", "fridge")
     assert world_map.get("oven") is None
-    assert world_map.labels() == {"stove", "fridge", "counter", "egg_carton"}
+    assert world_map.labels() == {"stove", "fridge", "counter", "egg carton"}
 
 
 def test_map_in_range_sorted_by_distance():

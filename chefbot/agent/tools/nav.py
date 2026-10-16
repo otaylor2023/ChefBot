@@ -13,7 +13,8 @@ import numpy as np
 
 from chefbot.agent.config import AgentConfig
 from chefbot.agent.world.detections import DetectionEntry, Detections
-from chefbot.agent.world.map import MapEntry, WorldMap
+from chefbot.agent.world.kitchen import MAP, SEEN, YOU, KitchenBelief
+from chefbot.agent.world.map import MapEntry, WorldMap, label_of
 from chefbot.agent.world.nearby import NearbyView, build_nearby
 from chefbot.interface.detector import Detector
 from chefbot.interface.robot_api import RobotAPI
@@ -42,6 +43,20 @@ class NavTools:
         self.held: dict | None = None  # {"id", "label"} of the object in the gripper
         # Bookkeeping to run when the motion in progress ends (set by tools started with wait=False too).
         self._on_done = None
+        # Set by the agent loop (TimeTools): blocking waits wake on events.
+        self.time = None
+        # Map objects looked for close to where the map has them, and not seen: name -> times.
+        self.not_found: dict[str, int] = {}
+        # Things asked for and not found: label -> map fixtures that were in view each time.
+        self.searched: dict[str, set[str]] = {}
+        # The held tool: what it is lowered into, and whether its trigger is squeezed.
+        self.tool_use: dict = {"lowered_into": None, "squeezing": False}
+        # Door / burner states and where objects are (KITCHEN block); run time from `now`.
+        self.kitchen = KitchenBelief()
+        self.now = time.monotonic  # the agent loop sets its run clock
+        for e in world_map.list():
+            if e.kind == "object" and e.inside:
+                self.kitchen.put(e.name, e.inside, MAP, 0.0)
 
     # -- go_to ---------------------------------------------------------------
 
@@ -50,8 +65,15 @@ class NavTools:
         if entry is None:
             known = ", ".join(e.name for e in self._map.list())
             return ToolResult(False, "unknown_place", f'"{place}" is not on the map. Known places: {known}.')
+        self.tool_use["lowered_into"] = None  # the robot lifts a lowered tool out before driving
         self._robot.go_to_pose(self._approach_pose(entry))
-        return self.motion_tool_result(wait, f'go_to("{place}")', {"place": place})
+        result = self.motion_tool_result(wait, f'go_to("{place}")', {"place": place})
+        if entry.kind == "object" and result.success:
+            where = self.describe_where(place)
+            if where:
+                result.message += f"; {where}"
+                result.data["where"] = where
+        return result
 
     def _approach_pose(self, entry: MapEntry) -> Pose2D:
         # An object on or in a fixture is approached from the fixture's open side,
@@ -72,19 +94,42 @@ class NavTools:
     # -- detect --------------------------------------------------------------
 
     def detect(self, classes: list[str] | None = None) -> ToolResult:
-        requested = _unique(classes if classes else self._cfg.default_vocab)
+        objects = sorted({e.label for e in self._map.list() if e.kind == "object"})
+        # Classes are labels; a map name works too ("egg_cracker" -> "egg cracker").
+        asked = [c.replace("_", " ") for c in classes] if classes else None
+        requested = _unique(asked if asked else [*self._cfg.default_vocab, *objects])
         pose = self._robot.get_base_pose()
         in_range = self._map.in_range(pose, self._cfg.nearby_radius)
         query = _unique(requested + [e.label for e in in_range])
         raw = self._detector.detect(query)
 
         entries = self._build_entries(raw, in_range, pose)
+        self._name_held_contents(entries)
         self.detections.replace(entries)
 
         found = sorted(
             (e for e in entries if e.label in requested), key=lambda e: e.distance_to(pose)
         )
-        data = {"detections": [{"id": e.id, "label": e.label} for e in found]}
+        seen = {e.id for e in entries}
+        for m in in_range:
+            if m.kind != "object" or m.label not in requested:
+                continue
+            if m.name in seen:
+                self.not_found.pop(m.name, None)
+            elif _in_front(pose, m):  # it should have been in view
+                self.not_found[m.name] = self.not_found.get(m.name, 0) + 1
+        fixtures = {m.name for m in in_range if m.kind == "fixture" and m.label != "burner" and _in_front(pose, m)}
+        found_labels = {e.label for e in found}
+        for label in requested:
+            if label in found_labels:
+                self.searched.pop(label, None)
+            elif label not in self._map.labels() or any(
+                m.kind == "object" and m.label == label for m in self._map.list()
+            ):  # a thing, not a kind of fixture
+                self.searched.setdefault(label, set()).update(fixtures)
+        described = {e.id: _described(e, entries) for e in entries}
+        self._learn(entries, described)
+        data = {"detections": [described[e.id] for e in found]}
         if not found:
             return ToolResult(True, None, f"Nothing found for: {', '.join(requested)}.", data)
         return ToolResult(True, None, f"Found: {', '.join(e.id for e in found)}.", data)
@@ -97,7 +142,10 @@ class NavTools:
         def entry(det: Detection, id: str, map_name: str | None) -> DetectionEntry:
             position = np.asarray(det.position_world, dtype=float)
             near = None if det.near_point_world is None else np.asarray(det.near_point_world, dtype=float)
-            return DetectionEntry(id, det.label, position, float(det.confidence), pose, now, map_name, near)
+            return DetectionEntry(
+                id, det.label, position, float(det.confidence), pose, now, map_name, near,
+                getattr(det, "state", None), bool(getattr(det, "in_gripper", False)),
+            )  # fmt: skip
 
         # Fixtures stay where the map says; loose objects move, so an object seen
         # away from its map location is still reported (under a fresh id).
@@ -130,10 +178,133 @@ class NavTools:
 
     # -- nearby --------------------------------------------------------------
 
+    # -- what the agent believes about the kitchen (KITCHEN block) ---------------
+
+    def _learn(self, entries: list[DetectionEntry], described: dict[str, dict]) -> None:
+        """Fold a detect into the belief: states of doors and burners, and where
+        objects are. An object seen that the map does not have joins the map."""
+        now = self.now()
+        fixture_labels = {e.label for e in self._map.list() if e.kind == "fixture"}
+        for e in entries:
+            if e.state is not None:
+                name = e.map_name or self.fixture_of_handle(e)
+                if name is not None:
+                    self.kitchen.set_state(name, e.state, SEEN, now)
+        for e in entries:
+            if e.label in fixture_labels or e.label in _PARTS or e.label.endswith(" handle"):
+                continue  # fixtures and their parts are not loose objects
+            if e.in_gripper:
+                if self.held is not None:
+                    self.kitchen.put(e.map_name or e.id, self.held["id"], SEEN, now)
+                continue
+            on = described[e.id].get("on")
+            holder_entry = next((x for x in entries if x.id == on), None) if on else None
+            holder = (holder_entry.map_name or holder_entry.id) if holder_entry else self._nearest_fixture(e.position_world)
+            if holder is None:
+                continue
+            name = e.map_name or e.id
+            if e.map_name is None or self._map.get(name).inside != self._top(holder):
+                # Seen somewhere the map does not have it: the map follows.
+                self._map.put(MapEntry(name, (float(e.position_world[0]), float(e.position_world[1])),
+                                       kind="object", inside=self._top(holder)))  # fmt: skip
+                e.map_name = name
+            old = self.kitchen.where.get(name)
+            if old is None or old.value != holder:
+                self.kitchen.put(name, holder, SEEN, now)
+
+    def _name_held_contents(self, entries: list[DetectionEntry]) -> None:
+        """Things seen inside the held tool keep the names you know them by (egg_2 in the cracker)."""
+        held = self.held["id"] if self.held else None
+        inside = [o for o, f in self.kitchen.where.items() if held and f.value == held]
+        for e in entries:
+            if not e.in_gripper:
+                continue
+            match = next((o for o in inside if label_of(o) == e.label), None)
+            if match is not None:
+                e.id, e.map_name = match, None
+                inside.remove(match)
+
+    def held_contents(self, obj: str) -> list[str]:
+        """Everything believed to be in or on `obj`, at any depth."""
+        out, todo = [], [obj]
+        while todo:
+            holder = todo.pop()
+            for name, fact in self.kitchen.where.items():
+                if fact.value == holder and name not in out:
+                    out.append(name)
+                    todo.append(name)
+        return out
+
+    def record_place(self, obj: str, target: DetectionEntry) -> None:
+        """You put `obj` down on / in `target`: the map has it there now."""
+        holder = target.map_name or target.id
+        xy = target.target_world
+        self._map.put(MapEntry(obj, (float(xy[0]), float(xy[1])), kind="object", inside=self._top(holder)))
+        self.kitchen.put(obj, holder, YOU, self.now())
+        for inner in self.held_contents(obj):  # what was in it comes back with it
+            self._map.put(MapEntry(inner, (float(xy[0]), float(xy[1])), kind="object", inside=self._top(holder)))
+
+    def record_pick(self, obj: str) -> None:
+        self.kitchen.forget(obj)
+        for inner in self.held_contents(obj):  # its contents go with it: off the map, still believed inside
+            self._map.remove(inner)
+
+    def record_state(self, target: DetectionEntry, state: str) -> None:
+        """You opened / closed / turned on / turned off `target` (a fixture, its handle, a burner)."""
+        name = target.map_name or self.fixture_of_handle(target)
+        if name is not None:
+            self.kitchen.set_state(name, state, YOU, self.now())
+
+    def describe_where(self, obj: str) -> str:
+        fact = self.kitchen.where.get(obj)
+        if fact is None:
+            return ""
+        on = "in" if _is_container(fact.value) else "on"
+        ago = _ago(self.now() - fact.t)
+        if fact.source == YOU:
+            return f"you put the {label_of(obj)} {on} {fact.value} {ago} ago"
+        if fact.source == SEEN:
+            return f"the {label_of(obj)} was seen {on} {fact.value} {ago} ago"
+        return f"the map has the {label_of(obj)} {on} {fact.value}"
+
+    def fixture_of_handle(self, entry: DetectionEntry) -> str | None:
+        """The map fixture a handle (or another fixture part) belongs to."""
+        base = entry.label.removesuffix(" handle")
+        candidates = [m for m in self._map.list() if m.kind == "fixture" and m.label == base]
+        if not candidates:
+            return None
+        best = min(candidates, key=lambda m: _xy_dist(entry.position_world, m.location))
+        return best.name if _xy_dist(entry.position_world, best.location) <= 1.5 else None
+
+    def _nearest_fixture(self, position) -> str | None:
+        fixtures = [m for m in self._map.list() if m.kind == "fixture"]
+        if not fixtures:
+            return None
+        best = min(fixtures, key=lambda m: _xy_dist(position, m.location))
+        return best.name if _xy_dist(position, best.location) <= 1.0 else None
+
+    def _top(self, name: str) -> str:
+        """The map fixture a place is on or in (an object's holder, followed down)."""
+        seen = set()
+        while name not in seen:
+            seen.add(name)
+            entry = self._map.get(name)
+            if entry is None or entry.kind == "fixture":
+                return name
+            fact = self.kitchen.where.get(name)
+            name = fact.value if fact is not None else (entry.inside or name)
+        return name
+
+    def missing(self) -> set[str]:
+        """Map objects not found at their map spot twice or more: the map is wrong about them."""
+        return {name for name, times in self.not_found.items() if times >= _MISSING_AFTER}
+
     def _nearby(self) -> NearbyView:
-        return build_nearby(
-            self._map, self.detections, self._robot.get_base_pose(), self._cfg.nearby_radius
-        )
+        view = build_nearby(self._map, self.detections, self._robot.get_base_pose(), self._cfg.nearby_radius)
+        gone = self.missing()
+        if gone:
+            view.not_visible = [e for e in view.not_visible if e.name not in gone]
+        return view
 
     def nearby(self) -> ToolResult:
         view = self._nearby()
@@ -203,6 +374,8 @@ class NavTools:
     # -- motion status ---------------------------------------------------------
 
     def wait(self, timeout_s: float | None = None) -> ToolResult:
+        if self.time is not None:
+            return self.time.wait(timeout_s, finish=lambda result: self._from_motion(result, "wait"))
         return self._from_motion(self._robot.wait(timeout_s), "wait")
 
     def get_status(self) -> ToolResult:
@@ -236,8 +409,22 @@ class NavTools:
             self.held = None  # dropped while driving
 
     def _motion_tool_result(self, wait: bool, what: str, data: dict) -> ToolResult:
+        if wait and self.time is not None:
+            result, events, why = self.time.await_events()
+            if why != "event":
+                return self._from_motion(result, what, data)
+            # Woken by an event: the motion keeps going.
+            self.time.note_motion(what, True)
+            return ToolResult(
+                True, None,
+                f"{what} is still running; woke for: " + "; ".join(e.message for e in events)
+                + ". Call wait to keep waiting for it, or stop to cancel it.",
+                {**data, "status": MotionStatus.MOVING, "events": [e.to_dict() for e in events]},
+            )  # fmt: skip
         if wait:
             return self._from_motion(self._robot.wait(), what, data)
+        if self.time is not None:
+            self.time.note_motion(what, True)
         return ToolResult(
             True,
             None,
@@ -253,6 +440,56 @@ class NavTools:
         ok = result.status in _OK_STATUSES
         message = f"{what}: {result.status}" + (f" ({result.message})" if result.message else "")
         return ToolResult(ok, None if ok else result.status, message, data)
+
+
+_LOOKED_CLOSE = 2.0  # m: a map object this close that a detect asked for and did not see is "not found"
+_MISSING_AFTER = 2  # not found at its map spot this many times: treated as missing
+_SEARCH_RANGE = 1.5  # m: a fixture this close and in front counts as searched by a detect
+_SEARCH_HALF_ANGLE = math.radians(60)
+
+
+def _in_front(pose: Pose2D, entry: MapEntry) -> bool:
+    dx, dy = entry.location[0] - pose.x, entry.location[1] - pose.y
+    if math.hypot(dx, dy) > _SEARCH_RANGE:
+        return False
+    off = math.atan2(dy, dx) - pose.yaw
+    return abs(math.atan2(math.sin(off), math.cos(off))) <= _SEARCH_HALF_ANGLE
+_HOLDERS = {"burner", "pan", "pot", "plate", "bowl", "toaster", "cutting board", "mug"}
+_ON_RADIUS = 0.1  # m: an object this close (xy) above a holder is on / in it
+
+
+def _described(entry, entries) -> dict:
+    """A detection for the agent: id, label, and what it sits on or in, from the positions."""
+    out = {"id": entry.id, "label": entry.label}
+    if entry.state is not None:
+        out["state"] = entry.state
+    if entry.in_gripper:
+        out["in_gripper"] = True
+        return out
+    if entry.label == "burner":
+        return out
+    p = entry.position_world
+    under = [
+        e for e in entries
+        if e is not entry and e.label in _HOLDERS and e.label != entry.label
+        and float(np.linalg.norm(e.position_world[:2] - p[:2])) <= _ON_RADIUS and e.position_world[2] <= p[2]
+    ]  # fmt: skip
+    if under:
+        out["on"] = max(under, key=lambda e: e.position_world[2]).id
+    return out
+
+
+_PARTS = {"burner", "faucet", "knob", "shelf"}  # parts of fixtures, never loose objects
+_CONTAINERS = {"fridge", "cabinet", "microwave", "drawer", "oven", "toaster", "pan", "pot", "bowl", "mug", "sink", "egg cracker"}
+
+
+def _is_container(name: str) -> bool:
+    return label_of(name) in _CONTAINERS
+
+
+def _ago(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    return f"{seconds // 60}:{seconds % 60:02d}"
 
 
 def _unique(items) -> list[str]:

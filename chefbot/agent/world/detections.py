@@ -20,6 +20,8 @@ class DetectionEntry:
     timestamp: float
     map_name: str | None = None  # set when matched to a map entry
     near_point_world: np.ndarray | None = None  # big things: the part nearest the robot when seen
+    state: str | None = None  # "open" / "closed" / "on" / "off" when the detector can tell
+    in_gripper: bool = False  # inside what the gripper holds
 
     @property
     def target_world(self) -> np.ndarray:

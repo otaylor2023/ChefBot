@@ -142,15 +142,18 @@ def test_place_puts_it_on_the_named_surface_and_it_can_be_seen_again():
     assert [d["id"] for d in found.data["detections"]] == ["mug_1"]
 
 
-def test_an_object_put_down_somewhere_new_gets_a_fresh_id():
+def test_an_object_put_down_somewhere_new_keeps_its_name_on_the_map():
     registry, robot, detector = make()
     seen(registry)
     registry.dispatch("pick", {"id": "egg"})
+    assert registry.tools._map.get("egg") is None  # in the gripper: not a place to go to
     registry.dispatch("place", {"id": "stove"})
+    assert registry.tools._map.get("egg").inside == "stove"  # back on the map, where it was put
     detector.objects[0] = ("egg", (4.4, 0.3, 0.95))  # now on the stove, far from where the map had it
-    registry.dispatch("go_to", {"place": "stove"})
+    went = registry.dispatch("go_to", {"place": "egg"})
+    assert went.success and "you put the egg on stove" in went.message
     found = registry.dispatch("detect", {"classes": ["egg"]})
-    assert [d["id"] for d in found.data["detections"]] == ["egg_1"]
+    assert [d["id"] for d in found.data["detections"]] == ["egg"]
 
 
 def test_place_error_paths():

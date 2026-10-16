@@ -19,8 +19,9 @@ _SUFFIX = re.compile(r"_\d+$")
 
 
 def label_of(name: str) -> str:
-    """A map entry's label is its name minus any `_n` suffix (counter_2 -> counter)."""
-    return _SUFFIX.sub("", name)
+    """A map entry's label is its name minus any `_n` suffix, with underscores read
+    as spaces: counter_2 -> counter, egg_cracker -> egg cracker."""
+    return _SUFFIX.sub("", name).replace("_", " ")
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,10 @@ class WorldMap:
 
     def get(self, name: str) -> MapEntry | None:
         return self._entries.get(name)
+
+    def put(self, entry: MapEntry) -> None:
+        """Add an entry, or replace the one with its name (an object put down or seen somewhere new)."""
+        self._entries[entry.name] = entry
 
     def remove(self, name: str) -> None:
         """Forget an entry (an object that has been picked up is no longer where the map says)."""

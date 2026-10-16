@@ -21,3 +21,25 @@ default_vocab:              # detect() with no classes
   - cabinet handle
   - drawer handle
   - faucet
+
+# -- The agent loop (AGENT_SPEC §10) -------------------------------------------
+loop:
+  model: anthropic/claude-sonnet-5.5        # OpenRouter model id; key from OPENROUTER_API_KEY or .env
+  judge_model: anthropic/claude-haiku-5.5   # StateChecker
+  provider: {order: [anthropic], allow_fallbacks: false}   # pin the provider for reproducibility
+  judge_temperature: 0.0
+  time_mode: paused          # paused: sim time stops while the LLM thinks; realtime: it keeps running
+  window_n: 8                # tool calls kept in the rolling window
+  max_reprompts: 2           # text-only replies in a row before it counts as an error
+  stale_after_calls: 5       # perception: possibly stale after this many calls
+  stale_move_m: 0.05         # ... or after the base moved this far / turned this much
+  stale_turn_deg: 5.0
+  clear_move_m: 0.5          # perception cleared after the base moved this far / turned this much
+  clear_turn_deg: 30.0
+  empty_burner_s: 30.0       # safety: a lit burner with nothing on it is turned off after this
+  max_turns: 150
+  max_llm_cost_usd: 5.0
+  max_sim_time_s: 1800
+  max_wall_time_s: 3600
+  max_consecutive_errors: 5  # the same error this many times in a row ends the run
+  log_full_requests: true    # write every LLM request + response to runs/<run>/requests/

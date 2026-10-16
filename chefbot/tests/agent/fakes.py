@@ -62,6 +62,10 @@ class FakeRobot(RobotAPI):
             return
         self._start(self.pose, data={"scripted": True})
 
+    def set_power(self, appliance: Detection, on: bool) -> None:
+        self.power = getattr(self, "power", []) + [(appliance, on)]
+        self._start(self.pose, data={"scripted": True})
+
     def get_held(self) -> HeldObject | None:
         return self.held
 
