@@ -62,11 +62,17 @@ class RoboCasaKitchen:
             seen[label] = seen.get(label, 0) + 1
             name = label if labels.count(label) == 1 else f"{label}_{seen[label]}"
             self.objects.append((name.replace(" ", "_"), label, body))
-        # Utensils have an adaptive handle: a two-finger pinch on a bare spoon
-        # handle twists and slips at the first push on the food (it pivots about
-        # the pads), so the gripper locks onto it once closed (env.lockable).
+        # Utensils and cookware have an adaptive handle: a two-finger pinch on a
+        # bare spoon handle twists and slips at the first push on the food, and a
+        # pan swings nose-down about the pads under its own weight, so the gripper
+        # locks onto them once closed (env.lockable). Cookware keeps its contacts.
         with env.lock:
-            env.lockable |= {int(env.model.body_rootid[body]) for _, label, body in self.objects if label in UTENSILS}
+            roots = {label: set() for label in UTENSILS | COOKWARE}
+            for _, label, body in self.objects:
+                if label in roots:
+                    roots[label].add(int(env.model.body_rootid[body]))
+            env.lockable |= set().union(*roots.values())
+            env.keeps_contacts |= set().union(*(roots[label] for label in COOKWARE))
             # A locked utensil touches only the food (env.TOOL_BIT).
             for _, label, body in self.objects:
                 if label in FOOD:
@@ -202,7 +208,8 @@ class RoboCasaKitchen:
                 and np.prod(ohi[:2] - olo[:2]) > np.prod(hi[:2] - lo[:2])
             ]  # fmt: skip
             if under:
-                other, olabel = max(under, key=lambda o: boxes[o[0]][3][2])
+                # In a container wins (a tomato leaning on the corn in the pan is in the pan), then the highest.
+                other, olabel = max(under, key=lambda o: (o[1] in CONTAINERS, boxes[o[0]][3][2]))
                 out[name] = ("inside" if olabel in CONTAINERS else "on", other)
                 continue
             burner = next((b for b in self._burners

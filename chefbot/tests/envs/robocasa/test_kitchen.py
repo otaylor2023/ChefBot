@@ -9,6 +9,7 @@ from chefbot.agent.tools.registry import ToolRegistry
 from chefbot.envs.robocasa.appliances import burner_on, burner_position, burners, set_burner
 from chefbot.envs.robocasa.detector import scene_objects
 from chefbot.envs.robocasa.kitchen_state import RoboCasaClock, RoboCasaKitchen
+from chefbot.envs.robocasa.objects import object_points
 from chefbot.envs.symbolic.world import Timing
 
 pytestmark = pytest.mark.robocasa
@@ -92,3 +93,35 @@ def test_an_empty_lit_burner_is_turned_off(stack):
     assert not burner_on(env, burner)
     [(message, _)] = kitchen.safety(clock.now())
     assert "nothing on it" in message
+
+
+def test_food_rides_in_a_held_pan_and_pours_into_a_bowl(stack):
+    stack.reset()
+    env = stack.env
+    kitchen = RoboCasaKitchen(env, stack.robot._fixture_actuator)  # pans and utensils lock in the grip
+    pan = next(b for _, l, b in scene_objects(env) if l == "pan")
+    points = object_points(env, pan)
+    floor = points[points[:, 2] < points[:, 2].min() + 0.01]
+    put(env, "egg", (floor.min(axis=0) + floor.max(axis=0)) / 2 + [0, 0, 0.04])  # in the pan's bowl
+    settle(env)
+    assert "egg: inside pan" in kitchen.describe()
+    registry = ToolRegistry(stack.robot, stack.detector, stack.world_map, AgentConfig.load())
+
+    def call(name, **args):
+        result = registry.dispatch(name, args)
+        assert result.success, result.message
+        return result
+
+    call("go_to", place="pan")
+    call("detect", classes=["pan"])
+    call("align", id="pan")
+    call("pick", id="pan")
+    call("go_to", place="bowl")
+    egg = env.data.xpos[next(b for _, l, b in scene_objects(env) if l == "egg")]
+    assert np.linalg.norm(egg[:2] - env.data.xpos[pan][:2]) < 0.15, "the egg fell out of the pan on the way"
+    call("detect", classes=["bowl"])
+    call("align", id="bowl")
+    call("pour", id="bowl")
+    settle(env)
+    assert "egg: inside bowl" in kitchen.describe()
+    assert registry.dispatch("holding", {}).data["holding"]["label"] == "pan"  # still holding it, level again

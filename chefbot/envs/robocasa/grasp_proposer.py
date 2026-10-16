@@ -28,7 +28,7 @@ from chefbot.envs.robocasa.handles import detect_handle
 from chefbot.envs.robocasa.objects import find_object, object_points
 from chefbot.interface.proposers import GraspProposer
 from chefbot.interface.types import Detection, Grasp
-from chefbot.grasping.handle import handle_grasps, tcp_pose
+from chefbot.grasping.handle import GRIP_FROM_BODY, handle_grasps, tcp_pose
 
 STROKE = 0.085  # 2F-85: widest gap between the pads
 _FIT_MARGIN = 0.004  # an object must be this much narrower than the stroke
@@ -36,6 +36,7 @@ _FINGERTIP = 0.019  # the pads reach this far beyond the grip point
 _TABLE_CLEARANCE = 0.004  # fingertips stay this far above what the object stands on
 _BAND = 0.015  # half-height of the slice of the object the fingers close on
 _MIN_WALL = 0.002
+_HANDLE_GRIPS = (GRIP_FROM_BODY, 0.09, 0.13)  # m from where the handle leaves the body
 _RIM_DEPTH = 0.015  # grip point this far below a container's rim
 _RIM_ANGLES_DEG = (0, 25, -25, 50, -50, 80, -80)  # around the rim, starting on the robot's side
 _DOWN = np.array([0.0, 0.0, -1.0])
@@ -152,7 +153,13 @@ class GroundTruthGraspProposer(GraspProposer):
         handle = detect_handle(points)
         if handle is None:
             return []
-        return handle_grasps(points, handle, floor_clearance=_FINGERTIP + _TABLE_CLEARANCE)
+        # Near the body first (least leverage), then further out: food in a pan can lean
+        # over the rim onto the base of the handle.
+        return [
+            grasp
+            for k, out in enumerate(_HANDLE_GRIPS)
+            for grasp in handle_grasps(points, handle, _FINGERTIP + _TABLE_CLEARANCE, out, 0.8 - 0.1 * k)
+        ]
 
     def _rim(self, points: np.ndarray, robot_xy: np.ndarray) -> list[Grasp]:
         """Fingers astride the wall of an open container, nearest the robot first."""

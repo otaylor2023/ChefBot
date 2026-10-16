@@ -36,6 +36,12 @@ _BASE_ACTUATORS = ("mobilebase0_actuator_mobile_forward", "mobilebase0_actuator_
 _ARM_JOINTS = tuple(f"robot0_joint{i}" for i in range(1, 8))
 _ARM_PART, _GRIPPER_PART = "right", "right_gripper"
 TOOL_BIT = 1 << 3  # collision bit a locked utensil keeps: only geoms with it in their conaffinity touch it
+LOCKED_MASS = 0.5  # kg: a locked object is at least this heavy while held (well over what is in it)
+CARRY_TILT = 70.0  # deg: a locked container held still tipped further lets go of what is in it: it falls out
+# past the lip (on a gentler slope the thin pan floors let food sink through; while it still turns,
+# its floor would sweep what is falling out sideways)
+CARRY_STILL = 0.05  # rad/s: turning slower than this is held still
+CARRY_ABOVE = 0.06  # m above a container's rim that still counts as in it
 _GRIPPER_PREFIX = "gripper0_right_"
 # Arm links that count for `arm_in_contact`. The first two links sit on the
 # base and never reach anything; the gripper body counts, its fingers do not.
@@ -170,8 +176,13 @@ class RoboCasaEnv(Env):
         # the grip frame).
         self.lockable: set[int] = set()
         self._locked: tuple[int, np.ndarray] | None = None
+        self._lock_scale = 1.0
+        self._carried: list[tuple[int, np.ndarray]] = []  # (body, pose in the locked container)
+        self._carried_up = np.array([0.0, 0.0, 1.0])  # world up, in the container's frame when locked
         # While locked it touches only geoms with TOOL_BIT in their conaffinity
         # (the food): held rigidly it would shove the pan along by its rim.
+        # Except these (cookware: a pan stands on burners and holds the food).
+        self.keeps_contacts: set[int] = set()
         self._unlocked_bits: dict[int, tuple[int, int]] = {}
         for geom in set().union(*self._pad_geoms.values()):  # the pads keep their grip on it
             model.geom_conaffinity[geom] |= TOOL_BIT
@@ -296,8 +307,12 @@ class RoboCasaEnv(Env):
             self._gripper_closed = False
             self._set_locked(None)
             self._command_world = np.zeros(3)
-        for _ in range(10):
+        width = None
+        for tick in range(4 * self.config.control_freq):  # until the gripper has opened (from a closed grip, too)
             self.wait_for_next_tick(1.0 / self.config.control_freq)
+            before, width = width, self.get_state().gripper_width
+            if tick >= 10 and abs(width - before) < 1e-4:
+                break
 
     def tcp_pose(self) -> np.ndarray:
         """World pose (4x4) of the gripper's grip site."""
@@ -346,7 +361,7 @@ class RoboCasaEnv(Env):
         return pose
 
     def _hold_locked(self) -> None:
-        """Keep a locked utensil where the grip holds it; lock or release with the gripper."""
+        """Keep a locked object where the grip holds it; lock or release with the gripper."""
         if not self._gripper_closed:
             if self._locked is not None:
                 self._set_locked(None)
@@ -359,6 +374,21 @@ class RoboCasaEnv(Env):
             return
         body, in_grip = self._locked
         pose = self._grip_pose() @ in_grip
+        grip = np.zeros(6)  # angular, linear (world)
+        if body in self.keeps_contacts:
+            mujoco.mj_objectVelocity(self.model, self.data, mujoco.mjtObj.mjOBJ_SITE, self.grip_site, grip, 0)
+        # (A utensil stays put between ticks: moving, it would shove the food out of the pan.)
+        self._drive(body, pose, grip)
+        for other, in_body in self._carried:
+            self._drive(other, pose @ in_body, grip)  # also on the last tick: let go moving with the pan
+        tipped = (pose[:3, :3] @ self._carried_up)[2] < math.cos(math.radians(CARRY_TILT))
+        if self._carried and tipped and np.linalg.norm(grip[:3]) < CARRY_STILL:
+            self._carry(None)  # held tipped: what is in it falls out (pouring)
+        mujoco.mj_kinematics(self.model, self.data)
+
+    def _drive(self, body: int, pose: np.ndarray, grip: np.ndarray) -> None:
+        """Put a free body at `pose`, moving with the grip until the next tick (not
+        falling and snapping back up, which tosses what is in a pan)."""
         joint = int(self.model.body_jntadr[body])
         if joint < 0 or self.model.jnt_type[joint] != mujoco.mjtJoint.mjJNT_FREE:
             return
@@ -366,21 +396,78 @@ class RoboCasaEnv(Env):
         quat = np.zeros(4)
         mujoco.mju_mat2Quat(quat, pose[:3, :3].reshape(-1))
         self.data.qpos[qpos : qpos + 7] = np.concatenate([pose[:3, 3], quat])
-        self.data.qvel[dof : dof + 6] = 0.0
-        mujoco.mj_kinematics(self.model, self.data)
+        spin = grip[:3]
+        self.data.qvel[dof : dof + 3] = grip[3:] + np.cross(spin, pose[:3, 3] - self.data.site_xpos[self.grip_site])
+        self.data.qvel[dof + 3 : dof + 6] = pose[:3, :3].T @ spin  # a free joint's spin is in its own frame
 
     def _set_locked(self, lock: tuple[int, np.ndarray] | None) -> None:
         model = self.model
+        self._carry(None)
         for geom, (contype, conaffinity) in self._unlocked_bits.items():
             model.geom_contype[geom], model.geom_conaffinity[geom] = contype, conaffinity
         self._unlocked_bits = {}
+        if self._locked is not None:
+            bodies = model.body_rootid == self._locked[0]
+            model.body_gravcomp[bodies] = 0.0
+            model.body_mass[bodies] /= self._lock_scale
+            model.body_inertia[bodies] /= self._lock_scale
+            self._lock_scale = 1.0
         self._locked = lock
-        if lock is not None:
-            for geom in np.flatnonzero(model.body_rootid[model.geom_bodyid] == lock[0]):
-                geom = int(geom)
-                if model.geom_contype[geom] or model.geom_conaffinity[geom]:
-                    self._unlocked_bits[geom] = (int(model.geom_contype[geom]), int(model.geom_conaffinity[geom]))
-                    model.geom_contype[geom] = model.geom_conaffinity[geom] = TOOL_BIT
+        if lock is None:
+            return
+        if lock[0] in self.keeps_contacts:
+            # Gravity off and heavy, as if driven by the arm: what is in a light pan
+            # would otherwise weigh it down between ticks and the lock would snap its
+            # thin floor up through the food.
+            bodies = model.body_rootid == lock[0]
+            self._lock_scale = max(1.0, LOCKED_MASS / float(model.body_subtreemass[lock[0]]))
+            model.body_gravcomp[bodies] = 1.0
+            model.body_mass[bodies] *= self._lock_scale
+            model.body_inertia[bodies] *= self._lock_scale
+            self._carry(lock[0])
+            return
+        for geom in np.flatnonzero(model.body_rootid[model.geom_bodyid] == lock[0]):
+            geom = int(geom)
+            if model.geom_contype[geom] or model.geom_conaffinity[geom]:
+                self._unlocked_bits[geom] = (int(model.geom_contype[geom]), int(model.geom_conaffinity[geom]))
+                model.geom_contype[geom] = model.geom_conaffinity[geom] = TOOL_BIT
+
+    def _carry(self, container: int | None) -> None:
+        """What is in a locked container rides along with it while it is held about
+        level (a level pan keeps its food; the sim's thin pan floors let food sink
+        through when lifted); dropped from it once held still tipped past CARRY_TILT.
+        None: let go of what is carried."""
+        model = self.model
+        for other, _ in self._carried:
+            model.body_gravcomp[model.body_rootid == other] = 0.0
+        self._carried = []
+        if container is None:
+            return
+        lo, hi = self._world_box(container)
+        pose = self._body_pose(container)
+        for other in range(1, model.nbody):
+            joint = int(model.body_jntadr[other])
+            if (model.body_parentid[other] != 0 or other == container or joint < 0 or self.is_robot_body(other)
+                    or model.jnt_type[joint] != mujoco.mjtJoint.mjJNT_FREE):  # fmt: skip
+                continue
+            middle = self.data.subtree_com[other]
+            if np.all(middle[:2] >= lo[:2]) and np.all(middle[:2] <= hi[:2]) and lo[2] <= middle[2] <= hi[2] + CARRY_ABOVE:
+                self._carried.append((other, np.linalg.inv(pose) @ self._body_pose(other)))
+                model.body_gravcomp[model.body_rootid == other] = 1.0
+        self._carried_up = pose[:3, :3].T @ [0.0, 0.0, 1.0]
+
+    def _world_box(self, root: int) -> tuple[np.ndarray, np.ndarray]:
+        """World min / max corners of a body's collision geometry."""
+        model, data = self.model, self.data
+        corners = []
+        for geom in np.flatnonzero(model.body_rootid[model.geom_bodyid] == root):
+            if not (model.geom_contype[geom] or model.geom_conaffinity[geom]):
+                continue
+            center, half = model.geom_aabb[geom, :3], model.geom_aabb[geom, 3:]
+            local = center + half * (2 * np.array([[i, j, k] for i in (0, 1) for j in (0, 1) for k in (0, 1)]) - 1)
+            corners.append(local @ data.geom_xmat[geom].reshape(3, 3).T + data.geom_xpos[geom])
+        points = np.concatenate(corners) if corners else data.xpos[root][None]
+        return points.min(axis=0), points.max(axis=0)
 
     def _grasped_roots(self, pairs: list[tuple[int, int]] | None = None) -> set[int]:
         locked = {self._locked[0]} if self._locked is not None else set()
