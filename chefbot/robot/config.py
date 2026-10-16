@@ -66,6 +66,13 @@ class RobotConfig:
     lift_height: float = 0.12
     retreat_height: float = 0.10
     skill_timeout_s: float = 60.0
+    # Arm motion checked and planned against a depth camera's view (robot/kinematics/collision.py)
+    planning_cameras: tuple = ()  # none: no world model, arm moves go straight unchecked
+    planning_voxel: float = 0.02
+    self_filter_margin: float = 0.07
+    base_box: tuple[float, float, float] = (0.80, 0.60, 1.0)
+    planning_timeout_s: float = 5.0
+    shorter_offsets: tuple = (0.06, 0.04)
     # IK
     ik_pose_pos_tolerance: float = 0.002
     ik_pose_rot_tolerance: float = math.radians(1.0)
@@ -89,6 +96,7 @@ class RobotConfig:
         tol, standoff, ik = raw["tolerances"], raw["standoff"], raw["ik"]
         tcp, arm, gripper, skills = raw["tcp"], raw["arm"], raw["gripper"], raw["skills"]
         joint_limits = raw.get("joint_limits")
+        planning = raw.get("planning") or {}
         return cls(
             footprint_radius=raw["footprint_radius"],
             safety_margin=raw["safety_margin"],
@@ -116,6 +124,12 @@ class RobotConfig:
             lift_height=skills["lift_height"],
             retreat_height=skills["retreat_height"],
             skill_timeout_s=skills["motion_timeout_s"],
+            planning_cameras=tuple(planning.get("cameras") or ()),
+            planning_voxel=planning.get("voxel", cls.planning_voxel),
+            self_filter_margin=planning.get("self_filter_margin", cls.self_filter_margin),
+            base_box=tuple(planning.get("base_box", cls.base_box)),
+            planning_timeout_s=planning.get("timeout_s", cls.planning_timeout_s),
+            shorter_offsets=tuple(planning.get("shorter_offsets", cls.shorter_offsets)),
             ik_pose_pos_tolerance=ik["pose_pos_tolerance"],
             ik_pose_rot_tolerance=math.radians(ik["pose_rot_tolerance_deg"]),
             control_rate=raw["control_rate"],

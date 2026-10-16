@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import threading
 
+import numpy as np
+
 from chefbot.interface.proposers import PlacementProposer
 from chefbot.interface.types import Detection, HeldObject, MotionStatus
 from chefbot.robot.arm.arm_controller import ArmResult
 from chefbot.robot.safety import require_base_at_rest
-from chefbot.robot.skills.common import ArmStack, plan_approach, shifted
+from chefbot.robot.skills.common import ArmStack, distances, follow_path, plan_approach, shifted, to_ready
 
 
 def run_place(
@@ -29,23 +31,28 @@ def run_place(
     if not placements:
         return ArmResult(MotionStatus.NO_PLACEMENT, f"no free spot for the {held.label} on {surface.label}"), held
 
+    # What the camera sees now, less the object in the hand.
+    world = stack.workspace([_held_box(stack, held)])
     plan = None
     for placement in sorted(placements, key=lambda p: -p.score):
         release = stack.to_arm(placement.tcp_pose_world)
-        above = shifted(release, [0.0, 0.0, placement.preplace_offset])
+        heights = distances(placement.preplace_offset, cfg.shorter_offsets)
+        above = [shifted(release, [0.0, 0.0, h]) for h in heights]
         # Leave no higher than the approach came from: that much room is known to be free.
-        up = min(cfg.retreat_height, placement.preplace_offset)
-        plan = plan_approach(stack, above, release, shifted(release, [0.0, 0.0, up]))
+        ups = distances(min(cfg.retreat_height, placement.preplace_offset), cfg.shorter_offsets)
+        plan = plan_approach(stack, world, above, release, [shifted(release, [0.0, 0.0, up]) for up in ups])
         if plan is not None:
             break
     if plan is None:
+        where = " clear of what is around it" if world.checked else ""
         return ArmResult(
-            MotionStatus.UNREACHABLE, f"the arm cannot reach a spot on {surface.label} from here; align to it first"
+            MotionStatus.UNREACHABLE,
+            f"the arm cannot reach a spot on {surface.label}{where} from here; align to it first",
         ), held
 
     for step in (
-        lambda: arm.move_joints(stack.ready, preempt),
-        lambda: arm.move_joints(plan.q_approach, preempt),
+        lambda: to_ready(stack, world, preempt),
+        lambda: follow_path(stack, plan.into, preempt),
         # Setting the object down: contact is expected.
         lambda: arm.follow(plan.line_in, preempt, expect_contact=True),
     ):
@@ -56,7 +63,7 @@ def run_place(
         return ArmResult(MotionStatus.STOPPED, "motion was stopped"), None
     for step in (
         lambda: arm.follow(plan.line_out, preempt, expect_contact=True),
-        lambda: arm.move_joints(stack.ready, preempt),
+        lambda: follow_path(stack, plan.back, preempt),
     ):
         result = step()
         if not result.ok:
@@ -64,3 +71,12 @@ def run_place(
     if not gripper.is_open():
         return ArmResult(MotionStatus.ERROR, "the gripper did not open fully after the release"), None
     return ArmResult(MotionStatus.SUCCESS, f"placed the {held.label} on {surface.label}"), None
+
+
+def _held_box(stack: ArmStack, held: HeldObject) -> np.ndarray | None:
+    """World box (2, 3) around the held object where it hangs now, or None if unknown."""
+    if held.box_in_tcp is None:
+        return None
+    tcp = stack.tcp_world()
+    corners = np.asarray(held.box_in_tcp, dtype=float) @ tcp[:3, :3].T + tcp[:3, 3]
+    return np.array([corners.min(axis=0), corners.max(axis=0)])

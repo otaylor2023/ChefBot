@@ -14,7 +14,7 @@ import numpy as np
 from chefbot.interface.env import Env
 from chefbot.interface.fixtures import OPEN, UNKNOWN, FixtureActuator
 from chefbot.interface.proposers import GraspProposer, PlacementProposer
-from chefbot.interface.robot_api import RobotAPI
+from chefbot.interface.robot_api import ARTICULATE, BASE, GRASP, RobotAPI
 from chefbot.interface.types import Detection, HeldObject, MotionResult, MotionStatus, Pose2D
 from chefbot.robot.arm.arm_controller import ArmController, ArmResult
 from chefbot.robot.arm.gripper import Gripper
@@ -49,6 +49,7 @@ class Robot(RobotAPI):
         placement_proposer: PlacementProposer | None = None,
         fixture_actuator: FixtureActuator | None = None,
     ):
+        from chefbot.robot.kinematics.collision import ArmCollisionModel
         from chefbot.robot.kinematics.reachability import ReachabilityChecker
 
         self._env = env
@@ -60,8 +61,9 @@ class Robot(RobotAPI):
         frames = ReachabilityChecker(self._cfg)
         self._reachability = reachability or frames
         self._arm = ArmStack(
-            env, self._cfg, frames.ik, ArmController(env, frames.ik, self._cfg), Gripper(env, self._cfg), frames
-        )
+            env, self._cfg, frames.ik, ArmController(env, frames.ik, self._cfg), Gripper(env, self._cfg), frames,
+            ArmCollisionModel(frames.ik.model),
+        )  # fmt: skip
         self._grasp_proposer = grasp_proposer
         self._placement_proposer = placement_proposer
         self._fixture_actuator = fixture_actuator
@@ -85,6 +87,19 @@ class Robot(RobotAPI):
 
     def actuate_fixture(self, fixture: Detection, open: bool) -> None:
         self._motion.start(lambda preempt: self._run_actuate(fixture, bool(open), preempt))
+
+    def capabilities(self) -> frozenset[str]:
+        # Burner knobs: AGENT_SPEC stage 2. Handheld tools and pouring: not in this robot layer yet.
+        return frozenset({BASE, GRASP, ARTICULATE})
+
+    def use_tool(self, action: str, target: Detection | None = None, seconds: float | None = None) -> None:
+        self._motion.start(lambda preempt: self._result(MotionStatus.UNSUPPORTED, f"{action} is not supported here"))
+
+    def set_power(self, appliance: Detection, on: bool) -> None:
+        # Burner knobs come with the RoboCasa stage of AGENT_SPEC (§5.4).
+        self._motion.start(
+            lambda preempt: self._result(MotionStatus.UNSUPPORTED, f"turning the {appliance.label} on or off is not supported here yet")
+        )
 
     def wait(self, timeout_s: float | None = None) -> MotionResult:
         return self._motion.wait(timeout_s)

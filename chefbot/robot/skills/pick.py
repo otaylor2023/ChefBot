@@ -10,7 +10,15 @@ from chefbot.interface.proposers import GraspProposer
 from chefbot.interface.types import Detection, HeldObject, MotionStatus
 from chefbot.robot.arm.arm_controller import ArmResult
 from chefbot.robot.safety import require_base_at_rest
-from chefbot.robot.skills.common import ArmStack, plan_approach, shifted
+from chefbot.robot.skills.common import (
+    ArmStack,
+    box_corners,
+    distances,
+    follow_path,
+    plan_approach,
+    shifted,
+    to_ready,
+)
 
 
 def run_pick(
@@ -31,24 +39,34 @@ def run_pick(
     if not grasps:
         return ArmResult(MotionStatus.NO_GRASP, f"no graspable object found for {target.label}"), None
 
-    # The best-scored grasp whose approach, grasp and lift all have joint solutions.
-    plan = None
+    # What the camera sees now, less the object itself (it is meant to be touched).
+    world = stack.workspace([g.object_box for g in grasps])
+    # The best-scored grasp whose approach, grasp and lift all have joint
+    # solutions clear of the world, at full distances or, in a tight spot, shorter.
+    plan, chosen = None, None
     to_arm = np.linalg.inv(stack.frames.arm_base_in_world(stack.base_pose()))[:3, :3]
     for grasp in sorted(grasps, key=lambda g: -g.score):
         at_grasp = stack.to_arm(grasp.tcp_pose_world)
-        pregrasp = shifted(at_grasp, -grasp.pregrasp_offset * at_grasp[:3, 2])
-        lift = [0.0, 0.0, cfg.lift_height] if grasp.retreat is None else to_arm @ grasp.retreat
-        plan = plan_approach(stack, pregrasp, at_grasp, shifted(at_grasp, lift))
+        approaches = [
+            shifted(at_grasp, -d * at_grasp[:3, 2]) for d in distances(grasp.pregrasp_offset, cfg.shorter_offsets)
+        ]
+        lift = np.array([0.0, 0.0, cfg.lift_height]) if grasp.retreat is None else to_arm @ grasp.retreat
+        length = float(np.linalg.norm(lift))
+        lifts = [shifted(at_grasp, lift * d / length) for d in distances(length, cfg.shorter_offsets)]
+        plan = plan_approach(stack, world, approaches, at_grasp, lifts)
         if plan is not None:
+            chosen = grasp
             break
     if plan is None:
+        where = " clear of what is around it" if world.checked else ""
         return ArmResult(
-            MotionStatus.UNREACHABLE, f"the arm cannot reach any grasp on the {target.label} from here; align to it first"
+            MotionStatus.UNREACHABLE,
+            f"the arm cannot reach any grasp on the {target.label}{where} from here; align to it first",
         ), None
 
     for step in (
-        lambda: arm.move_joints(stack.ready, preempt),
-        lambda: arm.move_joints(plan.q_approach, preempt),
+        lambda: to_ready(stack, world, preempt),
+        lambda: follow_path(stack, plan.into, preempt),
     ):
         result = step()
         if not result.ok:
@@ -65,19 +83,24 @@ def run_pick(
     if not gripper.is_holding():
         return _give_up(stack, plan, preempt, "the gripper closed on nothing"), None
     width = gripper.width()
+    # Where the object hangs from the gripper, for keeping it out of later world models.
+    box_in_tcp = None
+    if chosen.object_box is not None:
+        tcp = stack.tcp_world()
+        box_in_tcp = (box_corners(chosen.object_box) - tcp[:3, 3]) @ tcp[:3, :3]
     result = arm.follow(plan.line_out, preempt, expect_contact=True)
     if result.ok:
-        result = arm.move_joints(stack.ready, preempt)
+        result = follow_path(stack, plan.back, preempt)
     if not result.ok:
         # Still gripping something, but the lift was interrupted: report what is in the hand.
-        holding = HeldObject(target.label, width, np.asarray(target.position_world, dtype=float))
+        holding = HeldObject(target.label, width, np.asarray(target.position_world, dtype=float), box_in_tcp)
         return result, holding if gripper.is_holding() else None
     if not gripper.is_holding():
         gripper.open(preempt)
         return ArmResult(MotionStatus.GRASP_FAILED, f"the {target.label} slipped out of the gripper while lifting"), None
     return (
         ArmResult(MotionStatus.SUCCESS, f"holding the {target.label}"),
-        HeldObject(target.label, gripper.width(), np.asarray(target.position_world, dtype=float)),
+        HeldObject(target.label, gripper.width(), np.asarray(target.position_world, dtype=float), box_in_tcp),
     )
 
 
@@ -89,5 +112,5 @@ def _give_up(stack: ArmStack, plan, preempt: threading.Event, why: str) -> ArmRe
     """Open, back out the way the arm came in, and report the failed grasp."""
     stack.gripper.open(preempt)
     stack.arm.follow(plan.line_in[::-1], preempt, expect_contact=True)
-    stack.arm.move_joints(stack.ready, preempt)
+    follow_path(stack, plan.into[::-1], preempt)
     return ArmResult(MotionStatus.GRASP_FAILED, why)

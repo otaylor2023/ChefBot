@@ -85,3 +85,17 @@ skills:
   lift_height: 0.12         # straight up after grasping
   retreat_height: 0.10      # straight up after releasing
   motion_timeout_s: 60
+
+# -- Arm motion against what the camera sees (robot/kinematics/collision.py) ---
+# Each pick / place builds an octree from the depth cameras' images (the robot
+# itself filtered out) and checks every arm move against it; moves to and from
+# the approach pose are planned (OMPL RRT-Connect) when the straight one is
+# blocked. Space no camera saw counts as free: the side cameras see around the
+# arm, which blocks the middle one's view straight ahead.
+planning:
+  cameras: [robot0_frontview, robot0_agentview_left, robot0_agentview_right]  # []: no checking
+  voxel: 0.015              # octree resolution (m); an obstacle grows by up to 0.87 x this
+  self_filter_margin: 0.07  # depth points this close to the arm's shapes are the arm itself
+  base_box: [0.80, 0.60, 1.0]  # mobile base (length, width, height), also filtered out
+  timeout_s: 5.0            # per planning query
+  shorter_offsets: [0.06, 0.04]  # pre-grasp / pre-place / lift distances to try when the full one is blocked

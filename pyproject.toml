@@ -19,7 +19,7 @@ dependencies = [
 # The agent needs nothing beyond the base install; the extra exists so
 # `pip install chefbot[agent]` documents intent and stays sim-free.
 agent = []
-robot = ["mujoco>=3.2", "mink"]
+robot = ["mujoco>=3.2", "mink", "coal", "ompl"]
 # robosuite and robocasa are installed editable from source (see README).
 robocasa = ["chefbot[robot]"]
 dev = ["pytest"]
