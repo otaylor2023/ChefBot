@@ -50,6 +50,7 @@ standoff:                   # align_to_point: candidate rings around the target
   max: 1.1
   rings: 7
   angles: 24
+  closeness: 2.0            # prefer closer stances (m of extra path per m closer): the arm has more room
 
 ik:
   pos_tolerance: 0.01       # position-only reachability

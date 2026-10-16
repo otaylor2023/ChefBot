@@ -45,7 +45,7 @@ class ArmStack:
         """Where the TCP is now (world frame), from the measured joints."""
         return self.frames.pose_to_world(self.base_pose(), self.ik.fk(self.env.get_state().arm_q))
 
-    def workspace(self, ignore_boxes: list[np.ndarray] = ()) -> Workspace:
+    def workspace(self, ignore_boxes: list[np.ndarray] = (), with_held: bool = False) -> Workspace:
         """The world as the planning camera sees it now, for one skill's collision
         checks. Unchecked (everything free) without a camera or a collision model."""
         cfg = self.config
@@ -62,7 +62,7 @@ class ArmStack:
             snapshot(image, base, arm_base, q, self.collision, cfg.self_filter_margin, cfg.base_box, boxes)
             for image in images
         ])  # fmt: skip
-        return Workspace(self.collision, points, cfg.planning_voxel, self.ik.joint_limits, cfg.planning_timeout_s)
+        return Workspace(self.collision, points, cfg.planning_voxel, self.ik.joint_limits, cfg.planning_timeout_s, with_held)
 
 
 @dataclass

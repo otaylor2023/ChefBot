@@ -44,6 +44,7 @@ class RobotConfig:
     standoff_max: float = 0.8
     standoff_rings: int = 4
     standoff_angles: int = 24
+    standoff_closeness: float = 0.0  # prefer stances this many m of path per m closer to the target
     # Arm
     arm_stow: tuple = (0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785)
     arm_carry: tuple = (0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785)
@@ -151,6 +152,7 @@ class RobotConfig:
             standoff_max=standoff["max"],
             standoff_rings=standoff["rings"],
             standoff_angles=standoff["angles"],
+            standoff_closeness=standoff.get("closeness", 0.0),
             ik_pos_tolerance=ik["pos_tolerance"],
             ik_max_iters=ik["max_iters"],
             ik_dt=ik["dt"],

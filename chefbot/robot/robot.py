@@ -6,6 +6,8 @@ control loop and the arm skills on one motion thread next to the env.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import math
 import threading
 
@@ -14,7 +16,17 @@ import numpy as np
 from chefbot.interface.env import Env
 from chefbot.interface.fixtures import OPEN, UNKNOWN, FixtureActuator
 from chefbot.interface.proposers import GraspProposer, PlacementProposer
-from chefbot.interface.robot_api import ARTICULATE, BASE, GRASP, RobotAPI
+from chefbot.interface.robot_api import (
+    APPLIANCES,
+    ARTICULATE,
+    BASE,
+    GRASP,
+    HANDHELD_TOOLS,
+    LIFT_OUT,
+    LOWER_INTO,
+    STIR,
+    RobotAPI,
+)
 from chefbot.interface.types import Detection, HeldObject, MotionResult, MotionStatus, Pose2D
 from chefbot.robot.arm.arm_controller import ArmController, ArmResult
 from chefbot.robot.arm.gripper import Gripper
@@ -28,6 +40,7 @@ from chefbot.robot.safety import base_at_rest, require_base_at_rest, tuck_arm_fo
 from chefbot.robot.skills.common import ArmStack
 from chefbot.robot.skills.pick import run_pick
 from chefbot.robot.skills.place import run_place
+from chefbot.robot.skills.tool_use import run_lift_out, run_lower_into, run_stir
 
 # Contact is ignored for this long after a motion starts, so a base that was
 # stopped against something can still drive away from it.
@@ -36,6 +49,8 @@ _MAX_SETTLE_TICKS = 20
 # How far the base may move to get out of a door's way.
 _RETREAT_RADIUS = 2.0
 _FIXTURE_SETTLE_TICKS = 10
+
+_NEAR_SIDE = (0.05, 0.10)  # m: align retries this far toward the robot when nothing reaches the target
 
 
 class Robot(RobotAPI):
@@ -57,6 +72,7 @@ class Robot(RobotAPI):
         self._grid = grid
         # Things that are in the way now but not on the map (open doors), by fixture name.
         self._extra_obstacles: dict[str, np.ndarray] = {}
+        self._door_labels: dict[str, str] = {}  # fixture name -> what to call its door in messages
         self._planner = AStarPlanner(grid.inflate(self._cfg.inflation_radius))
         frames = ReachabilityChecker(self._cfg)
         self._reachability = reachability or frames
@@ -67,7 +83,7 @@ class Robot(RobotAPI):
         self._grasp_proposer = grasp_proposer
         self._placement_proposer = placement_proposer
         self._fixture_actuator = fixture_actuator
-        self._held: HeldObject | None = None
+        self._held_object: HeldObject | None = None
         self._motion = MotionManager(self.get_base_pose)
 
     # -- RobotAPI ---------------------------------------------------------
@@ -89,17 +105,26 @@ class Robot(RobotAPI):
         self._motion.start(lambda preempt: self._run_actuate(fixture, bool(open), preempt))
 
     def capabilities(self) -> frozenset[str]:
-        # Burner knobs: AGENT_SPEC stage 2. Handheld tools and pouring: not in this robot layer yet.
-        return frozenset({BASE, GRASP, ARTICULATE})
+        # Burners and appliances through the fixture actuator; utensils (lower, stir, lift).
+        # Not (yet): squeezed / powered gadgets, pouring.
+        return frozenset({BASE, GRASP, ARTICULATE, HANDHELD_TOOLS} | ({APPLIANCES} if self._fixture_actuator is not None else set()))
 
     def use_tool(self, action: str, target: Detection | None = None, seconds: float | None = None) -> None:
-        self._motion.start(lambda preempt: self._result(MotionStatus.UNSUPPORTED, f"{action} is not supported here"))
+        self._motion.start(lambda preempt: self._run_tool(action, target, seconds, preempt))
+
+    def _run_tool(self, action: str, target: Detection | None, seconds: float | None, preempt) -> MotionResult:
+        if action == LOWER_INTO and target is not None:
+            result = run_lower_into(self._arm, self._placement_proposer, target, self._held, preempt)
+        elif action == STIR:
+            result = run_stir(self._arm, float(seconds or 20.0), self._held, preempt)
+        elif action == LIFT_OUT:
+            result = run_lift_out(self._arm, preempt)
+        else:
+            return self._result(MotionStatus.UNSUPPORTED, f"{action} is not supported by this robot")
+        return self._from_arm(result)
 
     def set_power(self, appliance: Detection, on: bool) -> None:
-        # Burner knobs come with the RoboCasa stage of AGENT_SPEC (§5.4).
-        self._motion.start(
-            lambda preempt: self._result(MotionStatus.UNSUPPORTED, f"turning the {appliance.label} on or off is not supported here yet")
-        )
+        self._motion.start(lambda preempt: self._run_power(appliance, bool(on), preempt))
 
     def wait(self, timeout_s: float | None = None) -> MotionResult:
         return self._motion.wait(timeout_s)
@@ -114,6 +139,16 @@ class Robot(RobotAPI):
 
     def get_base_pose(self) -> Pose2D:
         return self._env.get_state().base_pose
+
+    @property
+    def _held(self) -> HeldObject | None:
+        return self._held_object
+
+    @_held.setter
+    def _held(self, held: HeldObject | None) -> None:
+        self._held_object = held
+        if self._arm.collision is not None:
+            self._arm.collision.held = None if held is None or held.box_in_tcp is None else np.asarray(held.box_in_tcp)
 
     def get_held(self) -> HeldObject | None:
         return self._held
@@ -152,15 +187,31 @@ class Robot(RobotAPI):
             cfg.standoff_angles,
         )
         goal = select_standoff(
-            self._planner, start, target, candidates, self._reachability, preempt.is_set
+            self._planner, start, target, candidates, self._reachability, preempt.is_set, cfg.standoff_closeness
         )
+        # Nothing reaches its middle (a pan at the back of the stove): work on its near side.
+        toward = np.array([start.x, start.y]) - np.asarray(target[:2], dtype=float)
+        for shift in _NEAR_SIDE if goal is None and np.linalg.norm(toward) > 1e-6 else ():
+            if preempt.is_set():
+                break
+            near = np.asarray(target, dtype=float).copy()
+            near[:2] += shift * toward / np.linalg.norm(toward)
+            goal = select_standoff(
+                self._planner, start, near, standoff_candidates((float(near[0]), float(near[1])), cfg.standoff_min,
+                cfg.standoff_max, cfg.standoff_rings, cfg.standoff_angles), self._reachability, preempt.is_set,
+                cfg.standoff_closeness,
+            )  # fmt: skip
+            if goal is not None:
+                break
         if preempt.is_set():
             return self._result(MotionStatus.STOPPED, "stopped while choosing a standoff pose")
         if goal is None:
-            return self._result(
-                MotionStatus.UNREACHABLE,
-                "no collision-free base pose puts the target within arm reach",
+            message = "no collision-free base pose puts the target within arm reach"
+            blocking = self._doors_in_the_way(
+                lambda planner: select_standoff(planner, start, target, candidates, self._reachability,
+                                                closeness=cfg.standoff_closeness) is not None  # fmt: skip
             )
+            return self._result(MotionStatus.UNREACHABLE, message + blocking)
         return self._plan_and_drive(goal, preempt)
 
     def _free_start(self, pose: Pose2D) -> Pose2D | None:
@@ -174,7 +225,8 @@ class Robot(RobotAPI):
         try:
             points = self._planner.plan_xy((start.x, start.y), (goal.x, goal.y))
         except NoPath as exc:
-            return self._result(MotionStatus.NO_PATH, str(exc))
+            blocking = self._doors_in_the_way(lambda planner: _has_path(planner, start, goal))
+            return self._result(MotionStatus.NO_PATH, str(exc) + blocking)
         if start is not pose:
             # The base sits inside the inflated margin: leave it in a straight line first.
             points = [(pose.x, pose.y)] + points
@@ -246,6 +298,27 @@ class Robot(RobotAPI):
         result, self._held = run_place(self._arm, self._placement_proposer, surface, self._held, preempt)
         return self._from_arm(result)
 
+    def _run_power(self, appliance: Detection, on: bool, preempt: threading.Event) -> MotionResult:
+        """Turn a burner's knob (or an appliance) on / off: scripted, like doors."""
+        actuator = self._fixture_actuator
+        if actuator is None or actuator.get_power(appliance) == UNKNOWN:
+            return self._result(MotionStatus.UNSUPPORTED, f"the {appliance.label} cannot be turned on or off")
+        moving = require_base_at_rest(self._env)
+        if not moving.ok:
+            return self._from_arm(moving)
+        state = "on" if on else "off"
+        if actuator.get_power(appliance) == state:
+            return self._result(MotionStatus.SUCCESS, f"the {appliance.label} is already {state}", scripted=True)
+        within_reach = getattr(self._reachability, "can_touch", self._reachability.is_reachable)
+        if not within_reach(self.get_base_pose(), appliance.position_world):
+            return self._result(MotionStatus.UNREACHABLE, f"the {appliance.label} is out of arm reach from here; align to it first")
+        result = actuator.set_power(appliance, on)
+        for _ in range(_FIXTURE_SETTLE_TICKS):
+            self._env.wait_for_next_tick(self._cfg.control_dt)
+        if not result.success:
+            return self._result(MotionStatus.UNSUPPORTED, result.message, scripted=result.scripted)
+        return self._result(MotionStatus.SUCCESS, result.message, scripted=result.scripted)
+
     def _run_actuate(self, fixture: Detection, open: bool, preempt: threading.Event) -> MotionResult:
         actuator, verb = self._fixture_actuator, "open" if open else "close"
         state = actuator.get_state(fixture) if actuator is not None else UNKNOWN
@@ -283,6 +356,7 @@ class Robot(RobotAPI):
         if not actuation.success:
             return self._result(MotionStatus.UNSUPPORTED, actuation.message, scripted=actuation.scripted)
         if actuation.fixture:
+            self._door_labels[actuation.fixture] = fixture.label.removesuffix(" handle")
             if actuation.obstacle_xy is not None and len(actuation.obstacle_xy):
                 self._extra_obstacles[actuation.fixture] = np.asarray(actuation.obstacle_xy, dtype=float)
             else:
@@ -301,6 +375,16 @@ class Robot(RobotAPI):
                 if self._grid.in_bounds(cell):
                     occupied[cell] = True
         return OccupancyGrid(occupied, self._grid.resolution, self._grid.origin)
+
+    def _doors_in_the_way(self, works: Callable[[AStarPlanner], bool]) -> str:
+        """If closing doors this robot opened would make `works(planner)` true: a hint naming them."""
+        if not self._extra_obstacles:
+            return ""
+        grid = self._grid.inflate(self._cfg.inflation_radius)
+        if not works(AStarPlanner(grid)):
+            return ""
+        names = [self._door_labels.get(name, "door") for name in self._extra_obstacles]
+        return f"; the open {' and '.join(dict.fromkeys(names))} door is in the way: close it first"
 
     def _rebuild_planner(self) -> None:
         grid = self._grid_with(list(self._extra_obstacles.values()))
@@ -340,3 +424,11 @@ class Robot(RobotAPI):
 
     def _from_arm(self, result: ArmResult) -> MotionResult:
         return self._result(result.status, result.message)
+
+
+def _has_path(planner: AStarPlanner, start: Pose2D, goal: Pose2D) -> bool:
+    try:
+        planner.plan_xy((start.x, start.y), (goal.x, goal.y))
+    except NoPath:
+        return False
+    return True

@@ -14,6 +14,8 @@ from chefbot.interface.types import ActuationResult, Detection
 
 OPEN = "open"
 CLOSED = "closed"
+ON = "on"
+OFF = "off"
 UNKNOWN = "unknown"
 
 
@@ -26,6 +28,14 @@ class FixtureActuator(ABC):
     @abstractmethod
     def get_state(self, fixture: Detection) -> str:
         """OPEN | CLOSED | UNKNOWN (also for things that do not open)."""
+
+    def get_power(self, appliance: Detection) -> str:
+        """ON | OFF | UNKNOWN (also for things that do not turn on): burners, appliances."""
+        return UNKNOWN
+
+    def set_power(self, appliance: Detection, on: bool) -> ActuationResult:
+        """Turn a burner (its knob) or an appliance on or off."""
+        return ActuationResult(False, True, f"the {appliance.label} cannot be turned on or off here")
 
     def swept_xy(self, fixture: Detection, open: bool) -> np.ndarray | None:
         """World xy points (N, 2) the fixture passes through on its way to the

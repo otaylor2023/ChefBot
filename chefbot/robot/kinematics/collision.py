@@ -1,7 +1,8 @@
 """The arm's collision model, and the world it moves in as seen by a depth camera.
 
 The arm is a chain of capsules on the FR3 kinematics model (the IK model, so
-"collision-free" and "reachable" agree), the gripper three boxes. The world is an octree of the points a
+"collision-free" and "reachable" agree), the gripper three boxes, and what it
+holds one more box. The world is an octree of the points a
 depth image sees, minus the robot itself and minus whatever the skill is about
 to touch on purpose (the object being picked, the one being put down). Space
 the camera cannot see counts as free.
@@ -32,6 +33,7 @@ except ImportError:  # pragma: no cover - depends on the install
 # The wrist ones are fat: joint 6's housing sticks out about 9 cm from the
 # line between the joints.
 _LINKS = (
+    ("fr3_link0", "fr3_link2", 0.09),  # the arm's base and shoulder (fixed): mostly so its depth points are filtered
     ("fr3_link2", "fr3_link3", 0.075),
     ("fr3_link3", "fr3_link4", 0.07),
     ("fr3_link4", "fr3_link5", 0.07),
@@ -98,6 +100,9 @@ class ArmCollisionModel:
         self._model, self._data = model, mujoco.MjData(model)
         self._links = [(self._frame(a), self._frame(b), r) for a, b, r in _LINKS]
         self._tcp = model.site(tcp_site).id
+        # Corners (8, 3) of the held object's box in the TCP frame, or None: it
+        # moves with the gripper (a long spoon swung blind hits the stove).
+        self.held: np.ndarray | None = None
 
     def _frame(self, name: str) -> tuple[str, int]:
         try:
@@ -109,7 +114,7 @@ class ArmCollisionModel:
         kind, i = frame
         return (self._data.site_xpos if kind == "site" else self._data.xpos)[i].copy()
 
-    def shapes(self, q: np.ndarray, pads: bool = True) -> list[Capsule | Box]:
+    def shapes(self, q: np.ndarray, pads: bool = True, held: bool = False) -> list[Capsule | Box]:
         self._data.qpos[: len(q)] = q
         mujoco.mj_kinematics(self._model, self._data)
         out: list[Capsule | Box] = [Capsule(self._position(a), self._position(b), r) for a, b, r in self._links]
@@ -117,6 +122,9 @@ class ArmCollisionModel:
         for z0, z1, hx, hy in (_GRIPPER_BODY, _KNUCKLES) + ((_PADS,) if pads else ()):
             center = tcp + rotation[:, 2] * (z0 + z1) / 2
             out.append(Box(center, rotation, np.array([hx, hy, (z1 - z0) / 2])))
+        if held and pads and self.held is not None:  # like the pads: out of the final straight lines, where it touches on purpose
+            lo, hi = self.held.min(axis=0), self.held.max(axis=0)
+            out.append(Box(tcp + rotation @ ((lo + hi) / 2), rotation, (hi - lo) / 2))
         return out
 
 
@@ -149,8 +157,13 @@ class Workspace:
         voxel: float = 0.02,
         joint_limits: np.ndarray | None = None,
         timeout_s: float = 5.0,
+        with_held: bool = False,
     ):
+        """`with_held`: the held object is checked too (moving a long utensil out
+        of the pan and away); pick and place leave it out, where their approach
+        poses sit it just above or on what it goes onto."""
         self._collision = collision
+        self._with_held = with_held
         self.points = np.zeros((0, 3)) if points is None else np.asarray(points, dtype=float)
         self._limits = joint_limits
         self._timeout = timeout_s
@@ -174,7 +187,7 @@ class Workspace:
     def free(self, q: np.ndarray, pads: bool = True) -> bool:
         if self._world is None:
             return True
-        for shape in self._collision.shapes(np.asarray(q, dtype=float), pads):
+        for shape in self._collision.shapes(np.asarray(q, dtype=float), pads, self._with_held):
             if coal.collide(shape.collision_object(), self._world, self._request, coal.CollisionResult()):
                 return False
         return True
@@ -277,6 +290,6 @@ def filter_points(
         keep &= ~np.all((world >= box[0]) & (world <= box[1]), axis=1)
     to_arm = np.linalg.inv(arm_base_in_world)
     points = world[keep] @ to_arm[:3, :3].T + to_arm[:3, 3]
-    for shape in collision.shapes(np.asarray(q, dtype=float)):
+    for shape in collision.shapes(np.asarray(q, dtype=float), held=True):  # its own points and what it holds
         points = points[shape.distance(points) > self_margin]
     return points

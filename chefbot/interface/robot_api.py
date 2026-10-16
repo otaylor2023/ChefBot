@@ -14,9 +14,10 @@ BASE = "base"  # drive: go_to_pose, align_to_point
 GRASP = "grasp"  # pick, place
 ARTICULATE = "articulate"  # open / close doors and drawers
 APPLIANCES = "appliances"  # set_power: burners, toaster, ...
-HANDHELD_TOOLS = "handheld_tools"  # use_tool: lower_into, lift_out, squeeze, release
+HANDHELD_TOOLS = "handheld_tools"  # use_tool: lower_into, lift_out, stir (a spoon, a spatula)
+TRIGGER_TOOLS = "trigger_tools"  # use_tool: squeeze, release (powered or squeezed gadgets)
 POUR = "pour"  # use_tool: pour
-ALL_CAPABILITIES = frozenset({BASE, GRASP, ARTICULATE, APPLIANCES, HANDHELD_TOOLS, POUR})
+ALL_CAPABILITIES = frozenset({BASE, GRASP, ARTICULATE, APPLIANCES, HANDHELD_TOOLS, TRIGGER_TOOLS, POUR})
 
 # use_tool actions.
 LOWER_INTO, LIFT_OUT, SQUEEZE, RELEASE, POUR_INTO, STIR = "lower_into", "lift_out", "squeeze", "release", "pour", "stir"

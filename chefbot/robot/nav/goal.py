@@ -50,14 +50,17 @@ def select_standoff(
     candidates: list[Pose2D],
     reachability: Reachability,
     should_abort: Callable[[], bool] = lambda: False,
+    closeness: float = 0.0,
 ) -> Pose2D | None:
     """The collision-free, arm-reachable candidate with the lowest path cost
-    from `start`, or None."""
+    from `start` plus `closeness` x its distance to the target (m of path per m
+    of distance: closer stances leave the arm more room), or None."""
     grid = planner.grid
     free = [c for c in candidates if grid.is_free(c.x, c.y)]
     costs = planner.cost_to((start.x, start.y), {grid.world_to_cell(c.x, c.y) for c in free})
+    target = np.asarray(target_world, dtype=float)
     ranked = sorted(
-        (costs[cell], i)
+        (costs[cell] + closeness * math.hypot(c.x - target[0], c.y - target[1]), i)
         for i, c in enumerate(free)
         if (cell := grid.world_to_cell(c.x, c.y)) in costs
     )
