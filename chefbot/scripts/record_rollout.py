@@ -140,7 +140,7 @@ class Recorder:
             pose = env.get_state().base_pose
             self._renderer.update_scene(env.data, self._camera, self._scene_option)
             overview = self._renderer.render().copy()
-            shoulder = env.get_camera_rgbd(env.config.shoulder_camera)
+        shoulder = env.get_camera_rgbd(env.config.shoulder_camera)  # takes the lock itself
         self._trail.append((pose.x, pose.y))
         detections = self._registry.tools.detections.all()
 

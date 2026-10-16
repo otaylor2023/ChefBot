@@ -51,7 +51,7 @@ def test_layers_exist():
         assert modules_under(layer), layer
 
 
-@pytest.mark.parametrize("layer", ["agent", "robot", "interface"])
+@pytest.mark.parametrize("layer", ["agent", "robot", "interface", "grasping"])
 def test_no_simulator_or_hardware_imports(layer):
     assert violations(layer, SIM_AND_HARDWARE) == []
 
@@ -81,6 +81,27 @@ def test_robot_does_not_import_the_agent():
     assert violations("robot", ("chefbot.agent",)) == []
 
 
+def test_ground_truth_never_reaches_the_agents_context():
+    # AGENT_SPEC §2: Observer output goes to the StateChecker and the run log only.
+    for name in ("agent/loop/context.py", "agent/loop/perception.py"):
+        imported = imports_of(PACKAGE / name)
+        assert not any(m.startswith(("chefbot.agent.check", "chefbot.interface.observer")) for m in imported), name
+
+
+def test_only_the_loop_and_the_checker_talk_to_an_llm():
+    users = sorted(
+        path.relative_to(PACKAGE).as_posix()
+        for path in modules_under("agent")
+        if any(m == "chefbot.agent.loop.llm" or m.startswith("chefbot.agent.loop.llm.") for m in imports_of(path))
+    )
+    assert all(u.startswith(("agent/loop/", "agent/check/")) for u in users), users
+
+
+def test_grasping_depends_only_on_the_interface():
+    # Grasp planning from perceived geometry, shared by every env's grasp proposer.
+    assert violations("grasping", ("chefbot.agent", "chefbot.robot") + KINEMATICS_ONLY) == []
+
+
 def test_envs_do_not_import_the_robot_layer_or_the_agent():
     # serve.py is the composition root that wires Robot(Env) to the server.
     assert violations("envs", ("chefbot.robot", "chefbot.agent"), allow_under="envs/robocasa/serve.py") == []
@@ -106,6 +127,6 @@ def test_agent_suite_passes_without_any_simulator():
 
 def test_robot_and_transport_suites_pass_without_robosuite_or_robocasa():
     result = run_pytest_without(
-        ["robosuite", "robocasa"], ["chefbot/tests/robot", "chefbot/tests/transport"]
+        ["robosuite", "robocasa"], ["chefbot/tests/robot", "chefbot/tests/transport", "chefbot/tests/grasping"]
     )
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
