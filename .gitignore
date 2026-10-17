@@ -8,3 +8,8 @@ dist/
 rollouts/
 .env
 runs/
+
+# Recipe evaluation outputs
+recipe_planning/runs/
+recipe_planning/recipe_runs/
+recipe_planning/recipes/web/

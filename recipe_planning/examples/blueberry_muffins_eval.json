@@ -1,0 +1,12 @@
+{
+  "recipe": "blueberry_muffins",
+  "model": "gpt-6.1-sol",
+  "reasoning_effort": "low",
+  "runs": 1,
+  "valid_first": 1.0,
+  "valid_final": 1.0,
+  "grounding": 1.0,
+  "instruction_coverage": 0.693,
+  "steps": 26.0,
+  "cost_usd": 0.065
+}

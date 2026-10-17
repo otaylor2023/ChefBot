@@ -1,0 +1,616 @@
+{
+ "title": "Blueberry Muffins",
+ "ingredients": [
+  {
+   "id": "flour",
+   "name": "all-purpose flour",
+   "quantity_raw": "2 cups",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "2 cups all-purpose flour",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "baking_powder",
+   "name": "baking powder",
+   "quantity_raw": "2 teaspoons",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "2 teaspoons baking powder",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "sugar",
+   "name": "sugar",
+   "quantity_raw": "1/2 cup",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "1/2 cup sugar",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "egg",
+   "name": "egg",
+   "quantity_raw": "1",
+   "needs_cooking": true,
+   "optional": false,
+   "evidence": {
+    "quote": "1 egg",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "milk",
+   "name": "milk",
+   "quantity_raw": "1 cup",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "1 cup milk",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "butter",
+   "name": "butter",
+   "quantity_raw": "1/3 cup",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "1/3 cup melted butter",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "blueberries",
+   "name": "blueberries",
+   "quantity_raw": "1 cup",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "1 cup blueberries",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  }
+ ],
+ "containers": [
+  {
+   "id": "oven",
+   "type": "oven",
+   "evidence": {
+    "quote": "Preheat the oven",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "tin",
+   "type": "12-cup muffin tin",
+   "evidence": {
+    "quote": "a 12-cup muffin tin",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "bowl_dry",
+   "type": "large bowl",
+   "evidence": {
+    "quote": "In a large bowl",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "bowl_wet",
+   "type": "bowl",
+   "evidence": {
+    "quote": "In a second bowl",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "saucepan",
+   "type": "small pan",
+   "evidence": {
+    "quote": null,
+    "prov": "inferred",
+    "reason": "melted butter requires melting on a heat source",
+    "implied_by": null
+   }
+  }
+ ],
+ "steps": [
+  {
+   "id": "p1",
+   "verb": "preheat",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "oven",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": null,
+   "container": null,
+   "params": {
+    "temp_c": 190,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "Preheat the oven to 190°C",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "p2",
+   "verb": "prepare_container",
+   "verb_raw": null,
+   "style": "grease",
+   "inputs": [
+    {
+     "ref": "tin",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": null,
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "grease a 12-cup muffin tin",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "d1",
+   "verb": "mix",
+   "verb_raw": null,
+   "style": "whisk",
+   "inputs": [
+    {
+     "ref": "flour",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "baking_powder",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "sugar",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "dry_mix",
+   "container": "bowl_dry",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "whisk together the flour, baking powder and sugar",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "w0",
+   "verb": "heat",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "saucepan",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": null,
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": "heat level not stated"
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": null,
+    "prov": "inferred",
+    "reason": "melting butter needs heat; not described in the text",
+    "implied_by": null
+   }
+  },
+  {
+   "id": "w1",
+   "verb": "melt",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "butter",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "saucepan",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "butter_melted",
+   "container": "saucepan",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "1/3 cup melted butter",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": "ingredient_list"
+   }
+  },
+  {
+   "id": "w2",
+   "verb": "beat",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "egg",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "egg_beaten",
+   "container": "bowl_wet",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "beat the egg",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "w3",
+   "verb": "mix",
+   "verb_raw": null,
+   "style": "stir",
+   "inputs": [
+    {
+     "ref": "egg_beaten",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "milk",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "butter_melted",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "wet_mix",
+   "container": "bowl_wet",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "stir in the milk and melted butter",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "m1",
+   "verb": "mix",
+   "verb_raw": null,
+   "style": "fold",
+   "inputs": [
+    {
+     "ref": "wet_mix",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "dry_mix",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "batter_base",
+   "container": "bowl_dry",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": {
+    "kind": "texture",
+    "target": "just combined; a few lumps are fine",
+    "raw": "until just combined; a few lumps are fine"
+   },
+   "optional": false,
+   "evidence": {
+    "quote": "Pour the wet ingredients into the dry ingredients and fold until just combined",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "m2",
+   "verb": "mix",
+   "verb_raw": null,
+   "style": "fold",
+   "inputs": [
+    {
+     "ref": "batter_base",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "blueberries",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "batter",
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "Gently fold in the blueberries",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "m3",
+   "verb": "transfer",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "batter",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "tin",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": [
+      {
+       "key": "prepared",
+       "value": true,
+       "unresolved": null
+      }
+     ]
+    }
+   ],
+   "output": "batter_in_tin",
+   "container": "tin",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "Divide the batter evenly between the muffin cups",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "b1",
+   "verb": "bake",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "batter_in_tin",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "oven",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": [
+      {
+       "key": "temp_c",
+       "value": 190,
+       "unresolved": null
+      }
+     ]
+    }
+   ],
+   "output": "muffins_baked",
+   "container": "tin",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": "20 to 25 minutes (range)"
+   },
+   "until": {
+    "kind": "visual",
+    "target": "toothpick inserted in the center comes out clean",
+    "raw": "until a toothpick inserted in the center comes out clean"
+   },
+   "optional": false,
+   "evidence": {
+    "quote": "Bake for 20 to 25 minutes, until a toothpick inserted in the center comes out clean",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "c1",
+   "verb": "cool",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "muffins_baked",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "muffins",
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": 300,
+    "unresolved": null
+   },
+   "until": {
+    "kind": "time",
+    "target": 300,
+    "raw": "for 5 minutes"
+   },
+   "optional": false,
+   "evidence": {
+    "quote": "Let cool in the tin for 5 minutes",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  }
+ ],
+ "choices": [],
+ "final_items": [
+  "muffins"
+ ],
+ "ambiguities": [
+  "'before turning out': destination (rack or plate) not stated"
+ ]
+}

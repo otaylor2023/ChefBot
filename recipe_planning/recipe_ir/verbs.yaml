@@ -1,0 +1,33 @@
+version: '0.5'
+# Properties that count as "this equipment is heating". Any non-null value (including {unresolved: ...}) satisfies heat_source.
+heat_properties: [temp_c, heat]
+# target: material (default) -> produces `output` from consumed inputs
+# target: equipment          -> mutates the `require` container inputs in place, no output
+# cooks: true                -> every base ingredient in the output is marked cooked (survives later mixing)
+# desc                       -> shown to the LLM extractor; keep it one line
+# max_inputs: n               -> at most n consumed food inputs (cut/beat act on one material; combining is mix)
+verbs:
+  crack:    {sets: {form: cracked}, max_inputs: 1, desc: "crack eggs (into a container: set `container`)"}
+  cut:      {sets: {form: cut}, max_inputs: 1, desc: "dice, chop, slice, mince, grate (put the exact style in `style`)"}
+  beat:     {sets: {form: beaten}, max_inputs: 1, desc: "beat or whisk ONE material (eggs, cream); whisking 2+ things together is mix"}
+  mix:      {sets: {}, desc: "combine, stir, fold, whisk together, toss; also stirring a single item"}
+  knead:    {sets: {form: kneaded}, max_inputs: 1, desc: "knead, mix-and-knead dough, bowl folds / stretch-and-folds"}
+  shape:    {sets: {shaped: true}, max_inputs: 1, desc: "shape, form, roll (into balls/logs/ropes), twist, press, flatten, dimple, deflate, pat"}
+  blend:    {sets: {form: blended}, desc: "blend, process, pulse, puree in a machine"}
+  measure:  {sets: {}, max_inputs: 1, desc: "measure or weigh out an amount (when the text makes it a step)"}
+  season:   {sets: {}, desc: "taste and adjust seasoning; add salt/pepper to taste"}
+  transfer: {needs: [dest_container], sets: {}, desc: "pour, add, spoon, place, divide, turn out, remove (from pan/oven) into a container, even one that already holds food; `container` is required"}
+  portion:  {sets: {}, desc: "take a stated fraction of an item (half the batter); use the input `fraction`"}
+  melt:     {needs: [heat_source], sets: {form: melted}, max_inputs: 1, desc: "melt butter/chocolate on heat (does NOT cook)"}
+  cook:     {needs: [heat_source], sets: {cooked: true}, cooks: true, desc: "saute, fry, simmer, boil, scramble, toast on a heated container"}
+  bake:     {needs: [heat_source], sets: {cooked: true}, cooks: true, desc: "bake/roast in a heated oven (require the oven)"}
+  cool:     {sets: {cooled: true}, desc: "cool, chill, rest after cooking"}
+  wait:     {sets: {}, desc: "let stand, rest, soak, rise/proof with no other change"}
+  drain:    {sets: {}, desc: "drain liquid from an item"}
+  garnish:  {sets: {}, desc: "sprinkle a topping onto a finished item"}
+  preheat:  {target: equipment, sets: {temp_c: '$param.temp_c'}, desc: "preheat oven to a temperature (params.temp_c)"}
+  heat:     {target: equipment, sets: {heat: '$param.heat'}, desc: "heat a pan/pot on the stove (params.heat = low/medium/high or unresolved)"}
+  prepare_container: {target: equipment, sets: {prepared: true}, desc: "grease, line or flour a pan/tin"}
+  cover:    {target: equipment, sets: {covered: true}, desc: "cover a pot/bowl/pan (with a lid, towel, plastic wrap)"}
+  uncover:  {target: equipment, unsets: [covered], desc: "remove the lid/cover"}
+  turn_off: {target: equipment, unsets: [temp_c, heat], desc: "remove from heat, turn off the burner/oven"}

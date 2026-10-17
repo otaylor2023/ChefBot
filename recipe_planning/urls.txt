@@ -1,0 +1,32 @@
+# ChefBot external recipe evaluation set: 26 candidate recipe pages.
+# One plain URL per line. HTTP access and Recipe JSON-LD have not been verified.
+# SIMPLE / SHORT
+https://www.budgetbytes.com/homemade-hummus/
+https://www.justonecookbook.com/10-minute-meal-easy-miso-soup/
+https://www.justonecookbook.com/quick-and-easy-tamagoyaki/
+https://www.themediterraneandish.com/tabouli-salad/
+https://www.kingarthurbaking.com/recipes/easy-self-rising-blueberry-muffins-recipe
+# STOVETOP / DEPENDENCY / HEATING
+https://www.budgetbytes.com/vegetable-fried-rice/
+https://www.budgetbytes.com/snap-challenge-one-pot-chili-pasta/
+https://www.themediterraneandish.com/shakshuka-recipe/
+https://cookieandkate.com/best-lentil-soup-recipe/
+https://www.justonecookbook.com/homemade-miso-soup/
+https://www.justonecookbook.com/tamagoyaki/
+# OPTIONAL / ALTERNATIVE INGREDIENTS
+https://www.justonecookbook.com/onigiri-rice-balls/
+https://www.kingarthurbaking.com/recipes/blueberry-muffins-recipe
+https://www.kingarthurbaking.com/recipes/gluten-free-blueberry-muffins-recipe
+https://www.kingarthurbaking.com/recipes/whole-wheat-blueberry-muffins-recipe
+https://www.kingarthurbaking.com/recipes/gluten-free-blueberry-muffins-made-with-baking-mix-recipe
+# DOUGH / WAIT / SHAPE / SPLIT / MULTI-COMPONENT
+https://www.kingarthurbaking.com/recipes/pizza-crust-recipe
+https://www.kingarthurbaking.com/recipes/crisp-pizza-crust-recipe
+https://www.kingarthurbaking.com/recipes/ultra-thin-pizza-crust-recipe
+https://www.kingarthurbaking.com/recipes/classic-sandwich-bread-recipe
+https://www.kingarthurbaking.com/recipes/hot-buttered-soft-pretzels-recipe
+https://www.kingarthurbaking.com/recipes/classic-pretzels-recipe
+https://www.kingarthurbaking.com/recipes/gluten-free-soft-pretzels-recipe
+https://www.kingarthurbaking.com/recipes/big-and-bubbly-cinnamon-roll-focaccia-recipe
+https://www.kingarthurbaking.com/recipes/sourdough-discard-blueberry-muffins-recipe
+https://www.kingarthurbaking.com/recipes/now-or-later-pizza-crust-recipe
