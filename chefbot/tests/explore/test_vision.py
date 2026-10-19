@@ -58,10 +58,50 @@ class Fixtures(Detector):
 
 def test_vision_detector_splits_fixtures_and_objects_and_caches_a_view():
     vlm, fixtures = FakeVLM(), Fixtures()
-    det = VisionDetector(scene, fixtures, {"fridge", "fridge handle"}, vlm, {"synonyms": {"coffee mug": "mug"}})
+    det = VisionDetector(scene, fixtures, {"fridge", "fridge handle"}, vlm, {"synonyms": {"coffee mug": "mug"}, "height_range": (0, 5)})
     only_parts = det.detect(["fridge handle"])
     assert [d.label for d in only_parts] == ["fridge handle"] and vlm.calls == 0
     found = det.detect(["fridge handle", "mug", "egg"])
     assert sorted(d.label for d in found) == ["fridge handle", "mug"]  # the VLM's "fridge" is not an object
     det.detect(["egg"])
     assert vlm.calls == 1  # same image: no second VLM call
+
+
+class ScriptedVLM:
+    def __init__(self, replies):
+        self.replies = list(replies)
+
+    def objects(self, rgb):
+        return self.replies.pop(0)
+
+
+def views(*shifts):
+    """The same scene seen several times; each view differs a little so it is not a cached repeat."""
+    out = []
+    for i, _ in enumerate(shifts):
+        rgbd = scene()
+        rgbd.rgb[0, 0, 0] = 0
+        rgbd.rgb[::8, ::8][i, 0, 0] = 1 + i
+        out.append(rgbd)
+    return iter(out)
+
+
+def test_boxes_cut_off_by_the_image_edge_are_dropped():
+    vlm = ScriptedVLM([[{"label": "mug", "box": [0, 200, 30, 260]}, {"label": "bowl", "box": [300, 200, 340, 260]}]])
+    det = VisionDetector(scene, Fixtures(), set(), vlm, {"height_range": (0, 5)})
+    assert [d.label for d in det.detect(["mug"])] == ["bowl"]
+
+
+def test_sightings_of_one_object_are_averaged_and_off_fixture_points_dropped():
+    from chefbot.agent.world.map import MapEntry
+
+    shots = views(0, 1)
+    counter = MapEntry("counter_1", (0.99, 1.95), kind="fixture", facing=(0.0, -1.0), size=(1.0, 0.6))
+    vlm = ScriptedVLM([[{"label": "mug", "box": [300, 200, 340, 260]}],
+                       [{"label": "mug", "box": [300, 200, 340, 240]}, {"label": "jug", "box": [600, 20, 620, 40]}]])
+    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5)}, footprints=[counter])
+    first = det.detect(["mug"])[0].position_world
+    second = det.detect(["mug"])
+    assert [d.label for d in second] == ["mug"]  # the jug back-projects outside every fixture
+    one = box_point(scene(), (300, 200, 340, 240))
+    assert np.allclose(second[0].position_world, (first + one) / 2)

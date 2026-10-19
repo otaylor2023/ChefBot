@@ -23,6 +23,10 @@ vision:
   camera: robot0_frontview
   model: anthropic/claude-sonnet-5.5   # OpenRouter id; must take images
   max_range: 4.0                       # m: farther points are dropped
+  edge_margin: 8        # px: boxes this close to the image border are cut off, so skipped
+  merge_radius: 0.3    # m: same-label sightings this close are one object (position = their mean)
+  height_range: [0.2, 2.2]  # m: where loose objects can sit
+  footprint_margin: 0.1  # m: points must fall over a fixture footprint, give or take this
   synonyms:                            # VLM word -> catalogue label
     water bottle: bottled water
     bottle of water: bottled water

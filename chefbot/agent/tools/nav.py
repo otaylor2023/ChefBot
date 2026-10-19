@@ -215,7 +215,9 @@ class NavTools:
                 while self._map.get(f"{e.label}_{n}") is not None:
                     n += 1
                 name = f"{e.label}_{n}"
-            if e.map_name is None or self._map.get(name).inside != self._top(holder):
+            mapped = self._map.get(name)
+            if (e.map_name is None or mapped.inside != self._top(holder)
+                    or _xy_dist(e.position_world, mapped.location) > _MOVED):  # fmt: skip
                 # Seen somewhere the map does not have it: the map follows.
                 self._map.put(MapEntry(name, (float(e.position_world[0]), float(e.position_world[1])),
                                        kind="object", inside=self._top(holder)))  # fmt: skip
@@ -504,6 +506,7 @@ def _described(entry, entries) -> dict:
     return out
 
 
+_MOVED = 0.01  # m: a sighting this far from the map's spot moves the map entry
 _SAME_SPOT = 0.3  # m: an object seen this close to where you thought it was has not moved
 _PARTS = {"burner", "faucet", "knob", "shelf"}  # parts of fixtures, never loose objects
 _CONTAINERS = {"fridge", "cabinet", "microwave", "drawer", "oven", "toaster", "pan", "pot", "bowl", "mug", "sink", "egg cracker"}

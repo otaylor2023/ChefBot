@@ -145,6 +145,7 @@ class VisionDetector(Detector):
         vlm: VisionLanguageModel | None = None,
         config: dict | None = None,
         log_dir: Path | None = None,
+        footprints: list | None = None,
     ):
         self._render = render  # () -> RGBD from the robot's camera, now
         self._fixtures = fixtures  # answers fixture and part labels
@@ -154,17 +155,23 @@ class VisionDetector(Detector):
         self._max_range = float(cfg["max_range"])
         self._synonyms = dict(cfg.get("synonyms") or {})
         self._vocab = set(_VOCAB["objects"])
-        self._cache: tuple[str, list[Detection]] | None = None
+        self._edge = float(cfg.get("edge_margin", 8))
+        self._merge = float(cfg.get("merge_radius", 0.3))
+        self._height = tuple(cfg.get("height_range", (0.2, 2.2)))
+        self._margin = float(cfg.get("footprint_margin", 0.1))
+        self._footprints = [f for f in (footprints or []) if f.size is not None and f.facing is not None]
+        self._tracks: list[dict] = []  # one per object: label, summed position, sightings
+        self._cache: tuple[str, list[int]] | None = None
         self._log_dir = log_dir
         self._calls = 0
 
     @classmethod
-    def for_robocasa(cls, env, ground_truth, log_dir: Path | None = None) -> "VisionDetector":
+    def for_robocasa(cls, env, ground_truth, log_dir: Path | None = None, footprints: list | None = None) -> "VisionDetector":
         from chefbot.envs.robocasa.detector import FIXTURE_LABELS, PART_RULES
 
         camera = _CONFIG["vision"]["camera"]
         labels = set(FIXTURE_LABELS.values()) | {rule[3] for rule in PART_RULES} | set(_VOCAB["parts"])
-        return cls(lambda: env.get_camera_rgbd(camera), ground_truth, labels, log_dir=log_dir)
+        return cls(lambda: env.get_camera_rgbd(camera), ground_truth, labels, log_dir=log_dir, footprints=footprints)
 
     def detect(self, classes: list[str]) -> list[Detection]:
         wanted = set(classes)
@@ -177,21 +184,61 @@ class VisionDetector(Detector):
         rgbd = self._render()
         key = hashlib.sha1(rgbd.rgb[::8, ::8].tobytes()).hexdigest()  # same view: same answer
         if self._cache is not None and self._cache[0] == key:
-            return list(self._cache[1])
+            return [self._report(i) for i in self._cache[1]]
         named = self._vlm.objects(rgbd.rgb)
         origin = rgbd.cam_to_world[:3, 3]
-        out = []
+        h, w = rgbd.depth.shape
+        seen = []
         for item in named:
             label = normalize(item["label"], self._synonyms, self._vocab)
             if label in self._fixture_labels:
                 continue
+            x0, y0, x1, y1 = item["box"]
+            if min(x0, y0, x1, y1) < self._edge or max(x0, x1) > w - 1 - self._edge or max(y0, y1) > h - 1 - self._edge:
+                continue  # cut off by the image edge: the visible sliver puts it in the wrong place
             point = box_point(rgbd, item["box"])
-            if point is None or float(np.linalg.norm(point - origin)) > self._max_range:
+            if point is None or float(np.linalg.norm(point - origin)) > self._max_range or not self._plausible(point):
                 continue
-            out.append(Detection(label, point, 0.9))
-        self._cache = (key, out)
+            seen.append(self._track(label, point, exclude=seen))
+        self._cache = (key, seen)
+        out = [self._report(i) for i in seen]
         self._log(rgbd, named, out)
-        return list(out)
+        return out
+
+    def _plausible(self, point: np.ndarray) -> bool:
+        """On or in a fixture: within a fixture's footprint and at a height things sit at."""
+        if not self._height[0] <= float(point[2]) <= self._height[1]:
+            return False
+        if not self._footprints:
+            return True
+        for f in self._footprints:
+            fx, fy = f.facing
+            dx, dy = float(point[0]) - f.location[0], float(point[1]) - f.location[1]
+            along, depth = dx * -fy + dy * fx, dx * fx + dy * fy
+            if abs(along) <= f.size[0] / 2 + self._margin and abs(depth) <= f.size[1] / 2 + self._margin:
+                return True
+        return False
+
+    def _track(self, label: str, point: np.ndarray, exclude: list[int]) -> int:
+        """The object this sighting is of (the nearest of that label within merge_radius), or a new one.
+        Its position is the mean of its sightings, so later full views wash out a poor first one."""
+        best, best_d = None, self._merge
+        for i, t in enumerate(self._tracks):
+            if t["label"] != label or i in exclude:
+                continue
+            d = float(np.linalg.norm((t["sum"] / t["n"])[:2] - point[:2]))
+            if d <= best_d:
+                best, best_d = i, d
+        if best is None:
+            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0})
+            best = len(self._tracks) - 1
+        self._tracks[best]["sum"] += point
+        self._tracks[best]["n"] += 1
+        return best
+
+    def _report(self, i: int) -> Detection:
+        t = self._tracks[i]
+        return Detection(t["label"], t["sum"] / t["n"], 0.9)
 
     def _log(self, rgbd: RGBD, named: list[dict], out: list[Detection]) -> None:
         """Each image the VLM saw, with what it said and where that put things (runs/<run>/vision/)."""

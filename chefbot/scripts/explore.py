@@ -100,16 +100,19 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str) -> World
     stack = wire_stack(env, grid_dir, RobotConfig.load())
     kitchen = RoboCasaKitchen(env, stack.robot._fixture_actuator, Timing.load(spec.get("timing")))
     agent_detector = stack.detector
+    start = yaml.safe_load(start_path.read_text())
     if detector == "vision":
         from chefbot.explore.vision import VisionDetector
 
-        agent_detector = VisionDetector.for_robocasa(env, stack.detector, log_dir=run_dir / "vision")
+        footprints = [e for e in WorldMap.from_dict(start).list() if e.kind == "fixture"]
+        agent_detector = VisionDetector.for_robocasa(env, stack.detector, log_dir=run_dir / "vision",
+                                                     footprints=footprints)  # fmt: skip
 
     def truth() -> dict:
         occupied = np.load(grid_dir / GRID_FILE)
         return build_semantic_map(env, occupied, yaml.safe_load((grid_dir / GRID_META_FILE).read_text()))
 
-    return World(task.stem, stack.robot, agent_detector, RoboCasaClock(kitchen), yaml.safe_load(start_path.read_text()),
+    return World(task.stem, stack.robot, agent_detector, RoboCasaClock(kitchen), start,
                  truth, env.close, info={"env": "robocasa", "layout": layout, "style": style, "detector": detector,
                                          "committed_map": str(config.map_dir / "semantic_map.yaml")})  # fmt: skip
 
