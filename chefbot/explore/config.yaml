@@ -8,7 +8,7 @@ look_range: 1.5             # m
 look_half_angle_deg: 60
 
 # Scoring: an object found this close (xy) to where it really is counts as found there.
-location_tolerance: 0.10    # m
+location_tolerance: 0.15    # m: a detector sees the middle of an object; the map builder records its body origin, which can sit off it (a pan's, toward the handle)
 
 # detect() with no classes looks for all of these (and the handles of doors to open).
 # A fixed list of kitchen nouns, not the scene's: the vision detector replaces it

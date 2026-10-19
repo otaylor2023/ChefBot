@@ -47,8 +47,7 @@ class ScriptedExplorer:
             if entry.label not in self._open:
                 continue
             handle = f"{entry.label} handle"
-            seen = yield ("detect", {"classes": [handle]})
-            ids = [d["id"] for d in (seen.get("data") or {}).get("detections", [])]
+            ids = _ids((yield ("detect", {"classes": [handle]})))
             if not ids:
                 continue
             yield ("align", {"id": ids[0]})
@@ -56,13 +55,21 @@ class ScriptedExplorer:
             if not opened.get("success"):
                 continue
             yield ("detect", {})
-            seen = yield ("detect", {"classes": [handle]})
-            ids = [d["id"] for d in (seen.get("data") or {}).get("detections", [])]
-            if ids:
-                yield ("close", {"id": ids[0]})
+            # An open door can swing its handle out of view: close by the fixture itself then.
+            ids = _ids((yield ("detect", {"classes": [entry.label, handle]})))
+            handles = [i for i in ids if i.startswith(handle)]
+            if handles:
+                yield ("close", {"id": handles[0]})
+            elif entry.name in ids:
+                yield ("align", {"id": entry.name})
+                yield ("close", {"id": entry.name})
         done = yield ("complete", {"step_id": self._step})
         summary = "explored every fixture" if done.get("success") else f"explored; left: {done.get('message')}"
         yield ("finish", {"summary": summary, "abandon": not done.get("success")})
+
+
+def _ids(result: dict) -> list[str]:
+    return [d["id"] for d in (result.get("data") or {}).get("detections", [])]
 
 
 def _last_tool_result(messages) -> dict:
