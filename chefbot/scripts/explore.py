@@ -103,7 +103,7 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str) -> World
     if detector == "vision":
         from chefbot.explore.vision import VisionDetector
 
-        agent_detector = VisionDetector(env, state_of=stack.detector.state_of)
+        agent_detector = VisionDetector.for_robocasa(env, stack.detector, log_dir=run_dir / "vision")
 
     def truth() -> dict:
         occupied = np.load(grid_dir / GRID_FILE)

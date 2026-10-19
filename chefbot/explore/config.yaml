@@ -14,3 +14,21 @@ location_tolerance: 0.15    # m: a detector sees the middle of an object; the ma
 # A fixed list of kitchen nouns, not the scene's: the vision detector replaces it
 # with open vocabulary.
 vocab_file: vocab.yaml
+
+# The vision detector (explore/vision.py, --detector vision): loose objects come
+# from the robot's camera image, named by a vision language model; fixtures and
+# their parts (handles, burners) stay with the scene's fixture geometry, which
+# the starting map already gives.
+vision:
+  camera: robot0_frontview
+  model: anthropic/claude-sonnet-5.5   # OpenRouter id; must take images
+  max_range: 4.0                       # m: farther points are dropped
+  synonyms:                            # VLM word -> catalogue label
+    water bottle: bottled water
+    bottle of water: bottled water
+    chopping board: cutting board
+    frying pan: pan
+    skillet: pan
+    coffee mug: mug
+    cup of coffee: mug
+    eggs: egg

@@ -209,6 +209,12 @@ class NavTools:
             if holder is None:
                 continue
             name = e.map_name or e.id
+            if e.map_name is None and self._map.get(name) is not None:
+                # A new one whose detection id a mapped one (seen elsewhere, out of range) already has.
+                n = 1
+                while self._map.get(f"{e.label}_{n}") is not None:
+                    n += 1
+                name = f"{e.label}_{n}"
             if e.map_name is None or self._map.get(name).inside != self._top(holder):
                 # Seen somewhere the map does not have it: the map follows.
                 self._map.put(MapEntry(name, (float(e.position_world[0]), float(e.position_world[1])),
