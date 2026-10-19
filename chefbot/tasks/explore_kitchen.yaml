@@ -1,0 +1,23 @@
+name: explore_kitchen
+goal: "Every loose object in the kitchen found and on the map"
+steps:
+  - id: s1
+    goal: "Explore the kitchen: look at every fixture, and inside every fixture with a door, closing it after"
+    done_when: "every fixture looked at, every door looked behind and closed again"
+limits: {max_turns: 200}
+# Run with chefbot.scripts.explore, not run_agent: the agent starts from the
+# fixtures alone and the objects below are what it has to find.
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: mug, on: counter_1}
+    - {name: bottled_water, on: counter_1}
+    - {name: pan, on: counter_2}
+    - {name: bowl, in: cabinet_1}
+    - {name: plate, in: cabinet_2}
+    - {name: cutting_board, on: table}
+    - {name: milk, in: microwave}
+robocasa:
+  layout: 1
+  style: 1
+  # objects: the default list in config/envs/robocasa.yaml (the one the true map was built with)

@@ -31,10 +31,24 @@ class MapEntry:
     facing: tuple[float, float] | None = None
     kind: str = "fixture"  # "fixture" | "object"
     inside: str | None = None  # objects: name of the fixture holding it
+    # Fixtures: footprint [width along the front, depth front to back], centered on
+    # `location` and turned by `facing`. Lets an object be placed in the fixture it
+    # stands on even when another fixture's middle is closer (a long counter).
+    size: tuple[float, float] | None = None
 
     @property
     def label(self) -> str:
         return label_of(self.name)
+
+    def contains(self, x: float, y: float) -> bool:
+        """Whether (x, y) is over this fixture's footprint (False without a size)."""
+        if self.size is None or self.facing is None:
+            return False
+        dx, dy = x - self.location[0], y - self.location[1]
+        fx, fy = self.facing
+        depth = dx * fx + dy * fy
+        along = -dx * fy + dy * fx
+        return abs(along) <= self.size[0] / 2 and abs(depth) <= self.size[1] / 2
 
     def distance_to(self, pose: Pose2D) -> float:
         return math.hypot(self.location[0] - pose.x, self.location[1] - pose.y)
@@ -53,6 +67,7 @@ class WorldMap:
         for kind, section in (("fixture", "fixtures"), ("object", "objects")):
             for name, spec in (raw.get(section) or {}).items():
                 facing = spec.get("facing")
+                size = spec.get("size")
                 entries.append(
                     MapEntry(
                         name=name,
@@ -60,6 +75,7 @@ class WorldMap:
                         facing=(float(facing[0]), float(facing[1])) if facing else None,
                         kind=kind,
                         inside=spec.get("in"),
+                        size=(float(size[0]), float(size[1])) if size else None,
                     )
                 )
         return cls(entries, raw.get("frame", "world"))
@@ -74,6 +90,8 @@ class WorldMap:
             spec: dict = {"location": [round(v, 3) for v in e.location]}
             if e.facing is not None:
                 spec["facing"] = [round(v, 3) for v in e.facing]
+            if e.size is not None:
+                spec["size"] = [round(v, 3) for v in e.size]
             if e.inside is not None:
                 spec["in"] = e.inside
             out["fixtures" if e.kind == "fixture" else "objects"][e.name] = spec

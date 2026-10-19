@@ -5,6 +5,10 @@ Writes, into one folder per layout/style:
   semantic_map.yaml      fixtures / objects with rough locations for the agent
 
     python -m chefbot.envs.robocasa.build_map --layout 1 --style 1
+
+With --start, writes semantic_map_start.yaml instead: the fixtures alone, each
+with its footprint (`size`), and no objects. That is the map an exploring
+agent starts from (chefbot/explore); the grid is written too.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from chefbot.envs.robocasa.detector import FixtureBox, named_fixtures, numbered,
 from chefbot.envs.robocasa.env import RoboCasaEnv
 
 GRID_FILE, GRID_META_FILE, SEMANTIC_MAP_FILE = "grid.npy", "grid.yaml", "semantic_map.yaml"
+START_MAP_FILE = "semantic_map_start.yaml"
 # How far in front of a fixture there must be open floor for a facing to count.
 _FACING_CLEARANCE = 0.6
 
@@ -140,6 +145,36 @@ def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> di
     return out
 
 
+def _footprint(box: FixtureBox, facing: list[float]) -> list[float]:
+    """[width across `facing`, depth along it] of the box's footprint."""
+    f = np.array(facing, dtype=float)
+    a = np.array([-f[1], f[0]])
+    edges = (box.width[:2], box.depth[:2])
+    return [round(float(sum(abs(e @ a) for e in edges)), 3), round(float(sum(abs(e @ f) for e in edges)), 3)]
+
+
+def build_start_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> dict:
+    """The semantic map without its objects, fixtures with their footprints."""
+    full = build_semantic_map(env, occupied, meta)
+    with env.lock:
+        boxes = {f.name: f.box for f in named_fixtures(env)}
+    for name, entry in full["fixtures"].items():
+        if name in boxes and "facing" in entry:
+            entry["size"] = _footprint(boxes[name], entry["facing"])
+    full["objects"] = {}
+    return full
+
+
+def write_grid(env: RoboCasaEnv, out_dir: str | Path) -> Path:
+    """Write grid.npy and grid.yaml only (geometry, no semantics); returns the folder."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    occupied, meta = build_grid(env)
+    np.save(out_dir / GRID_FILE, occupied)
+    (out_dir / GRID_META_FILE).write_text(yaml.safe_dump(meta))
+    return out_dir
+
+
 def build_map(env: RoboCasaEnv, out_dir: str | Path | None = None) -> Path:
     """Write grid.npy, grid.yaml and semantic_map.yaml; returns the folder."""
     out_dir = Path(out_dir) if out_dir else env.config.map_dir
@@ -165,8 +200,17 @@ def main() -> None:
     parser.add_argument("--layout", type=int)
     parser.add_argument("--style", type=int)
     parser.add_argument("--out", type=Path, help="output folder (default: maps/robocasa_layoutNNN_styleNNN)")
+    parser.add_argument("--start", action="store_true", help=f"write {START_MAP_FILE} (fixtures only) and the grid")
     args = parser.parse_args()
     env = RoboCasaEnv(RoboCasaConfig.load(layout=args.layout, style=args.style))
+    if args.start:
+        out_dir = write_grid(env, args.out or env.config.map_dir)
+        occupied, meta = np.load(out_dir / GRID_FILE), yaml.safe_load((out_dir / GRID_META_FILE).read_text())
+        start = build_start_map(env, occupied, meta)
+        (out_dir / START_MAP_FILE).write_text(yaml.safe_dump(start, sort_keys=False, default_flow_style=None))
+        print(f"wrote {out_dir / START_MAP_FILE}: fixtures {', '.join(start['fixtures'])}")
+        env.close()
+        return
     out_dir = build_map(env, args.out)
     occupied = np.load(out_dir / GRID_FILE)
     semantic = yaml.safe_load((out_dir / SEMANTIC_MAP_FILE).read_text())

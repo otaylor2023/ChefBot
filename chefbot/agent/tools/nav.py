@@ -295,6 +295,10 @@ class NavTools:
         fixtures = [m for m in self._map.list() if m.kind == "fixture"]
         if not fixtures:
             return None
+        # Over a fixture's footprint: that fixture (the first on the map, as the map builder decides).
+        over = next((m for m in fixtures if m.contains(float(position[0]), float(position[1]))), None)
+        if over is not None:
+            return over.name
         best = min(fixtures, key=lambda m: _xy_dist(position, m.location))
         return best.name if _xy_dist(position, best.location) <= 1.0 else None
 

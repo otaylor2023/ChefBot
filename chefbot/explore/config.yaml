@@ -1,0 +1,16 @@
+# Exploration (chefbot/explore): what "explored" means and what detect() looks for.
+
+# Fixtures with a door: explored only once you have looked inside with the door open.
+open_labels: [fridge, microwave, dishwasher, oven, cabinet, drawer]
+
+# A detect counts as looking at a fixture if the fixture is this close and in front.
+look_range: 1.5             # m
+look_half_angle_deg: 60
+
+# Scoring: an object found this close (xy) to where it really is counts as found there.
+location_tolerance: 0.10    # m
+
+# detect() with no classes looks for all of these (and the handles of doors to open).
+# A fixed list of kitchen nouns, not the scene's: the vision detector replaces it
+# with open vocabulary.
+vocab_file: vocab.yaml

@@ -1,0 +1,204 @@
+# detect() vocabulary for exploring with a closed-vocabulary detector: every RoboCasa
+# object category (robocasa/models/objects/kitchen_objects.py, OBJ_CATEGORIES) as a
+# label, plus the fixture parts the agent acts on. It is the catalogue of what any
+# RoboCasa kitchen can hold, not the list of what this scene holds.
+parts: [burner, fridge handle, freezer handle, microwave handle, dishwasher handle, oven handle, cabinet handle, drawer handle, faucet]
+objects:
+  - aluminum foil
+  - apple
+  - apricot
+  - artichoke
+  - asparagus
+  - avocado
+  - bacon
+  - bagel
+  - bagged food
+  - baguette
+  - baking sheet
+  - banana
+  - bar
+  - bar soap
+  - basket
+  - beer
+  - beet
+  - bell pepper
+  - blender jug
+  - bottle opener
+  - bottled drink
+  - bottled water
+  - bowl
+  - boxed drink
+  - boxed food
+  - bread
+  - bread flat
+  - broccoli
+  - brussel sprout
+  - burrito
+  - butter stick
+  - cabbage
+  - cake
+  - can
+  - can opener
+  - candle
+  - candy
+  - canned food
+  - canola oil
+  - cantaloupe
+  - carrot
+  - cauliflower
+  - celery
+  - cereal
+  - cheese
+  - cheese grater
+  - cherry
+  - chicken breast
+  - chicken drumstick
+  - chili pepper
+  - chips
+  - chocolate
+  - cinnamon
+  - coconut
+  - coffee cup
+  - colander
+  - condiment bottle
+  - cookie dough ball
+  - corn
+  - cream cheese stick
+  - croissant
+  - cucumber
+  - cup
+  - cupcake
+  - cutting board
+  - dates
+  - digital scale
+  - dish brush
+  - donut
+  - dumpling
+  - egg
+  - eggplant
+  - fish
+  - flour bag
+  - fork
+  - garlic
+  - ginger
+  - glass cup
+  - grapes
+  - ham
+  - hamburger
+  - honey bottle
+  - hot dog
+  - hotdog bun
+  - ice cream
+  - ice cube
+  - ice cube tray
+  - jam
+  - jar
+  - jello cup
+  - jug
+  - jug wide opening
+  - juice
+  - kebab skewer
+  - kebabs
+  - ketchup
+  - kettle non electric
+  - kiwi
+  - knife
+  - ladle
+  - lamb chop
+  - lemon
+  - lemon wedge
+  - lemonade
+  - lettuce
+  - lime
+  - liquor
+  - lobster
+  - lollipop
+  - mango
+  - marshmallow
+  - mayonnaise
+  - measuring cup
+  - milk
+  - mug
+  - mushroom
+  - mustard
+  - oil and vinegar bottle
+  - olive oil bottle
+  - onion
+  - orange
+  - oven tray
+  - pan
+  - pancake
+  - paprika
+  - peach
+  - peanut butter
+  - pear
+  - peeler
+  - pickle
+  - pickle slice
+  - pineapple
+  - pitcher
+  - pizza
+  - pizza cutter
+  - placemat
+  - plate
+  - pomegranate
+  - pork chop
+  - pork loin
+  - pot
+  - potato
+  - radish
+  - raspberry
+  - reamer
+  - rolling pin
+  - salami
+  - salsa
+  - salt and pepper shaker
+  - sandwich bread
+  - saucepan
+  - saucepan lid
+  - saucepan with lid
+  - sausage
+  - scallops
+  - scissors
+  - scone
+  - shaker
+  - shrimp
+  - skewers
+  - soap dispenser
+  - spaghetti box
+  - spatula
+  - sponge
+  - spoon
+  - spray
+  - squash
+  - steak
+  - strainer
+  - straw
+  - strawberry
+  - sugar cube
+  - sushi
+  - sweet potato
+  - syrup bottle
+  - tacos
+  - tangerine
+  - teapot
+  - thermos
+  - tofu
+  - tomato
+  - tomato slice
+  - tongs
+  - tray
+  - tupperware
+  - turkey slice
+  - turmeric
+  - vinegar
+  - waffle
+  - walnut
+  - water bottle
+  - watermelon
+  - whisk
+  - wine
+  - wine glass
+  - wooden spoon
+  - yogurt
+  - zucchini
