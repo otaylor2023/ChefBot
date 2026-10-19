@@ -34,7 +34,7 @@ from chefbot.agent.config import AgentConfig, LoopConfig
 from chefbot.agent.loop.context import system_prompt
 from chefbot.agent.loop.runner import AgentRunner, AgentSession
 from chefbot.agent.plan.model import Plan
-from chefbot.agent.world.map import WorldMap
+from chefbot.agent.world.map import WorldMap, label_of
 from chefbot.explore.coverage import Coverage, CoverageChecker, CoverageObserver
 from chefbot.explore.output import explored_map, save
 from chefbot.explore.score import describe, score
@@ -176,6 +176,10 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
 
     try:
         outcome = AgentRunner(session, llm, after_action=after_action).run()
+        for label, where in getattr(world.detector, "superseded", lambda: [])():
+            for e in world_map.list():  # a far-off misnaming that a closer look corrected
+                if e.kind == "object" and label_of(e.name) == label and math.dist(e.location, where[:2]) <= 0.1:
+                    world_map.remove(e.name)
         explored = explored_map(world.start, world_map)
         save(explored, run_dir / "explored_map.yaml")
         # The run is over: only now is the truth made, and only the scorer reads it.

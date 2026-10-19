@@ -105,3 +105,18 @@ def test_sightings_of_one_object_are_averaged_and_off_fixture_points_dropped():
     assert [d.label for d in second] == ["mug"]  # the jug back-projects outside every fixture
     one = box_point(scene(), (300, 200, 340, 240))
     assert np.allclose(second[0].position_world, (first + one) / 2)
+
+
+def test_a_far_misnaming_is_superseded_by_a_closer_look():
+    near = scene()
+    near.depth[200:260, 300:340] = 0.9  # the same thing, seen from 0.6 m closer
+    near.cam_to_world = near.cam_to_world.copy()
+    near.cam_to_world[2, 3] += 0.6
+    near.rgb[0, 0, 0] = 9  # a different image, not a cached repeat
+    shots = iter([scene(), near])
+    vlm = ScriptedVLM([[{"label": "cutting board", "box": [300, 200, 340, 260]}],
+                       [{"label": "knife block", "box": [300, 200, 340, 260]}]])
+    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5)})
+    det.detect(["mug"])
+    det.detect(["mug"])
+    assert [label for label, _ in det.superseded()] == ["cutting board"]

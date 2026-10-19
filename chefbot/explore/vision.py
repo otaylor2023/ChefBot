@@ -36,7 +36,7 @@ _VOCAB = yaml.safe_load((_EXPLORE / _CONFIG["vocab_file"]).read_text())
 FIXTURE_WORDS = (
     "counter, countertop, cabinet, drawer, shelf, sink, faucet, stove, cooktop, burner, knob, oven, "
     "fridge, refrigerator, freezer, microwave, dishwasher, coffee machine, toaster, toaster oven, "
-    "kettle, blender, stand mixer, range hood, handle, window, wall, floor, backsplash"
+    "microwave turntable, kettle, blender, stand mixer, range hood, handle, window, wall, floor, backsplash"
 )
 
 PROMPT = """This is a kitchen seen through a mobile robot's camera ({width}x{height} pixels). The robot's \
@@ -44,7 +44,8 @@ own arm may be in the lower middle of the image: ignore it.
 
 List every loose object you can see: food, drinks, bottles, cookware, dishes, cups, utensils, \
 containers, boards, small items. Include objects inside an open fridge or cabinet. Do not list the \
-kitchen's fixtures or their parts ({fixtures}).
+kitchen's fixtures or their parts ({fixtures}); the glass turntable inside a microwave is part of the \
+microwave, not a plate.
 
 Name each object with a name from this list when one fits, otherwise a short common noun:
 {vocab}
@@ -159,6 +160,8 @@ class VisionDetector(Detector):
         self._merge = float(cfg.get("merge_radius", 0.3))
         self._height = tuple(cfg.get("height_range", (0.2, 2.2)))
         self._margin = float(cfg.get("footprint_margin", 0.1))
+        self._conflict = float(cfg.get("conflict_radius", 0.08))
+        self._closer = float(cfg.get("closer_by", 0.5))
         self._footprints = [f for f in (footprints or []) if f.size is not None and f.facing is not None]
         self._tracks: list[dict] = []  # one per object: label, summed position, sightings
         self._cache: tuple[str, list[int]] | None = None
@@ -199,7 +202,7 @@ class VisionDetector(Detector):
             point = box_point(rgbd, item["box"])
             if point is None or float(np.linalg.norm(point - origin)) > self._max_range or not self._plausible(point):
                 continue
-            seen.append(self._track(label, point, exclude=seen))
+            seen.append(self._track(label, point, float(np.linalg.norm(point - origin)), exclude=seen))
         self._cache = (key, seen)
         out = [self._report(i) for i in seen]
         self._log(rgbd, named, out)
@@ -219,7 +222,7 @@ class VisionDetector(Detector):
                 return True
         return False
 
-    def _track(self, label: str, point: np.ndarray, exclude: list[int]) -> int:
+    def _track(self, label: str, point: np.ndarray, distance: float, exclude: list[int]) -> int:
         """The object this sighting is of (the nearest of that label within merge_radius), or a new one.
         Its position is the mean of its sightings, so later full views wash out a poor first one."""
         best, best_d = None, self._merge
@@ -230,11 +233,25 @@ class VisionDetector(Detector):
             if d <= best_d:
                 best, best_d = i, d
         if best is None:
-            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0})
+            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0, "nearest": distance})
             best = len(self._tracks) - 1
         self._tracks[best]["sum"] += point
         self._tracks[best]["n"] += 1
+        self._tracks[best]["nearest"] = min(self._tracks[best]["nearest"], distance)
         return best
+
+    def superseded(self) -> list[tuple[str, np.ndarray]]:
+        """Objects seen only from afar where a closer look found something else on the same spot
+        (a far-off "cutting board" that up close is a knife block): (label, position) of each."""
+        out = []
+        for t in self._tracks:
+            here = t["sum"] / t["n"]
+            for o in self._tracks:
+                if (o["label"] != t["label"] and t["nearest"] - o["nearest"] >= self._closer
+                        and float(np.linalg.norm((o["sum"] / o["n"])[:2] - here[:2])) <= self._conflict):  # fmt: skip
+                    out.append((t["label"], here))
+                    break
+        return out
 
     def _report(self, i: int) -> Detection:
         t = self._tracks[i]
