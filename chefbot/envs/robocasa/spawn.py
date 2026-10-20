@@ -29,6 +29,7 @@ _FLATNESS = 0.006  # max height spread under an object's footprint
 _DROP = 0.004  # objects are released this far above their spot
 _SETTLE_STEPS = 60
 _SHELF_HEADROOM = 0.14  # free height needed above an object on a shelf (room for the gripper)
+_DRAWER_HEADROOM = 0.02
 _SHELF_BEST_HEIGHT = 1.35  # shelves near this height are the easiest to reach into with a level gripper
 
 
@@ -96,7 +97,7 @@ def place_objects(env: "RoboCasaEnv") -> None:
             height = float(obj.size[2])
             spot = None
             candidates = [f for f in fixtures if where in (f.name, f.label)]
-            if not candidates and inside and where in _STORAGE:
+            if not candidates and inside and (where in _STORAGE or where.split("_")[0] in _STORAGE):
                 candidates = _storage(env, where)  # cabinets and drawers are not map fixtures
             for fixture in candidates:
                 find = _shelf_spot if inside else _surface_spot
@@ -134,18 +135,21 @@ def place_objects(env: "RoboCasaEnv") -> None:
         env.wait_for_next_tick(1.0 / env.config.control_freq)
 
 
-_STORAGE = {"cabinet": ("HingeCabinet", "SingleCabinet"), "drawer": ("Drawer",)}
+_STORAGE = {"cabinet", "drawer"}
 
 
-def _storage(env: "RoboCasaEnv", label: str) -> list:
-    """Cabinets or drawers to put things inside, by RoboCasa class (they are not on the map)."""
-    from chefbot.envs.robocasa.detector import NamedFixture, fixture_box
+def _storage(env: "RoboCasaEnv", where: str) -> list:
+    """Cabinets or drawers to put things inside (they are not on the default map), named as on a
+    storage map (cabinet_3, drawer_7). By label, the ones a robot can reach first: drawers from
+    the top down, base cabinets before wall cabinets."""
+    from chefbot.envs.robocasa.detector import storage_fixtures
 
-    out = []
-    for sim_name, fixture in sorted(env.suite.fixtures.items()):
-        if type(fixture).__name__ in _STORAGE[label] and (box := fixture_box(fixture)) is not None:
-            out.append(NamedFixture(sim_name, sim_name, label, box))
-    return out
+    found = [f for f in storage_fixtures(env) if where in (f.name, f.label)]
+    if where == "drawer":
+        found.sort(key=lambda f: -f.box.top)
+    elif where == "cabinet":
+        found.sort(key=lambda f: float(f.box.origin[2]))
+    return found
 
 
 def _ray_down(env: "RoboCasaEnv", x: float, y: float, z: float) -> tuple[int, float]:
@@ -222,6 +226,8 @@ def _shelf_spot(env, fixture, radius: float, height: float, placed) -> np.ndarra
     width, depth = float(np.linalg.norm(box.width)), float(np.linalg.norm(box.depth))
     best, best_cost = None, math.inf
     u_low, u_high = _compartment(env, fixture)
+    # A drawer is pulled out to get at what is in it: no room for a gripper needed above.
+    headroom = _DRAWER_HEADROOM if fixture.label == "drawer" else _SHELF_HEADROOM
     for u in _lattice(width, radius + 0.05):
         if not u_low + 0.05 <= u <= u_high - 0.05:
             continue
@@ -236,7 +242,7 @@ def _shelf_spot(env, fixture, radius: float, height: float, placed) -> np.ndarra
                 if geom < 0 or surface < 0.3:
                     break
                 z = surface - 0.02
-                if _ray_up(env, point[0], point[1], surface + 0.005) < height + _SHELF_HEADROOM:
+                if _ray_up(env, point[0], point[1], surface + 0.005) < height + headroom:
                     continue
                 flat = _flat_height(env, fixture, point[0], point[1], radius, surface + 0.05)
                 if flat is None or abs(flat - surface) > _FLATNESS:

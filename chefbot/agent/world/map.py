@@ -35,6 +35,9 @@ class MapEntry:
     # `location` and turned by `facing`. Lets an object be placed in the fixture it
     # stands on even when another fixture's middle is closer (a long counter).
     size: tuple[float, float] | None = None
+    # Fixtures stacked over one footprint (cabinets, drawers): [bottom, top] height, so what
+    # sits inside one is told from what sits on the counter above it. None: any height.
+    z: tuple[float, float] | None = None
 
     @property
     def label(self) -> str:
@@ -68,6 +71,7 @@ class WorldMap:
             for name, spec in (raw.get(section) or {}).items():
                 facing = spec.get("facing")
                 size = spec.get("size")
+                z = spec.get("z")
                 entries.append(
                     MapEntry(
                         name=name,
@@ -76,6 +80,7 @@ class WorldMap:
                         kind=kind,
                         inside=spec.get("in"),
                         size=(float(size[0]), float(size[1])) if size else None,
+                        z=(float(z[0]), float(z[1])) if z else None,
                     )
                 )
         return cls(entries, raw.get("frame", "world"))
@@ -92,6 +97,8 @@ class WorldMap:
                 spec["facing"] = [round(v, 3) for v in e.facing]
             if e.size is not None:
                 spec["size"] = [round(v, 3) for v in e.size]
+            if e.z is not None:
+                spec["z"] = [round(v, 3) for v in e.z]
             if e.inside is not None:
                 spec["in"] = e.inside
             out["fixtures" if e.kind == "fixture" else "objects"][e.name] = spec

@@ -51,6 +51,9 @@ class NavTools:
         self.not_found: dict[str, int] = {}
         # Things asked for and not found: label -> map fixtures that were in view each time.
         self.searched: dict[str, set[str]] = {}
+        # Doors you opened by a handle, by fixture name: close("cabinet_3") works with that handle
+        # even when the open door has swung it out of view.
+        self.opened_by: dict[str, DetectionEntry] = {}
         # The held tool: what it is lowered into, and whether its trigger is squeezed.
         self.tool_use: dict = {"lowered_into": None, "squeezing": False}
         # Door / burner states and where objects are (KITCHEN block); run time from `now`.
@@ -143,6 +146,11 @@ class NavTools:
             ):  # a thing, not a kind of fixture
                 self.searched.setdefault(label, set()).update(fixtures)
         described = {e.id: _described(e, entries) for e in entries}
+        for e in entries:  # a handle of one of several like fixtures (cabinets): which one
+            base = e.label.removesuffix(" handle")
+            if e.label.endswith(" handle") and sum(m.kind == "fixture" and m.label == base for m in self._map.list()) > 1:
+                if (owner := self.fixture_of_handle(e)) is not None:
+                    described[e.id]["of"] = owner
         self._learn(entries, described)
         data = {"detections": [described[e.id] for e in found]}
         if not found:
@@ -298,6 +306,10 @@ class NavTools:
             xy = target.position_world
             self._map.put(MapEntry(name, (float(xy[0]), float(xy[1]))))
         self.kitchen.set_state(name, state, YOU, self.now())
+        if state == "open" and target.label.endswith(" handle"):
+            self.opened_by[name] = target
+        elif state == "closed":
+            self.opened_by.pop(name, None)
 
     def describe_where(self, obj: str) -> str:
         fact = self.kitchen.where.get(obj)
@@ -315,6 +327,13 @@ class NavTools:
         """The map fixture a handle (or another fixture part) belongs to."""
         base = entry.label.removesuffix(" handle")
         candidates = [m for m in self._map.list() if m.kind == "fixture" and m.label == base]
+        z = float(entry.position_world[2])
+        if any(m.z is not None for m in candidates):  # stacked cabinets and drawers: the one at the handle's height
+            candidates = [m for m in candidates if m.z is None or m.z[0] - 0.1 <= z <= m.z[1] + 0.1]
+            # An open door swings its handle off to the side, toward the next one: it is an open one's.
+            if entry.state == "open":
+                believed_open = [m for m in candidates if (f := self.kitchen.states.get(m.name)) and f.value == "open"]
+                candidates = believed_open or candidates
         if not candidates:
             return None
         best = min(candidates, key=lambda m: _xy_dist(entry.position_world, m.location))
@@ -322,6 +341,13 @@ class NavTools:
 
     def _nearest_fixture(self, position) -> str | None:
         fixtures = [m for m in self._map.list() if m.kind == "fixture"]
+        # Inside a cabinet or drawer on the map (one with a height range): that one.
+        z = float(position[2]) if len(position) > 2 else None
+        inside = [m for m in fixtures if m.z is not None and z is not None and m.z[0] - 0.02 <= z <= m.z[1] + 0.02
+                  and m.contains(float(position[0]), float(position[1]))]  # fmt: skip
+        if inside:
+            return min(inside, key=lambda m: _xy_dist(position, m.location)).name
+        fixtures = [m for m in fixtures if m.z is None]  # what is not inside one sits on the rest
         if not fixtures:
             return None
         # Over a fixture's footprint: that fixture (the first on the map, as the map builder decides).

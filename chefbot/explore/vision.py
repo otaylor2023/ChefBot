@@ -167,15 +167,27 @@ class VisionDetector(Detector):
         self._cache: tuple[str, list[int]] | None = None
         self._log_dir = log_dir
         self._calls = 0
+        self.camera_name: Callable[[], str] | None = None  # which camera the last view came from
 
     @classmethod
     def for_robocasa(cls, env, ground_truth, log_dir: Path | None = None, footprints: list | None = None,
                      vlm=None) -> "VisionDetector":  # fmt: skip
         from chefbot.envs.robocasa.detector import FIXTURE_LABELS, PART_RULES
 
-        camera = _CONFIG["vision"]["camera"]
+        cameras = list(_CONFIG["vision"].get("cameras") or [_CONFIG["vision"]["camera"]])
         labels = set(FIXTURE_LABELS.values()) | {rule[3] for rule in PART_RULES} | set(_VOCAB["parts"])
-        return cls(lambda: env.get_camera_rgbd(camera), ground_truth, labels, vlm, log_dir=log_dir, footprints=footprints)
+        chosen = [cameras[0]]
+
+        def render() -> RGBD:
+            # The camera the robot's own arm blocks least (into an open fridge it sits right in front of one).
+            if len(cameras) > 1:
+                occluded = {cam: env.camera_self_occlusion(cam) for cam in cameras}
+                chosen[0] = min(cameras, key=lambda cam: (round(occluded[cam], 2), cameras.index(cam)))
+            return env.get_camera_rgbd(chosen[0])
+
+        det = cls(render, ground_truth, labels, vlm, log_dir=log_dir, footprints=footprints)
+        det.camera_name = lambda: chosen[0]
+        return det
 
     def detect(self, classes: list[str]) -> list[Detection]:
         wanted = set(classes)
@@ -270,5 +282,6 @@ class VisionDetector(Detector):
         Image.fromarray(rgbd.rgb).save(stem.with_suffix(".png"))
         stem.with_suffix(".json").write_text(json.dumps({
             "vlm": named,
+            "camera": self.camera_name() if self.camera_name else None,
             "detections": [{"label": d.label, "position": [round(float(v), 3) for v in d.position_world]} for d in out],
         }, indent=1))  # fmt: skip

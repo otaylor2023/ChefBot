@@ -28,12 +28,15 @@ class Coverage:
     open_labels: frozenset[str]
     look_range: float = 1.5
     look_half_angle: float = math.radians(60)
+    # A cabinet whose floor is above the robot's camera cannot be looked into: not explorable.
+    storage_max_bottom: float = math.inf
     seen: dict[str, set[int]] = field(default_factory=dict)  # fixture -> sample points seen
     looked_inside: set[str] = field(default_factory=set)
 
     def fixtures(self) -> list[MapEntry]:
-        """The fixtures to explore: every map fixture but the stove's burners."""
-        return [e for e in self.world_map.list() if e.kind == "fixture" and e.label != "burner"]
+        """The fixtures to explore: every map fixture but the stove's burners and cabinets out of view."""
+        return [e for e in self.world_map.list() if e.kind == "fixture" and e.label != "burner"
+                and (e.z is None or e.z[0] <= self.storage_max_bottom)]  # fmt: skip
 
     def openable(self, entry: MapEntry) -> bool:
         return entry.label in self.open_labels

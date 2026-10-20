@@ -109,3 +109,33 @@ def test_coverage_names_the_unseen_part_of_a_long_fixture_and_how_to_get_there()
     left = coverage.remaining({})
     assert [line.split(";")[1].split(",")[0].strip() for line in left] == ["not the left part", "not the right part", "not the middle part"]
     assert _PART_HINT.findall(left[0]) == [("counter_1", "", "-0.66")]
+
+
+def test_scripted_explorer_visits_a_group_of_cabinets_from_one_stop_one_door_at_a_time():
+    from chefbot.explore.scripted import ScriptedExplorer
+
+    world = WorldMap.from_dict({"frame": "world", "fixtures": {
+        "cabinet_1": {"location": [1.0, 0.0], "facing": [0.0, 1.0], "z": [0.05, 0.85]},
+        "drawer_1": {"location": [1.2, 0.0], "facing": [0.0, 1.0], "z": [0.7, 0.9]},
+        "cabinet_2": {"location": [1.0, 0.0], "facing": [0.0, 1.0], "z": [1.8, 2.4]},  # floor above the camera
+    }, "objects": {}})  # fmt: skip
+    explorer = ScriptedExplorer(world, {"cabinet", "drawer"}, storage_max_bottom=1.6)
+    route = explorer._storage([e for e in world.list() if e.z[0] <= 1.6])
+    handles = {"cabinet handle": "cabinet handle_1", "drawer handle": "drawer handle_1"}
+    calls, result = [], None
+    try:
+        while True:
+            tool, args = route.send(result) if calls else next(route)
+            calls.append((tool, args))
+            if tool == "detect" and args.get("classes") and len(args["classes"]) == 1:
+                label = args["classes"][0]
+                result = {"success": True, "data": {"detections": [{"id": handles[label], "of": label.split()[0] + "_1"}]}}
+            else:
+                result = {"success": True, "data": {"detections": []}}
+    except StopIteration:
+        pass
+    tools = [t for t, _ in calls]
+    assert tools.count("go_to") == 1 and tools.count("open") == 2 and tools.count("close") == 2  # one stop
+    assert calls.count(("detect", {})) == 2  # a look into each, one door open at a time
+    assert tools.index("close") < tools.index("open", tools.index("open") + 1)
+    assert Coverage(world, frozenset({"cabinet"}), storage_max_bottom=1.6).fixtures() == [world.get("cabinet_1"), world.get("drawer_1")]

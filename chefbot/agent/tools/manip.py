@@ -82,6 +82,8 @@ class ManipTools:
     def _actuate(self, id: str, open: bool, wait: bool) -> ToolResult:
         verb = "open" if open else "close"
         entry = self._nav.visible_entry(id)
+        if isinstance(entry, ToolResult) and not open and id in self._nav.opened_by:
+            entry = self._nav.opened_by[id]  # a door you opened: closed by the handle you opened it with
         if isinstance(entry, ToolResult):
             return entry
         self._robot.actuate_fixture(_detection(entry), open)

@@ -77,7 +77,8 @@ def symbolic_world(task: Path, seed: int) -> World:
 
 def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str, layout: int | None = None,
                    style: int | None = None) -> World:  # fmt: skip
-    from chefbot.envs.robocasa.build_map import GRID_FILE, GRID_META_FILE, START_MAP_FILE, build_semantic_map, write_grid
+    from chefbot.envs.robocasa.build_map import (GRID_FILE, GRID_META_FILE, START_MAP_FILE, STORAGE_START_MAP_FILE,
+                                                 build_semantic_map, write_grid)  # fmt: skip
     from chefbot.envs.robocasa.config import RoboCasaConfig
     from chefbot.envs.robocasa.env import RoboCasaEnv
     from chefbot.envs.robocasa.kitchen_state import RoboCasaClock, RoboCasaKitchen
@@ -94,10 +95,11 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str, layout: 
     config = RoboCasaConfig.load(layout=layout, style=style, seed=seed)
     if spec.get("objects"):
         config = dataclasses.replace(config, objects=tuple(dict(o) for o in spec["objects"]))
-    start_path = config.map_dir / START_MAP_FILE
+    storage = bool(spec.get("storage"))  # cabinets and drawers on the map, to be opened too
+    start_path = config.map_dir / (STORAGE_START_MAP_FILE if storage else START_MAP_FILE)
     if not start_path.exists():
         raise SystemExit(f"no start map {start_path}: python -m chefbot.envs.robocasa.build_map --start "
-                         f"--layout {layout} --style {style}")  # fmt: skip
+                         f"--layout {layout} --style {style}" + (" --storage" if storage else ""))  # fmt: skip
     env = RoboCasaEnv(config, render=True)
     grid_dir = write_grid(env, run_dir / "grid")  # geometry only: the robot drives on it
     stack = wire_stack(env, grid_dir, RobotConfig.load())
@@ -118,7 +120,7 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str, layout: 
 
     def truth() -> dict:
         occupied = np.load(grid_dir / GRID_FILE)
-        return build_semantic_map(env, occupied, yaml.safe_load((grid_dir / GRID_META_FILE).read_text()))
+        return build_semantic_map(env, occupied, yaml.safe_load((grid_dir / GRID_META_FILE).read_text()), storage)
 
     return World(task.stem, stack.robot, agent_detector, RoboCasaClock(kitchen), start,
                  truth, env.close, info={"env": "robocasa", "layout": layout, "style": style, "detector": detector,
@@ -146,7 +148,8 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
     world_map = WorldMap.from_dict(world.start)
     open_labels = frozenset(explore_cfg["open_labels"])
     coverage = Coverage(world_map, open_labels, float(explore_cfg["look_range"]),
-                        math.radians(float(explore_cfg["look_half_angle_deg"])))  # fmt: skip
+                        math.radians(float(explore_cfg["look_half_angle_deg"])),
+                        float(explore_cfg["storage_max_bottom"]))  # fmt: skip
     holder: dict = {}
 
     def states() -> dict[str, str]:
@@ -172,7 +175,8 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
         if policy == "scripted":
             from chefbot.explore.scripted import ScriptedExplorer
 
-            llm = ScriptedExplorer(WorldMap.from_dict(world.start), set(open_labels))
+            llm = ScriptedExplorer(WorldMap.from_dict(world.start), set(open_labels),
+                                   storage_max_bottom=float(explore_cfg["storage_max_bottom"]))  # fmt: skip
         else:
             from chefbot.agent.loop.llm import OpenRouterClient
 

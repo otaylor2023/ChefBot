@@ -275,3 +275,44 @@ def test_go_to_part_or_along_stands_at_that_part_of_a_long_fixture():
     registry.dispatch("go_to", {"place": "island", "along": 0.5})
     assert robot.goals[-1].x == pytest.approx(3.0 - 0.8)
     assert not registry.dispatch("go_to", {"place": "island", "part": "top"}).success
+
+
+def test_stacked_cabinets_and_drawers_are_told_apart_by_height():
+    from types import SimpleNamespace
+
+    from chefbot.agent.world.map import MapEntry, WorldMap
+
+    registry, robot, _ = make()
+    nav = registry.tools
+    m = nav._map
+    m.put(MapEntry("counter_2", (6.0, 0.3), facing=(0.0, 1.0), size=(1.0, 0.6)))
+    m.put(MapEntry("cabinet_1", (6.0, 0.3), facing=(0.0, 1.0), size=(1.0, 0.6), z=(0.05, 0.85)))
+    m.put(MapEntry("cabinet_2", (6.0, 0.3), facing=(0.0, 1.0), size=(1.0, 0.6), z=(1.4, 2.2)))
+    m.put(MapEntry("cabinet_3", (7.0, 0.3), facing=(0.0, 1.0), size=(1.0, 0.6), z=(0.05, 0.85)))
+    assert WorldMap.from_dict(m.to_dict()).get("cabinet_2").z == (1.4, 2.2)
+    assert nav._nearest_fixture(np.array([6.0, 0.3, 0.95])) == "counter_2"  # on the counter, not in the cabinet below
+    assert nav._nearest_fixture(np.array([6.0, 0.3, 0.4])) == "cabinet_1"
+    assert nav._nearest_fixture(np.array([6.0, 0.3, 1.6])) == "cabinet_2"
+    handle = SimpleNamespace(label="cabinet handle", position_world=np.array([6.4, 0.6, 1.5]), state=None)
+    assert nav.fixture_of_handle(handle) == "cabinet_2"
+    # Swung open, a handle sits nearer the next cabinet: it is still the open one's.
+    nav.kitchen.set_state("cabinet_1", "open", "you", 0.0)
+    swung = SimpleNamespace(label="cabinet handle", position_world=np.array([6.8, 0.9, 0.7]), state="open")
+    assert nav.fixture_of_handle(swung) == "cabinet_1"
+
+
+def test_a_door_you_opened_closes_by_its_name_when_its_handle_is_out_of_view():
+    from chefbot.agent.world.map import MapEntry
+
+    registry, robot, detector = make()
+    registry.tools._map.put(MapEntry("cabinet_1", (3.6, 0.3), facing=(0.0, 1.0), size=(0.5, 0.6), z=(0.05, 0.85)))
+    robot.openable.add("cabinet handle")
+    detector.objects.append(("cabinet handle", (3.6, 0.6, 0.7)))
+    registry.dispatch("detect", {"classes": ["cabinet handle"]})
+    assert registry.dispatch("open", {"id": "cabinet handle_1"}).success
+    detector.objects = [o for o in detector.objects if o[0] != "cabinet handle"]  # swung out of view
+    registry.dispatch("detect", {"classes": ["cabinet handle"]})
+    assert not registry.dispatch("close", {"id": "cabinet handle_1"}).success
+    assert registry.dispatch("close", {"id": "cabinet_1"}).success
+    assert registry.tools.kitchen.states["cabinet_1"].value == "closed"
+    assert not registry.dispatch("close", {"id": "cabinet_1"}).success  # closed: no longer yours to close by name

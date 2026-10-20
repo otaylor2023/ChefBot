@@ -159,6 +159,35 @@ def named_fixtures(env: RoboCasaEnv) -> list[NamedFixture]:
     return [NamedFixture(name, sim, label, box) for name, (sim, label, box) in zip(names, fixtures)]
 
 
+# Storage behind doors, not on the default map (opt-in, for exploration): RoboCasa class -> label.
+STORAGE_CLASSES: dict[str, str] = {"HingeCabinet": "cabinet", "SingleCabinet": "cabinet", "Drawer": "drawer"}
+
+
+def storage_fixtures(env: RoboCasaEnv) -> list[NamedFixture]:
+    """Cabinets with doors and drawers, as map fixtures: cabinet_1, ..., drawer_1, ... (by label, then position)."""
+    found = []
+    for sim_name, fixture in env.suite.fixtures.items():
+        label = STORAGE_CLASSES.get(type(fixture).__name__)
+        box = fixture_box(fixture) if label else None
+        if box is not None:
+            found.append((sim_name, label, box))
+    found.sort(key=lambda f: (f[1], round(float(f[2].center[0]), 2), round(float(f[2].center[1]), 2),
+                              round(float(f[2].center[2]), 2)))  # fmt: skip
+    names = [f"{label}_{i}" for label in ("cabinet", "drawer") for i in range(1, 1 + sum(f[1] == label for f in found))]
+    return [NamedFixture(name, sim, label, box) for name, (sim, label, box) in zip(names, found)]
+
+
+def contains_3d(box: FixtureBox, point, margin: float = 0.0) -> bool:
+    """Whether a world point is inside the box (give or take `margin` meters)."""
+    rel = np.asarray(point, dtype=float) - box.origin
+    for edge in (box.width, box.depth, box.height):
+        length = float(np.linalg.norm(edge))
+        t = float(rel @ edge) / length
+        if not -margin <= t <= length + margin:
+            return False
+    return True
+
+
 def scene_objects(env: RoboCasaEnv) -> list[tuple[str, str, int]]:
     """(RoboCasa name, ChefBot label, body id) for every loose object in the scene."""
     out = []

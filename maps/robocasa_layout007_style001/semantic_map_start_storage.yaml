@@ -1,0 +1,322 @@
+frame: world
+fixtures:
+  coffee machine:
+    location: [6.082, -0.877]
+    facing: [-1.0, 0.0]
+    size: [0.27, 0.384]
+  counter_1:
+    location: [0.3, -1.7]
+    facing: [1.0, 0.0]
+    size: [2.0, 0.6]
+  counter_2:
+    location: [0.3, -0.65]
+  counter_3:
+    location: [0.35, -0.3]
+  counter_4:
+    location: [1.7, -0.3]
+    facing: [0.0, -1.0]
+    size: [2.0, 0.6]
+  counter_5:
+    location: [3.2, -2.75]
+    facing: [0.0, 1.0]
+    size: [2.5, 1.5]
+  counter_6:
+    location: [4.2, -0.3]
+    facing: [0.0, -1.0]
+    size: [3.0, 0.6]
+  counter_7:
+    location: [6.05, -0.3]
+  counter_8:
+    location: [6.1, -1.7]
+    facing: [-1.0, 0.0]
+    size: [2.0, 0.6]
+  counter_9:
+    location: [6.1, -0.65]
+  dishwasher:
+    location: [4.025, -2.3]
+    facing: [0.0, 1.0]
+    size: [0.65, 0.6]
+  fridge:
+    location: [5.98, -3.145]
+    facing: [-1.0, 0.0]
+    size: [0.85, 0.8]
+  microwave:
+    location: [0.36, -3.1]
+    facing: [1.0, 0.0]
+    size: [0.75, 0.5]
+  oven:
+    location: [0.31, -3.1]
+    facing: [1.0, 0.0]
+    size: [0.75, 0.6]
+  sink:
+    location: [3.2, -2.3]
+    facing: [0.0, 1.0]
+    size: [0.924, 0.53]
+  stove:
+    location: [3.69, -0.295]
+    facing: &id001 [0.0, -1.0]
+    size: [0.944, 0.55]
+  toaster:
+    location: [6.181, -2.554]
+    facing: [-1.0, 0.0]
+    size: [0.168, 0.271]
+  toaster oven:
+    location: [0.183, -1.622]
+    facing: [1.0, 0.0]
+    size: [0.529, 0.295]
+  cabinet_1:
+    location: [0.2, -0.95]
+    facing: [1.0, 0.0]
+    z: [1.39, 2.31]
+    size: [0.5, 0.4]
+  cabinet_2:
+    location: [0.3, -3.1]
+    facing: [1.0, 0.0]
+    z: [1.9, 2.6]
+    size: [0.8, 0.6]
+  cabinet_3:
+    location: [0.3, -2.45]
+    facing: [1.0, 0.0]
+    z: [0.05, 0.68]
+    size: [0.5, 0.6]
+  cabinet_4:
+    location: [0.3, -1.7]
+    facing: [1.0, 0.0]
+    z: [0.05, 0.68]
+    size: [1.0, 0.6]
+  cabinet_5:
+    location: [0.9, -0.2]
+    facing: [0.0, -1.0]
+    z: [1.39, 2.31]
+    size: [0.5, 0.4]
+  cabinet_6:
+    location: [1.2, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.05, 0.68]
+    size: [1.0, 0.6]
+  cabinet_7:
+    location: [2.2, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.05, 0.68]
+    size: [1.0, 0.6]
+  cabinet_8:
+    location: [3.2, -2.3]
+    facing: [0.0, 1.0]
+    z: [0.05, 0.68]
+    size: [1.0, 0.6]
+  cabinet_9:
+    location: [3.7, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.05, 0.89]
+    size: [1.0, 0.6]
+  cabinet_10:
+    location: [4.7, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.05, 0.68]
+    size: [1.0, 0.6]
+  cabinet_11:
+    location: [5.425, -0.2]
+    facing: [0.0, -1.0]
+    z: [1.39, 2.31]
+    size: [0.5, 0.4]
+  cabinet_12:
+    location: [5.45, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.05, 0.68]
+    size: [0.5, 0.6]
+  cabinet_13:
+    location: [6.1, -1.95]
+    facing: [-1.0, 0.0]
+    z: [0.05, 0.68]
+    size: [0.5, 0.6]
+  cabinet_14:
+    location: [6.1, -1.2]
+    facing: [-1.0, 0.0]
+    z: [0.05, 0.68]
+    size: [1.0, 0.6]
+  cabinet_15:
+    location: [6.2, -3.145]
+    facing: [-1.0, 0.0]
+    z: [1.77, 2.31]
+    size: [0.89, 0.4]
+  cabinet_16:
+    location: [6.2, -2.2]
+    facing: [-1.0, 0.0]
+    z: [1.39, 2.31]
+    size: [1.0, 0.4]
+  cabinet_17:
+    location: [6.2, -1.2]
+    facing: [-1.0, 0.0]
+    z: [1.39, 2.31]
+    size: [1.0, 0.4]
+  drawer_1:
+    location: [0.3, -3.1]
+    facing: [1.0, 0.0]
+    z: [0.05, 0.35]
+    size: [0.8, 0.6]
+  drawer_2:
+    location: [0.3, -3.1]
+    facing: [1.0, 0.0]
+    z: [0.35, 0.65]
+    size: [0.8, 0.6]
+  drawer_3:
+    location: [0.3, -2.45]
+    facing: [1.0, 0.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_4:
+    location: [0.3, -1.95]
+    facing: [1.0, 0.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_5:
+    location: [0.3, -1.45]
+    facing: [1.0, 0.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_6:
+    location: [0.3, -0.95]
+    facing: [1.0, 0.0]
+    z: [0.05, 0.26]
+    size: [0.5, 0.6]
+  drawer_7:
+    location: [0.3, -0.95]
+    facing: [1.0, 0.0]
+    z: [0.26, 0.47]
+    size: [0.5, 0.6]
+  drawer_8:
+    location: [0.3, -0.95]
+    facing: [1.0, 0.0]
+    z: [0.47, 0.68]
+    size: [0.5, 0.6]
+  drawer_9:
+    location: [0.3, -0.95]
+    facing: [1.0, 0.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_10:
+    location: [0.95, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_11:
+    location: [1.45, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_12:
+    location: [1.95, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_13:
+    location: [2.375, -2.3]
+    facing: [0.0, 1.0]
+    z: [0.05, 0.26]
+    size: [0.65, 0.6]
+  drawer_14:
+    location: [2.375, -2.3]
+    facing: [0.0, 1.0]
+    z: [0.26, 0.47]
+    size: [0.65, 0.6]
+  drawer_15:
+    location: [2.375, -2.3]
+    facing: [0.0, 1.0]
+    z: [0.47, 0.68]
+    size: [0.65, 0.6]
+  drawer_16:
+    location: [2.375, -2.3]
+    facing: [0.0, 1.0]
+    z: [0.68, 0.89]
+    size: [0.65, 0.6]
+  drawer_17:
+    location: [2.45, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_18:
+    location: [2.95, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.05, 0.26]
+    size: [0.5, 0.6]
+  drawer_19:
+    location: [2.95, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.26, 0.47]
+    size: [0.5, 0.6]
+  drawer_20:
+    location: [2.95, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.47, 0.68]
+    size: [0.5, 0.6]
+  drawer_21:
+    location: [2.95, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_22:
+    location: [4.45, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_23:
+    location: [4.95, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_24:
+    location: [5.45, -0.3]
+    facing: [0.0, -1.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_25:
+    location: [6.1, -2.45]
+    facing: [-1.0, 0.0]
+    z: [0.05, 0.26]
+    size: [0.5, 0.6]
+  drawer_26:
+    location: [6.1, -2.45]
+    facing: [-1.0, 0.0]
+    z: [0.26, 0.47]
+    size: [0.5, 0.6]
+  drawer_27:
+    location: [6.1, -2.45]
+    facing: [-1.0, 0.0]
+    z: [0.47, 0.68]
+    size: [0.5, 0.6]
+  drawer_28:
+    location: [6.1, -2.45]
+    facing: [-1.0, 0.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_29:
+    location: [6.1, -1.95]
+    facing: [-1.0, 0.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_30:
+    location: [6.1, -1.45]
+    facing: [-1.0, 0.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  drawer_31:
+    location: [6.1, -0.95]
+    facing: [-1.0, 0.0]
+    z: [0.68, 0.89]
+    size: [0.5, 0.6]
+  burner_1:
+    location: [3.658, -0.154]
+    facing: *id001
+  burner_2:
+    location: [3.988, -0.154]
+    facing: *id001
+  burner_3:
+    location: [3.658, -0.361]
+    facing: *id001
+  burner_4:
+    location: [3.988, -0.361]
+    facing: *id001
+  burner_5:
+    location: [3.363, -0.27]
+    facing: *id001
+objects: {}

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import math
 import re
 
 from chefbot.agent.loop.llm import LLMResponse, ToolCall
@@ -18,8 +19,10 @@ from chefbot.agent.world.map import WorldMap
 
 
 class ScriptedExplorer:
-    def __init__(self, start_map: WorldMap, open_labels: set[str], step_id: str = "s1"):
+    def __init__(self, start_map: WorldMap, open_labels: set[str], step_id: str = "s1",
+                 storage_max_bottom: float = math.inf):  # fmt: skip
         self._map = start_map
+        self._max_bottom = storage_max_bottom  # cabinets higher than this cannot be looked into
         self._open = open_labels
         self._step = step_id
         self._ids = itertools.count(1)
@@ -39,8 +42,9 @@ class ScriptedExplorer:
 
     def _run(self):
         fixtures = [e for e in self._map.list() if e.kind == "fixture" and e.label != "burner"]
+        storage = [e for e in fixtures if e.z is not None and e.z[0] <= self._max_bottom]  # cabinets, drawers
         yield ("set_status", {"step_id": self._step, "status": "active"})
-        for entry in fixtures:
+        for entry in (e for e in fixtures if e.z is None):
             moved = yield ("go_to", {"place": entry.name})
             if not moved.get("success"):
                 continue
@@ -64,6 +68,7 @@ class ScriptedExplorer:
             elif entry.name in ids:
                 yield ("align", {"id": entry.name})
                 yield ("close", {"id": entry.name})
+        yield from self._storage(storage)
         done = yield ("complete", {"step_id": self._step})
         # Long fixtures (an island) may have ends not yet in view: complete names them.
         for _ in range(2):
@@ -77,6 +82,50 @@ class ScriptedExplorer:
             done = yield ("complete", {"step_id": self._step})
         summary = "explored every fixture" if done.get("success") else f"explored; left: {done.get('message')}"
         yield ("finish", {"summary": summary, "abandon": not done.get("success")})
+
+
+    def _storage(self, storage):
+        """Cabinets and drawers, one stop per group of neighbours: at each, one door at a time
+        (open, detect to look inside, close), so no open door is in the way of the next."""
+        left = [e for e in storage if e.label in self._open]
+        while left:
+            stop = left[0]
+            group = [e for e in left if math.dist(e.location, stop.location) <= _GROUP_RADIUS and e.facing == stop.facing]
+            left = [e for e in left if e not in group]
+            moved = yield ("go_to", {"place": stop.name})
+            if not moved.get("success"):
+                continue
+            for entry in group:
+                classes = [f"{entry.label} handle"]
+                handle = _handle_of((yield ("detect", {"classes": classes})), entry.name)
+                if handle is None:
+                    continue
+                yield ("align", {"id": handle})
+                if not (yield ("open", {"id": handle})).get("success"):
+                    yield ("close", {"id": handle})  # an open that stopped part-way leaves it ajar, in the way
+                    continue
+                yield ("detect", {})
+                # Close it again: by its name (the handle it was opened with), else by whichever
+                # handle here shows open (a swung door's).
+                if (yield ("close", {"id": entry.name})).get("success"):
+                    continue
+                for _ in range(3):
+                    found = (yield ("detect", {"classes": classes})).get("data", {}).get("detections", [])
+                    mine = [d["id"] for d in found if d.get("of") == entry.name] + [d["id"] for d in found if d.get("state") == "open"]
+                    if not mine:
+                        break
+                    if (yield ("close", {"id": mine[0]})).get("success"):
+                        break
+                    yield ("align", {"id": mine[0]})
+
+
+_GROUP_RADIUS = 0.6  # m: cabinets and drawers this close to a stop's are opened and looked into together
+
+
+def _handle_of(result: dict, fixture: str) -> str | None:
+    """The detected handle that belongs to `fixture` (detect says which, when there are several like it)."""
+    handles = [d for d in (result.get("data") or {}).get("detections", []) if d.get("of") == fixture]
+    return handles[0]["id"] if handles else None
 
 
 _PART_HINT = re.compile(r'go_to\("([^"]+)", (?:part="(left|right)"|along=(-?[0-9.]+))\)')

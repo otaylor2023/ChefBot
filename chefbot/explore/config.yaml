@@ -7,6 +7,10 @@ open_labels: [fridge, microwave, dishwasher, oven, cabinet, drawer]
 look_range: 1.5             # m
 look_half_angle_deg: 60
 
+# Cabinets and drawers on the map (a task's storage: true): one whose floor is above the
+# robot's camera (1.65 m) cannot be looked into from the robot, so it is not explored.
+storage_max_bottom: 1.6     # m
+
 # Scoring: an object found this close (xy) to where it really is counts as found there.
 location_tolerance: 0.15    # m: a detector sees the middle of an object; the map builder records its body origin, which can sit off it (a pan's, toward the handle)
 
@@ -21,6 +25,7 @@ vocab_file: vocab.yaml
 # the starting map already gives.
 vision:
   camera: robot0_frontview
+  cameras: [robot0_frontview, robot0_agentview_left, robot0_agentview_right]  # per view, the one the arm blocks least
   model: anthropic/claude-sonnet-5.5   # OpenRouter id; must take images
   max_range: 4.0                       # m: farther points are dropped
   edge_margin: 8        # px: boxes this close to the image border are cut off, so skipped

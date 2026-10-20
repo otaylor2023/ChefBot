@@ -22,11 +22,12 @@ import yaml
 
 from chefbot.envs.robocasa.appliances import burner_position, burners
 from chefbot.envs.robocasa.config import RoboCasaConfig
-from chefbot.envs.robocasa.detector import FixtureBox, named_fixtures, numbered, scene_objects
+from chefbot.envs.robocasa.detector import FixtureBox, contains_3d, named_fixtures, numbered, scene_objects, storage_fixtures
 from chefbot.envs.robocasa.env import RoboCasaEnv
 
 GRID_FILE, GRID_META_FILE, SEMANTIC_MAP_FILE = "grid.npy", "grid.yaml", "semantic_map.yaml"
 START_MAP_FILE = "semantic_map_start.yaml"
+STORAGE_START_MAP_FILE = "semantic_map_start_storage.yaml"  # with cabinets and drawers (--storage)
 # How far in front of a fixture there must be open floor for a facing to count.
 _FACING_CLEARANCE = 0.6
 
@@ -104,9 +105,12 @@ def _facing(box: FixtureBox, occupied: np.ndarray, meta: dict) -> list[float] | 
     return None
 
 
-def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> dict:
+def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict, storage: bool = False) -> dict:
+    """`storage`: cabinets and drawers are fixtures too (with their height range, `z`), and an
+    object inside one is `in` it."""
     with env.lock:
         fixtures = named_fixtures(env)
+        stored = storage_fixtures(env) if storage else []
         objects = [(label, env.data.xpos[body].copy()) for _, label, body in scene_objects(env)]
 
     fixture_names = [f.name for f in fixtures]
@@ -117,6 +121,12 @@ def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> di
         if facing is not None:
             entry["facing"] = facing
         out["fixtures"][name] = entry
+    for f in stored:
+        facing = _facing(f.box, occupied, meta) or [round(float(v), 3) + 0.0 for v in f.box.facing]
+        out["fixtures"][f.name] = {
+            "location": [round(float(f.box.center[0]), 3), round(float(f.box.center[1]), 3)], "facing": facing,
+            "z": [round(float(f.box.origin[2]), 3), round(f.box.top, 3)],
+        }  # fmt: skip
 
     # Burners are fixed parts: on the map so they keep their names (burner_1, ...) between detects.
     stove_facing = {f.sim_name: out["fixtures"].get(f.name, {}).get("facing") for f in fixtures}
@@ -128,14 +138,14 @@ def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> di
         out["fixtures"][burner.name] = entry
 
     objects.sort(key=lambda o: (o[0], round(float(o[1][0]), 2), round(float(o[1][1]), 2)))
-    taken = set(fixture_names)
+    taken = set(fixture_names) | {f.name for f in stored}
     object_names = numbered([label for label, _ in objects])
     for name, (_, position) in zip(object_names, objects):
         while name in taken:  # an object sharing a fixture's name
             name += "_object"
         taken.add(name)
         entry = {"location": [round(float(position[0]), 3), round(float(position[1]), 3)]}
-        holder = next(
+        holder = next((f.name for f in stored if contains_3d(f.box, position, 0.02)), None) or next(
             (f.name for f in fixtures if f.box.contains_xy(position[0], position[1])),
             None,
         )
@@ -153,11 +163,11 @@ def _footprint(box: FixtureBox, facing: list[float]) -> list[float]:
     return [round(float(sum(abs(e @ a) for e in edges)), 3), round(float(sum(abs(e @ f) for e in edges)), 3)]
 
 
-def build_start_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict) -> dict:
+def build_start_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict, storage: bool = False) -> dict:
     """The semantic map without its objects, fixtures with their footprints."""
-    full = build_semantic_map(env, occupied, meta)
+    full = build_semantic_map(env, occupied, meta, storage)
     with env.lock:
-        boxes = {f.name: f.box for f in named_fixtures(env)}
+        boxes = {f.name: f.box for f in [*named_fixtures(env), *(storage_fixtures(env) if storage else [])]}
     for name, entry in full["fixtures"].items():
         if name in boxes and "facing" in entry:
             entry["size"] = _footprint(boxes[name], entry["facing"])
@@ -201,14 +211,17 @@ def main() -> None:
     parser.add_argument("--style", type=int)
     parser.add_argument("--out", type=Path, help="output folder (default: maps/robocasa_layoutNNN_styleNNN)")
     parser.add_argument("--start", action="store_true", help=f"write {START_MAP_FILE} (fixtures only) and the grid")
+    parser.add_argument("--storage", action="store_true",
+                        help=f"with --start: write {STORAGE_START_MAP_FILE}, cabinets and drawers included")  # fmt: skip
     args = parser.parse_args()
     env = RoboCasaEnv(RoboCasaConfig.load(layout=args.layout, style=args.style))
     if args.start:
         out_dir = write_grid(env, args.out or env.config.map_dir)
         occupied, meta = np.load(out_dir / GRID_FILE), yaml.safe_load((out_dir / GRID_META_FILE).read_text())
-        start = build_start_map(env, occupied, meta)
-        (out_dir / START_MAP_FILE).write_text(yaml.safe_dump(start, sort_keys=False, default_flow_style=None))
-        print(f"wrote {out_dir / START_MAP_FILE}: fixtures {', '.join(start['fixtures'])}")
+        start = build_start_map(env, occupied, meta, storage=args.storage)
+        name = STORAGE_START_MAP_FILE if args.storage else START_MAP_FILE
+        (out_dir / name).write_text(yaml.safe_dump(start, sort_keys=False, default_flow_style=None))
+        print(f"wrote {out_dir / name}: fixtures {', '.join(start['fixtures'])}")
         env.close()
         return
     out_dir = build_map(env, args.out)

@@ -203,6 +203,26 @@ class RoboCasaEnv(Env):
             body = int(parents[body])
         return self.model.body(body).name
 
+    def camera_self_occlusion(self, cam: str, width: int = 160, height: int = 120) -> float:
+        """Fraction of the middle of `cam`'s image (the centre half across, the top three
+        quarters down) covered by the robot itself, i.e. its arm in front of the lens.
+        From the robot's own geometry only. Do not call with `lock` held."""
+        if not self._render:
+            raise RuntimeError("RoboCasaEnv was created with render=False; pass render=True for cameras")
+        return self._render_thread.submit(self._self_occlusion, cam, width, height).result()
+
+    def _self_occlusion(self, cam: str, width: int, height: int) -> float:
+        with self.lock:
+            if getattr(self, "_robot_geoms", None) is None:
+                self._robot_geoms = np.array(
+                    [g for g in range(self.model.ngeom) if self.is_robot_body(int(self.model.geom_bodyid[g]))]
+                )
+            seg = self.suite.sim.render(camera_name=cam, width=width, height=height, segmentation=True)
+        seg = seg[::-1]  # rendered bottom-up
+        robot = (seg[..., 0] == mujoco.mjtObj.mjOBJ_GEOM) & np.isin(seg[..., 1], self._robot_geoms)
+        # The middle of the view is what the robot is looking at: the arm there hides it.
+        return float(robot[: height * 3 // 4, width // 4 : width * 3 // 4].mean())
+
     def is_robot_body(self, body: int) -> bool:
         return self.root_body_name(body).startswith(_ROBOT_PREFIXES)
 

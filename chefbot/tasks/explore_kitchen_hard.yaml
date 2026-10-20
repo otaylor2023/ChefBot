@@ -7,12 +7,14 @@ steps:
 limits: {max_turns: 400}
 # A harder exploration test for the big RoboCasa layouts (pick one with --layout):
 # 14 objects of varied size, small ones among them, several behind doors, two in
-# cabinets/drawers (which are not on the map, so the explorer never opens them).
+# a cabinet and a drawer. `storage: true`: cabinets and drawers are on the start map
+# (build_map --start --storage), to be opened and looked into like the fridge.
 # Run with chefbot.scripts.explore, e.g.
 #   python -m chefbot.scripts.explore --env robocasa --policy scripted --detector groundtruth \
 #       --task chefbot/tasks/explore_kitchen_hard.yaml --layout 7
 robocasa:
   layout: 7
+  storage: true
   style: 1
   objects:
     - {category: egg, model: egg/egg_9, inside: fridge}
