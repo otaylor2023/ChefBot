@@ -2,10 +2,11 @@
 
     python -m chefbot.explore.score runs/<run>/explored_map.yaml maps/robocasa_layout001_style001/semantic_map.yaml
 
-Fixtures must be the same. Each true object must be found: same name, same
+Fixtures must be the same. Each true object must be found: same label, same
 `in`, and within `location_tolerance` (xy) of its true location. Objects the
-truth does not have are false finds. 100% = every true object found and no
-false finds.
+truth does not have are extra finds: real things in the scene the true map
+leaves out (a knife block, say), listed but not counted against the run.
+100% = every true object found.
 """
 
 from __future__ import annotations
@@ -20,11 +21,6 @@ import yaml
 from chefbot.agent.world.map import label_of
 
 CONFIG = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
-
-
-def _same_name(a: str, b: str) -> bool:
-    """Names match with underscores read as spaces (bottled_water = bottled water)."""
-    return a.replace("_", " ") == b.replace("_", " ")
 
 
 def _xy_dist(a, b) -> float:
@@ -42,11 +38,11 @@ def score(explored: dict, truth: dict, tolerance: float | None = None) -> dict:
     # Pair each true object with the nearest unpaired explored object of its label.
     pairs = sorted(
         (_xy_dist(g["location"], w["location"]), wn, gn)
-        for wn, w in want.items() for gn, g in got.items() if label_of(gn) == label_of(wn)
+        for wn, w in want.items() for gn, g in got.items() if label_of(gn).replace("_", " ") == label_of(wn).replace("_", " ")
     )  # fmt: skip
     match: dict[str, str] = {}
     for _, wn, gn in pairs:
-        if wn not in match and gn not in match.values():
+        if wn not in match and gn not in match.values():  # same label: bowl_1 matches bowl
             match[wn] = gn
     rows = []
     for wn, w in want.items():
@@ -57,24 +53,22 @@ def score(explored: dict, truth: dict, tolerance: float | None = None) -> dict:
         g = got[gn]
         d = _xy_dist(g["location"], w["location"])
         problems = []
-        if not _same_name(gn, wn):
-            problems.append(f"named {gn}")
         if g.get("in") != w.get("in"):
             problems.append(f"in {g.get('in')}, truly in {w.get('in')}")
         if d > tol:
             problems.append(f"{d:.2f} m off")
         rows.append({"object": wn, "status": "ok" if not problems else "wrong", "problems": problems,
                      "found_as": gn, "error_m": round(d, 3)})  # fmt: skip
-    false_finds = sorted(set(got) - set(match.values()))
+    extra_finds = sorted(set(got) - set(match.values()))
     found = sum(r["status"] == "ok" for r in rows)
     total = len(want)
     return {
         "score": found / total if total else 1.0,
         "found": found,
         "total": total,
-        "false_finds": false_finds,
+        "extra_finds": extra_finds,
         "fixtures_match": fixtures_ok,
-        "perfect": fixtures_ok and found == total and not false_finds,
+        "perfect": fixtures_ok and found == total,
         "objects": rows,
         "tolerance_m": tol,
     }
@@ -82,7 +76,7 @@ def score(explored: dict, truth: dict, tolerance: float | None = None) -> dict:
 
 def describe(result: dict) -> str:
     lines = [f"explored map: {result['found']}/{result['total']} objects right"
-             + (f", {len(result['false_finds'])} false finds" if result["false_finds"] else "")
+             + (f", {len(result['extra_finds'])} extra finds" if result["extra_finds"] else "")
              + ("" if result["fixtures_match"] else ", FIXTURES DIFFER")
              + (" -> 100% match" if result["perfect"] else "")]  # fmt: skip
     for r in result["objects"]:
@@ -92,8 +86,8 @@ def describe(result: dict) -> str:
             lines.append(f"  MISSING  {r['object']} (in {r['true_in']})")
         else:
             lines.append(f"  WRONG    {r['object']}: {'; '.join(r['problems'])}")
-    for name in result["false_finds"]:
-        lines.append(f"  FALSE    {name} (not in the true map)")
+    for name in result["extra_finds"]:
+        lines.append(f"  EXTRA    {name} (not in the true map)")
     return "\n".join(lines)
 
 

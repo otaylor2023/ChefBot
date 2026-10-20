@@ -66,13 +66,18 @@ def test_coverage_lists_what_is_left():
     assert any(x.startswith("counter_1") for x in left)
 
 
-def test_score_reports_wrong_missing_and_false():
+def test_score_reports_wrong_missing_and_extra():
     explored = {"frame": "world", "fixtures": TRUTH["fixtures"],
                 "objects": {"mug": {"location": [0.52, 0.0], "in": "sink"}, "plate": {"location": [0, 0], "in": "counter_1"}}}  # fmt: skip
     r = score(explored, TRUTH)
     status = {o["object"]: o["status"] for o in r["objects"]}
-    assert status == {"mug": "wrong", "egg": "missing"} and r["false_finds"] == ["plate"] and not r["perfect"]
+    assert status == {"mug": "wrong", "egg": "missing"} and r["extra_finds"] == ["plate"] and not r["perfect"]
     assert score(TRUTH, TRUTH)["perfect"]
+    # Real things the true map leaves out are listed, not failures; a repeat label shifts no names.
+    extra = {"frame": "world", "fixtures": TRUTH["fixtures"],
+             "objects": {**{f"{n}_1": o for n, o in TRUTH["objects"].items()}, "knife block": {"location": [9, 9], "in": "counter_1"}}}  # fmt: skip
+    r = score(extra, TRUTH)
+    assert r["perfect"] and r["extra_finds"] == ["knife block"]
 
 
 def test_explored_map_names_like_the_map_builder():
