@@ -58,6 +58,7 @@ class World:
     truth: Callable[[], dict]  # the true map; call only after the run
     close: Callable[[], None] = lambda: None
     info: dict = dataclasses.field(default_factory=dict)
+    stack: Any = None  # robocasa: the sim stack, for the video recorder only
 
 
 def strip_objects(semantic: dict) -> dict:
@@ -114,12 +115,14 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str) -> World
 
     return World(task.stem, stack.robot, agent_detector, RoboCasaClock(kitchen), start,
                  truth, env.close, info={"env": "robocasa", "layout": layout, "style": style, "detector": detector,
-                                         "committed_map": str(config.map_dir / "semantic_map.yaml")})  # fmt: skip
+                                         "committed_map": str(config.map_dir / "semantic_map.yaml")},
+                 stack=stack)  # fmt: skip
 
 
 def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth", seed: int = 0,
         task: Path = TASK, out: Path = REPO / "runs", config: LoopConfig | None = None, llm=None,
-        quiet: bool = False) -> dict:  # fmt: skip
+        quiet: bool = False, video_speed: int = 0) -> dict:  # fmt: skip
+    """video_speed > 0 (robocasa): record runs/<run>/explore.mp4, keeping every Nth sim tick."""
     explore_cfg = yaml.safe_load((EXPLORE / "config.yaml").read_text())
     vocab = yaml.safe_load((EXPLORE / explore_cfg["vocab_file"]).read_text())
     config = config or LoopConfig.load()
@@ -166,16 +169,42 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
 
             llm = OpenRouterClient(config.model, temperature=config.temperature, provider=config.provider)
 
+    recorder = None
+    if video_speed > 0:
+        if world.stack is None:
+            raise SystemExit("--video needs --env robocasa")
+        from chefbot.scripts.record_rollout import Recorder
+
+        # Renders the sim for the video only; nothing it computes reaches the agent. Its map panel
+        # starts from the start map (fixtures only); detections come from the agent's own detect() calls.
+        recorder = Recorder(world.stack, session.registry, WorldMap.from_dict(world.start),
+                            run_dir / "explore.mp4", video_speed)  # fmt: skip
+
+    def call_text(tool: str, args: dict) -> str:
+        return f"{tool}({', '.join(f'{k}={json.dumps(v)}' for k, v in args.items())})"
+
+    def before_action(s: AgentSession, tool: str, args: dict, reasoning) -> None:
+        recorder.caption = (f"> {call_text(tool, args)}", "...")
+
     def after_action(s: AgentSession, tool: str, args: dict, result, reasoning) -> None:
+        if recorder is not None:
+            summary = f"{'ok' if result.success else 'FAILED: ' + str(result.error)}  {result.message}".strip()
+            recorder.caption = (recorder.caption[0], summary if len(summary) <= 150 else summary[:147] + "...")
+            if (result.data or {}).get("status") != "moving":
+                recorder.hold(1.5 if tool in ("detect", "nearby") else 0.8)
         if tool == "detect" and result.success:
             coverage.record_detect(s.robot.get_base_pose(), states())
         if not quiet:
             mark = "ok " if result.success else f"ERR {result.error}"
-            call = f"{tool}({', '.join(f'{k}={json.dumps(v)}' for k, v in args.items())})"
+            call = call_text(tool, args)
             print(f"{s.turn:>4} {s.clock.now():>6.0f}s  {call:<48} {mark}  {result.message[:90]}", flush=True)
 
     try:
-        outcome = AgentRunner(session, llm, after_action=after_action).run()
+        if recorder is not None:
+            recorder.caption = (f"exploring {world.name} ({world.info.get('detector', env)} detector)", "")
+            recorder.hold(1.0)
+        outcome = AgentRunner(session, llm, after_action=after_action,
+                              before_action=before_action if recorder is not None else None).run()  # fmt: skip
         for label, where in getattr(world.detector, "superseded", lambda: [])():
             for e in world_map.list():  # a far-off misnaming that a closer look corrected
                 if e.kind == "object" and label_of(e.name) == label and math.dist(e.location, where[:2]) <= 0.1:
@@ -185,6 +214,9 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
         # The run is over: only now is the truth made, and only the scorer reads it.
         truth = world.truth()
     finally:
+        if recorder is not None:
+            world.robot.stop()
+            recorder.close()
         world.close()
     save(truth, run_dir / "true_map.yaml")
     result = score(explored, truth)
@@ -211,9 +243,12 @@ def main() -> int:
     parser.add_argument("--model")
     parser.add_argument("--out", type=Path, default=REPO / "runs")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--video", action="store_true", help="robocasa: record runs/<run>/explore.mp4")
+    parser.add_argument("--video-speed", type=int, default=2, help="keep every Nth sim tick (N x playback speed)")
     args = parser.parse_args()
     result = run(args.env, args.policy, args.detector, args.seed, args.task, args.out,
-                 LoopConfig.load(model=args.model), quiet=args.quiet)  # fmt: skip
+                 LoopConfig.load(model=args.model), quiet=args.quiet,
+                 video_speed=args.video_speed if args.video else 0)  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "objects"}))
     return 0 if result["perfect"] else 1

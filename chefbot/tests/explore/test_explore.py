@@ -89,3 +89,10 @@ def test_explored_map_names_like_the_map_builder():
     assert list(out["objects"]) == ["bottled water", "mug_1", "mug_2"]
     assert out["objects"]["mug_1"]["location"] == [-0.5, 0.0]
     assert "size" not in out["fixtures"]["counter_1"]
+
+
+def test_video_needs_the_robocasa_sim(tmp_path):
+    import pytest
+
+    with pytest.raises(SystemExit, match="robocasa"):
+        run("symbolic", "scripted", out=tmp_path, quiet=True, video_speed=1)
