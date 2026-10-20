@@ -9,3 +9,4 @@ rollouts/
 .env
 runs/
 experiments/ortho_grasp/results/
+experiments/astranomy/results/
