@@ -1,0 +1,3 @@
+name: t3
+trajectory: t3
+plot_margin: 0.30   # the pre-grasp's flange is 10 + 15.6 cm above the grasp: the default 20 cm margin cuts it off

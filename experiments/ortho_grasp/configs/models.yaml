@@ -1,0 +1,5 @@
+# Model ids (spec §12). provider: openrouter (batch via :batch variants, images by public URL) | gemini (batch API, inline images).
+claude: {provider: openrouter, model: anthropic/claude-opus-5.5}
+gemini_er: {provider: gemini, model: gemini-robotics-er-2-preview}
+gpt: {provider: openrouter, model: openai/gpt-6-astra, temperature: null}   # reasoning model: provider default temperature
+qwen: {provider: openrouter, model: qwen/qwen3-vl-235b-a22b-instruct}

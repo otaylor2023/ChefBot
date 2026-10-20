@@ -1,0 +1,4 @@
+# S6: the best S1-S5 config (v1_partial) on GPT-6 Astra
+name: gpt
+geometry: partial
+model: gpt

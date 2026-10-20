@@ -1,0 +1,25 @@
+# Shared by every config: the kitchen, the scenes, where results go.
+layout: 1
+base_pose: [2.25, -1.21, 90.0]   # world x, y (m), yaw (deg): facing counter_1 between the sink and the stove
+observe_arm: [0.0, -1.7, 0.0, -0.4, 0.0, 2.2, 0.8]   # arm folded back while observing: stowed, it hides the cup from the shoulder camera
+camera: [960, 720]               # px, every robot camera (the env's default 640 x 480 gives a sparse partial cloud)
+counter_z: 0.92                  # m, counter top (world = robot frame z)
+results_dir: experiments/ortho_grasp/results
+scene_seed: 329
+scenes: 30
+cup_models: [cup_2, cup_3, cup_5]   # 74 mm wide x 115 tall, 87 x 105 (wider than the gripper opens), 85 x 85
+distractors:
+  - {category: apple, model: apple/apple_0}
+  - {category: lemon, model: lemon/lemon_0}
+  - {category: can, model: can/can_0}
+  - {category: bottled_water, model: bottled_water/bottled_water_1}
+scene_sampling:
+  forward: [0.66, 0.76]     # robot-frame x of the cup: 0.45-0.55 m in front of the arm base (mounted at x = 0.21). Deeper, a top-down pre-grasp puts the wrist into the wall cabinets (front at x = 0.81, underside 1.39 m up)
+  sideways: [-0.20, 0.20]   # robot-frame y
+  distractors: [2, 4]
+  distractor_min: 0.11      # m between object centers
+  distractor_max: 0.25
+  counter_x: [0.66, 1.15]   # where a distractor may go (robot frame): on the counter, off the wall
+  counter_y: [-0.45, 0.45]  # between the sink and the stove
+plot_margin: 0.20            # m around the cup's box in every plot
+gcs_bucket: chefbot-ortho-888db270   # public-read, project cs329z-511219 (OpenRouter batch takes image URLs only); delete when done
