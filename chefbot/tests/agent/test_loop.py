@@ -317,3 +317,19 @@ def test_the_active_step_records_what_was_done_for_it(tmp_path):
     state = llm.requests[-1]["messages"][-1]["content"]
     assert 'done so far: pick("mug_1") -> success; place("counter_1") -> success' in state
     assert s.store.live.step("s1").log is None  # "did:" notes are a record, not the step's log line
+
+
+def test_default_vocab_names_are_not_searched_for_when_switched_off(tmp_path):
+    import dataclasses
+
+    s, runner, llm, robot = session(tmp_path, [call("finish", summary="x", abandon=True)])
+    nav = s.registry.tools
+    nav._cfg = dataclasses.replace(CFG, default_vocab=("apple",))
+    nav.detect()
+    assert "apple" in nav.searched  # the cooking agent's default: every name detect looked for
+    nav.searched.clear()
+    nav._cfg = dataclasses.replace(CFG, default_vocab=("apple",), search_default_vocab=False)
+    nav.detect()
+    assert "apple" not in nav.searched and "SEARCHING" not in s.task_state.render([])
+    nav.detect(["apple"])  # asked for by name: now it is being searched for
+    assert "apple: looked near" in s.task_state.render([])

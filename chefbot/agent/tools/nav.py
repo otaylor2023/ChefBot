@@ -120,9 +120,14 @@ class NavTools:
                 self.not_found[m.name] = self.not_found.get(m.name, 0) + 1
         fixtures = {m.name for m in in_range if m.kind == "fixture" and m.label != "burner" and _in_front(pose, m)}
         found_labels = {e.label for e in found}
+        # An empty detect looks for everything it knows: with search_default_vocab off, none of
+        # that is something you are searching for (only what you ask for by name is).
+        tracked = set(requested) if asked or self._cfg.search_default_vocab else set()
         for label in requested:
             if label in found_labels:
                 self.searched.pop(label, None)
+            elif label not in tracked:
+                continue
             elif label not in self._map.labels() or any(
                 m.kind == "object" and m.label == label for m in self._map.list()
             ):  # a thing, not a kind of fixture

@@ -145,7 +145,8 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
         return {name: fact.value for name, fact in holder["session"].registry.tools.kitchen.states.items()}
 
     agent_config = dataclasses.replace(
-        AgentConfig.load(), default_vocab=tuple(dict.fromkeys([*vocab["parts"], *vocab["objects"]]))
+        AgentConfig.load(), default_vocab=tuple(dict.fromkeys([*vocab["parts"], *vocab["objects"]])),
+        search_default_vocab=False,  # the whole catalogue (~240 names): not things to search for
     )
     names = set(TOOLS)
     prompt = system_prompt(names) + (EXPLORE / "prompt.md").read_text()

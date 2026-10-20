@@ -18,6 +18,9 @@ class AgentConfig:
     map_match_radius: float = 0.75
     refine_radius: float = 0.15
     default_vocab: tuple[str, ...] = ()
+    # detect() with no classes: list what it did not find (default_vocab, map objects) under SEARCHING.
+    # Off for exploration, whose default vocab is the whole object catalogue.
+    search_default_vocab: bool = True
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "AgentConfig":
