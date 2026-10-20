@@ -175,10 +175,12 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
             raise SystemExit("--video needs --env robocasa")
         from chefbot.scripts.record_rollout import Recorder
 
-        # Renders the sim for the video only; nothing it computes reaches the agent. Its map panel
-        # starts from the start map (fixtures only); detections come from the agent's own detect() calls.
-        recorder = Recorder(world.stack, session.registry, WorldMap.from_dict(world.start),
-                            run_dir / "explore.mp4", video_speed)  # fmt: skip
+        # Renders the sim for the video only; nothing it computes reaches the agent. The map and
+        # semantic map panels draw the agent's own records: the start map (fixtures only), the map
+        # it is building (as explored_map.yaml will hold it), its coverage and its detect() results.
+        recorder = Recorder(world.stack, session.registry, WorldMap.from_dict(world.start), run_dir / "explore.mp4",
+                            video_speed, semantic=lambda: explored_map(world.start, world_map)["objects"],
+                            remaining=lambda: {line.split(":")[0] for line in coverage.remaining(states())})  # fmt: skip
 
     def call_text(tool: str, args: dict) -> str:
         return f"{tool}({', '.join(f'{k}={json.dumps(v)}' for k, v in args.items())})"

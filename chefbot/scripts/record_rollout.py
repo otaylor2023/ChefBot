@@ -38,6 +38,8 @@ from chefbot.scripts.demo_nav import TRACE as DEMO_TRACE
 VIEW_W, VIEW_H = 640, 480
 MAP_SIZE = 480
 CAPTION_H = 96
+LIST_W = 420  # the semantic map panel
+HIGHLIGHT_S = 1.0  # video seconds a new or moved map entry stays highlighted
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 # PandaOmron base box (length, width), for the map drawing only.
 BASE_BOX = (0.70, 0.50)
@@ -62,8 +64,26 @@ class Recorder:
     locked to the thread that last used it.
     """
 
-    def __init__(self, stack: RoboCasaStack, registry: ToolRegistry, world_map: WorldMap, path: Path, speed: int = 1):
+    def __init__(
+        self,
+        stack: RoboCasaStack,
+        registry: ToolRegistry,
+        world_map: WorldMap,
+        path: Path,
+        speed: int = 1,
+        semantic: Callable[[], dict] | None = None,
+        remaining: Callable[[], set[str]] | None = None,
+    ):
+        """`semantic`: () -> {name: {"location", "in"}}, the objects of the map the agent is building,
+        drawn on the map and listed in a fourth panel as they appear. `remaining`: () -> names of
+        fixtures still to look at (drawn red; the rest green). Both read only the agent's records."""
         self._env = stack.env
+        self._semantic = semantic
+        self._remaining = remaining
+        self._last_objects: dict = {}
+        self._last_left: set[str] = set()
+        self._changed_at: dict[str, int] = {}  # name -> video frame its entry last appeared or moved
+        self._video_frames = 0
         self._registry = registry
         self._map = world_map
         self._grid = stack.robot._planner.grid  # inflated: what the planner sees
@@ -124,6 +144,7 @@ class Recorder:
                         frame = self._frame()
                         for _ in range(repeat):
                             writer.append_data(frame)
+                        self._video_frames += repeat
                 except BaseException as exc:  # reported to the caller of capture()
                     self._error = exc
                 finally:
@@ -157,7 +178,10 @@ class Recorder:
         _text(overview, "overview", (10, 24), 0.6, (255, 255, 255))
         _text(robot_view, "shoulder camera", (10, 24), 0.6, (255, 255, 255))
 
-        views = np.hstack([overview, robot_view, self._draw_map(pose, detections)])
+        panels = [overview, robot_view, self._draw_map(pose, detections)]
+        if self._semantic is not None:
+            panels.append(self._draw_semantic())
+        views = np.hstack(panels)
         caption = np.full((CAPTION_H, views.shape[1], 3), 24, np.uint8)
         _text(caption, self.caption[0], (14, 36), 0.8, (255, 255, 255), outline=False)
         _text(caption, self.caption[1], (14, 76), 0.6, (170, 220, 170), outline=False)
@@ -233,7 +257,61 @@ class Recorder:
         cv2.polylines(canvas, [box], True, (20, 110, 40), 2, cv2.LINE_AA)
         nose = self._to_px(pose.x + c * half_l, pose.y + s * half_l)
         cv2.arrowedLine(canvas, self._to_px(pose.x, pose.y), nose, (20, 110, 40), 2, cv2.LINE_AA, tipLength=0.4)
+        if self._semantic is not None:
+            self._draw_map_objects(canvas)
         _text(canvas, "map", (10, 24), 0.6, (255, 255, 255))
+        return canvas
+
+    # -- semantic map ---------------------------------------------------------
+
+    def _objects(self) -> dict:
+        """The agent's map objects now; notes which are new or moved since the last frame."""
+        try:
+            objects = self._semantic()
+            left = set(self._remaining()) if self._remaining is not None else set()
+        except RuntimeError:  # the agent changed its records mid-read: draw the last frame's
+            return self._last_objects
+        for name, spec in objects.items():
+            if self._last_objects.get(name) != spec:
+                self._changed_at[name] = self._video_frames
+        self._last_objects, self._last_left = objects, left
+        return objects
+
+    def _fresh(self, name: str) -> bool:
+        at = self._changed_at.get(name)
+        return at is not None and self._video_frames - at <= HIGHLIGHT_S * self._fps / self._speed
+
+    def _draw_map_objects(self, canvas: np.ndarray) -> None:
+        if self._remaining is not None:
+            for entry in self._map.list():
+                if entry.kind == "fixture" and entry.label != "burner":
+                    color = (235, 70, 70) if entry.name in self._last_left else (60, 200, 90)
+                    cv2.circle(canvas, self._to_px(*entry.location), 5, color, -1, cv2.LINE_AA)
+        objects = self._objects()
+        for i, (name, spec) in enumerate(sorted(objects.items(), key=lambda kv: kv[1]["location"])):
+            u, v = self._to_px(*spec["location"])
+            if self._fresh(name):
+                cv2.circle(canvas, (u, v), 13, (255, 230, 0), 2, cv2.LINE_AA)
+            cv2.circle(canvas, (u, v), 6, (60, 220, 90), -1, cv2.LINE_AA)
+            cv2.circle(canvas, (u, v), 6, (0, 0, 0), 1, cv2.LINE_AA)
+            _text(canvas, name, (u - 14, v + 22 if i % 2 else v + 36), 0.42, (120, 255, 140))
+
+    def _draw_semantic(self) -> np.ndarray:
+        """The objects the explored map will hold, as they are added: name, location (cm), fixture."""
+        canvas = np.full((VIEW_H, LIST_W, 3), 32, np.uint8)
+        objects = self._last_objects
+        _text(canvas, f"Semantic map ({len(objects)} objects)", (12, 28), 0.65, (255, 255, 255), outline=False)
+        y = 62
+        for name, spec in objects.items():
+            x, yy = spec["location"]
+            color = (255, 230, 0) if self._fresh(name) else (200, 230, 200)
+            _text(canvas, name, (14, y), 0.55, color, outline=False)
+            _text(canvas, f"({x:.2f}, {yy:.2f})  in: {spec['in']}", (24, y + 20), 0.45, color, outline=False)
+            y += 46
+        if self._remaining is not None:
+            left = sorted(self._last_left)
+            note = f"fixtures left to check: {len(left)}" if left else "every fixture checked"
+            _text(canvas, note, (12, VIEW_H - 16), 0.5, (235, 120, 120) if left else (120, 230, 140), outline=False)
         return canvas
 
 
