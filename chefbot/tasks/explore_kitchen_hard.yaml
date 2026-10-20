@@ -1,0 +1,31 @@
+name: explore_kitchen_hard
+goal: "Every loose object in the kitchen found and on the map"
+steps:
+  - id: s1
+    goal: "Explore the kitchen: look at every fixture, and inside every fixture with a door, closing it after"
+    done_when: "every fixture looked at, every door looked behind and closed again"
+limits: {max_turns: 400}
+# A harder exploration test for the big RoboCasa layouts (pick one with --layout):
+# 14 objects of varied size, small ones among them, several behind doors, two in
+# cabinets/drawers (which are not on the map, so the explorer never opens them).
+# Run with chefbot.scripts.explore, e.g.
+#   python -m chefbot.scripts.explore --env robocasa --policy scripted --detector groundtruth \
+#       --task chefbot/tasks/explore_kitchen_hard.yaml --layout 7
+robocasa:
+  layout: 7
+  style: 1
+  objects:
+    - {category: egg, model: egg/egg_9, inside: fridge}
+    - {category: milk, inside: fridge}
+    - {category: bowl, model: bowl/bowl_10, inside: microwave}
+    - {category: mug, model: mug/mug_8, surface: counter}
+    - {category: cup, surface: counter}
+    - {category: apple, surface: counter}
+    - {category: lemon, surface: counter}
+    - {category: banana, surface: counter}
+    - {category: spoon, surface: counter}
+    - {category: bottled_water, model: bottled_water/bottled_water_1, surface: counter}
+    - {category: pan, model: pan/pan_24, surface: counter}
+    - {category: cutting_board, model: cutting_board/cutting_board_9, surface: counter}
+    - {category: plate, inside: cabinet}
+    - {category: fork, inside: drawer}

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
 
 from chefbot.agent.loop.llm import LLMResponse, ToolCall
 from chefbot.agent.world.map import WorldMap
@@ -64,8 +65,21 @@ class ScriptedExplorer:
                 yield ("align", {"id": entry.name})
                 yield ("close", {"id": entry.name})
         done = yield ("complete", {"step_id": self._step})
+        # Long fixtures (an island) may have ends not yet in view: complete names them.
+        for _ in range(2):
+            if done.get("success"):
+                break
+            for place, part, along in _PART_HINT.findall(done.get("message") or ""):
+                where = {"part": part} if part else {"along": float(along)}
+                moved = yield ("go_to", {"place": place, **where})
+                if moved.get("success"):
+                    yield ("detect", {})
+            done = yield ("complete", {"step_id": self._step})
         summary = "explored every fixture" if done.get("success") else f"explored; left: {done.get('message')}"
         yield ("finish", {"summary": summary, "abandon": not done.get("success")})
+
+
+_PART_HINT = re.compile(r'go_to\("([^"]+)", (?:part="(left|right)"|along=(-?[0-9.]+))\)')
 
 
 def _ids(result: dict) -> list[str]:

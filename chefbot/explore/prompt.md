@@ -13,8 +13,9 @@ EXPLORING THE KITCHEN (this run)
   handle, open it, detect() again to see inside, then close it before moving on. An open
   door often swings its handle out of view: then detect the fixture itself
   (detect(["fridge"])), align to it and close it by its own name (close("fridge")).
-- A long counter may not be fully in view from one spot: complete names the part you
-  have not seen; go_to an object you found near that part and detect() again from there.
+- A long counter or island may not be fully in view from one spot: complete names the part
+  you have not seen and how to get there (go_to(place, part="left"/"right")); go there and
+  detect() again.
 - complete(step) tells you which fixtures you have not looked at or into yet, and which
   doors you left open. Keep going until it passes, then finish(summary) with a short list
   of what you found where.

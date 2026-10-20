@@ -75,7 +75,8 @@ def symbolic_world(task: Path, seed: int) -> World:
     return World(sc.name, sc.robot, sc.detector, sc.clock, start, sc.world.map_dict, info={"env": "symbolic"})
 
 
-def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str) -> World:
+def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str, layout: int | None = None,
+                   style: int | None = None) -> World:  # fmt: skip
     from chefbot.envs.robocasa.build_map import GRID_FILE, GRID_META_FILE, START_MAP_FILE, build_semantic_map, write_grid
     from chefbot.envs.robocasa.config import RoboCasaConfig
     from chefbot.envs.robocasa.env import RoboCasaEnv
@@ -88,7 +89,8 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str) -> World
     import numpy as np
 
     spec = load_yaml(task).get("robocasa") or {}
-    layout, style = int(spec.get("layout", 1)), int(spec.get("style", spec.get("layout", 1)))
+    layout = int(layout or spec.get("layout", 1))
+    style = int(style or spec.get("style", spec.get("layout", 1)))
     config = RoboCasaConfig.load(layout=layout, style=style, seed=seed)
     if spec.get("objects"):
         config = dataclasses.replace(config, objects=tuple(dict(o) for o in spec["objects"]))
@@ -126,7 +128,8 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str) -> World
 
 def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth", seed: int = 0,
         task: Path = TASK, out: Path = REPO / "runs", config: LoopConfig | None = None, llm=None,
-        quiet: bool = False, video_speed: int = 0) -> dict:  # fmt: skip
+        quiet: bool = False, video_speed: int = 0, layout: int | None = None,
+        style: int | None = None) -> dict:  # fmt: skip
     """video_speed > 0 (robocasa): record runs/<run>/explore.mp4, keeping every Nth sim tick."""
     explore_cfg = yaml.safe_load((EXPLORE / "config.yaml").read_text())
     vocab = yaml.safe_load((EXPLORE / explore_cfg["vocab_file"]).read_text())
@@ -135,10 +138,10 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
     limits = {k: v for k, v in (task_spec.get("limits") or {}).items() if hasattr(config, k)}
     config = dataclasses.replace(config, **limits)
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    run_dir = out / f"{stamp}_explore_{env}_{policy}_s{seed}"
+    run_dir = out / (f"{stamp}_explore_{env}_{policy}_s{seed}" + (f"_layout{layout:03d}" if layout else ""))
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    world = symbolic_world(task, seed) if env == "symbolic" else robocasa_world(task, seed, run_dir, detector)
+    world = symbolic_world(task, seed) if env == "symbolic" else robocasa_world(task, seed, run_dir, detector, layout, style)
     (run_dir / "start_map.yaml").write_text(yaml.safe_dump(world.start, sort_keys=False, default_flow_style=None))
     world_map = WorldMap.from_dict(world.start)
     open_labels = frozenset(explore_cfg["open_labels"])
@@ -230,7 +233,7 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
     result = score(explored, truth)
     result["outcome"] = list(outcome)
     result["run_dir"] = str(run_dir)
-    if world.info.get("committed_map"):
+    if world.info.get("committed_map") and Path(world.info["committed_map"]).exists():
         committed = yaml.safe_load(Path(world.info["committed_map"]).read_text())
         result["vs_committed_map"] = score(explored, committed)
         result["truth_matches_committed_map"] = score(truth, committed, tolerance=0.0)["perfect"]
@@ -248,6 +251,8 @@ def main() -> int:
                         help="robocasa: what detect() is backed by")  # fmt: skip
     parser.add_argument("--task", type=Path, default=TASK)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--layout", type=int, help="robocasa: kitchen layout (default: the task's)")
+    parser.add_argument("--style", type=int, help="robocasa: kitchen style (default: the task's)")
     parser.add_argument("--model")
     parser.add_argument("--out", type=Path, default=REPO / "runs")
     parser.add_argument("--quiet", action="store_true")
@@ -256,7 +261,7 @@ def main() -> int:
     args = parser.parse_args()
     result = run(args.env, args.policy, args.detector, args.seed, args.task, args.out,
                  LoopConfig.load(model=args.model), quiet=args.quiet,
-                 video_speed=args.video_speed if args.video else 0)  # fmt: skip
+                 video_speed=args.video_speed if args.video else 0, layout=args.layout, style=args.style)  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "objects"}))
     return 0 if result["perfect"] else 1

@@ -75,8 +75,18 @@ class Coverage:
                 out.append(f"{entry.name}: not looked at yet")
             elif len(seen) < len(samples):
                 missing = [samples[i] for i in range(len(samples)) if i not in seen]
-                xy = np.mean(missing, axis=0)
-                out.append(f"{entry.name}: only partly seen; not the part around ({xy[0]:.2f}, {xy[1]:.2f})")
+                across = np.array([-entry.facing[1], entry.facing[0]])  # facing the fixture: to your right
+                middle = np.array(entry.location, dtype=float)
+                reach = max(entry.size[0] / 2 - _END_INSET, 1e-6)
+                for part in ("left", "right", "middle"):
+                    side = [p for p in missing if _side(p - middle, across) == part]
+                    if side:
+                        xy = np.mean(side, axis=0)
+                        t = max(-1.0, min(1.0, float((xy - middle) @ across) / reach))
+                        hint = (f'go_to("{entry.name}", part="{part}")' if abs(t) > 0.9 else
+                                f'go_to("{entry.name}", along={t:.2f})')  # fmt: skip
+                        out.append(f"{entry.name}: only partly seen; not the {part} part, around "
+                                   f"({xy[0]:.2f}, {xy[1]:.2f}): {hint}, then detect")  # fmt: skip
             if self.openable(entry) and entry.name not in self.looked_inside:
                 out.append(f"{entry.name}: not looked inside yet (open it, then detect)")
         for name, state in states.items():
@@ -104,3 +114,12 @@ class CoverageChecker:
         if not left:
             return CheckResult(True, "every fixture has been looked at, every door looked behind and closed")
         return CheckResult(False, "still to do: " + "; ".join(left))
+
+
+_END_INSET = 0.4  # m: as go_to's (agent/tools/nav.py)
+
+
+def _side(offset: np.ndarray, across: np.ndarray) -> str:
+    """Which part of a fixture a point is in, as seen facing it."""
+    t = float(offset @ across)
+    return "right" if t > 0.3 else "left" if t < -0.3 else "middle"

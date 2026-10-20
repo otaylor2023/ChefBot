@@ -302,12 +302,21 @@ class Recorder:
         objects = self._last_objects
         _text(canvas, f"Semantic map ({len(objects)} objects)", (12, 28), 0.65, (255, 255, 255), outline=False)
         y = 62
-        for name, spec in objects.items():
+        compact = len(objects) > 8  # one line each, and as many as fit
+        rows = (VIEW_H - 40 - y) // 20 if compact else len(objects)
+        items = list(objects.items())
+        for name, spec in items[: rows if len(items) <= rows else rows - 1]:
             x, yy = spec["location"]
             color = (255, 230, 0) if self._fresh(name) else (200, 230, 200)
-            _text(canvas, name, (14, y), 0.55, color, outline=False)
-            _text(canvas, f"({x:.2f}, {yy:.2f})  in: {spec['in']}", (24, y + 20), 0.45, color, outline=False)
-            y += 46
+            if compact:
+                _text(canvas, f"{name} ({x:.2f}, {yy:.2f}) in {spec['in']}", (14, y), 0.42, color, outline=False)
+                y += 20
+            else:
+                _text(canvas, name, (14, y), 0.55, color, outline=False)
+                _text(canvas, f"({x:.2f}, {yy:.2f})  in: {spec['in']}", (24, y + 20), 0.45, color, outline=False)
+                y += 46
+        if len(items) > rows:
+            _text(canvas, f"... and {len(items) - rows + 1} more", (14, y), 0.42, (170, 170, 170), outline=False)
         if self._remaining is not None:
             left = sorted(self._last_left)
             note = f"fixtures left to check: {len(left)}" if left else "every fixture checked"

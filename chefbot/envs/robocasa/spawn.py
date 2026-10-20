@@ -95,7 +95,10 @@ def place_objects(env: "RoboCasaEnv") -> None:
             radius = float(min(obj.size[0], obj.size[1])) / 2.0
             height = float(obj.size[2])
             spot = None
-            for fixture in (f for f in fixtures if where in (f.name, f.label)):
+            candidates = [f for f in fixtures if where in (f.name, f.label)]
+            if not candidates and inside and where in _STORAGE:
+                candidates = _storage(env, where)  # cabinets and drawers are not map fixtures
+            for fixture in candidates:
                 find = _shelf_spot if inside else _surface_spot
                 spot = find(env, fixture, radius, height, placed)
                 if spot is not None:
@@ -129,6 +132,20 @@ def place_objects(env: "RoboCasaEnv") -> None:
     # Let the objects come to rest.
     for _ in range(_SETTLE_STEPS):
         env.wait_for_next_tick(1.0 / env.config.control_freq)
+
+
+_STORAGE = {"cabinet": ("HingeCabinet", "SingleCabinet"), "drawer": ("Drawer",)}
+
+
+def _storage(env: "RoboCasaEnv", label: str) -> list:
+    """Cabinets or drawers to put things inside, by RoboCasa class (they are not on the map)."""
+    from chefbot.envs.robocasa.detector import NamedFixture, fixture_box
+
+    out = []
+    for sim_name, fixture in sorted(env.suite.fixtures.items()):
+        if type(fixture).__name__ in _STORAGE[label] and (box := fixture_box(fixture)) is not None:
+            out.append(NamedFixture(sim_name, sim_name, label, box))
+    return out
 
 
 def _ray_down(env: "RoboCasaEnv", x: float, y: float, z: float) -> tuple[int, float]:

@@ -6,6 +6,8 @@ there. Nothing here knows the robot's geometry or which env it is running in.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import math
 import time
 
@@ -60,14 +62,22 @@ class NavTools:
 
     # -- go_to ---------------------------------------------------------------
 
-    def go_to(self, place: str, wait: bool = True) -> ToolResult:
+    def go_to(self, place: str, wait: bool = True, part: str | None = None, along: float | None = None) -> ToolResult:
         entry = self._map.get(place)
         if entry is None:
             known = ", ".join(e.name for e in self._map.list())
             return ToolResult(False, "unknown_place", f'"{place}" is not on the map. Known places: {known}.')
+        if part is not None:
+            if part not in ("left", "right"):
+                return ToolResult(False, "bad_part", f'part must be "left" or "right", not "{part}".')
+            along = -1.0 if part == "left" else 1.0
+        if along is not None:
+            entry = _along(entry, max(-1.0, min(1.0, float(along))))
         self.tool_use["lowered_into"] = None  # the robot lifts a lowered tool out before driving
         self._robot.go_to_pose(self._approach_pose(entry))
-        result = self.motion_tool_result(wait, f'go_to("{place}")', {"place": place})
+        extra = {"part": part} if part else {"along": along} if along is not None else {}
+        call = f'go_to("{place}"' + "".join(f", {k}={json.dumps(v)}" for k, v in extra.items()) + ")"
+        result = self.motion_tool_result(wait, call, {"place": place, **extra})
         if entry.kind == "object" and result.success:
             where = self.describe_where(place)
             if where:
@@ -213,6 +223,12 @@ class NavTools:
                 holder = self._nearest_fixture(e.position_world)
             if holder is None:
                 continue
+            if e.map_name is None:  # seen from afar (out of the map query's range): the one mapped here?
+                same = [m for m in self._map.list() if m.kind == "object" and m.label == e.label
+                        and _xy_dist(e.position_world, m.location) <= _SAME_SPOT]  # fmt: skip
+                if same:
+                    e.map_name = min(same, key=lambda m: _xy_dist(e.position_world, m.location)).name
+                    known = self._map.get(e.map_name)
             name = e.map_name or e.id
             if e.map_name is None and self._map.get(name) is not None:
                 # A new one whose detection id a mapped one (seen elsewhere, out of range) already has.
@@ -509,6 +525,20 @@ def _described(entry, entries) -> dict:
     if under:
         out["on"] = max(under, key=lambda e: e.position_world[2]).id
     return out
+
+
+_END_INSET = 0.4  # m: go_to(part=...) stands this far in from the fixture's end
+
+
+def _along(entry, t: float):
+    """The fixture entry moved along its width: t = -1 its left end, 1 its right end, as seen
+    facing it (inset by _END_INSET). A fixture without a size is unchanged."""
+    if entry.kind != "fixture" or entry.size is None or entry.facing is None:
+        return entry
+    across = np.array([-entry.facing[1], entry.facing[0]])  # facing the fixture, this points to your right
+    shift = max(entry.size[0] / 2 - _END_INSET, 0.0) * t
+    x, y = np.array(entry.location) + shift * across
+    return dataclasses.replace(entry, location=(float(x), float(y)))
 
 
 _MOVED = 0.01  # m: a sighting this far from the map's spot moves the map entry

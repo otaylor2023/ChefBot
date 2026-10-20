@@ -1,0 +1,66 @@
+frame: world
+fixtures:
+  coffee machine:
+    location: [0.405, -6.122]
+    facing: [0.0, 1.0]
+    size: [0.27, 0.384]
+  counter_1:
+    location: [1.629, -6.053]
+    facing: [0.0, 1.0]
+    size: [3.25, 0.6]
+  counter_2:
+    location: [2.854, -0.3]
+    facing: [0.0, -1.0]
+    size: [5.7, 0.6]
+  counter_3:
+    location: [3.761, -2.845]
+    facing: [0.0, -1.0]
+    size: [2.6, 1.25]
+  dishwasher:
+    location: [4.102, -0.3]
+    facing: [0.0, -1.0]
+    size: [0.595, 0.6]
+  fridge:
+    location: [6.145, -0.42]
+    facing: [0.0, -1.0]
+    size: [0.85, 0.8]
+  microwave:
+    location: [3.654, -5.943]
+    facing: [0.0, 1.0]
+    size: [0.75, 0.5]
+  oven:
+    location: [3.654, -5.993]
+    facing: [0.0, 1.0]
+    size: [0.7, 0.6]
+  sink:
+    location: [3.224, -0.3]
+    facing: [0.0, -1.0]
+    size: [0.924, 0.53]
+  stove:
+    location: [3.761, -3.085]
+    facing: &id001 [0.0, -1.0]
+    size: [0.944, 0.55]
+  toaster:
+    location: [0.466, -0.262]
+    facing: [0.0, -1.0]
+    size: [0.168, 0.271]
+  toaster oven:
+    location: [2.934, -6.176]
+    facing: [0.0, 1.0]
+    size: [0.529, 0.295]
+  burner_1:
+    location: [3.729, -2.943]
+    facing: *id001
+  burner_2:
+    location: [4.059, -2.943]
+    facing: *id001
+  burner_3:
+    location: [3.729, -3.151]
+    facing: *id001
+  burner_4:
+    location: [4.059, -3.151]
+    facing: *id001
+  burner_5:
+    location: [3.434, -3.059]
+    facing: *id001
+objects: {}

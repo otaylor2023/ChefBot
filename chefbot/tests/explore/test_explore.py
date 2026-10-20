@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import yaml
 
@@ -96,3 +97,15 @@ def test_video_needs_the_robocasa_sim(tmp_path):
 
     with pytest.raises(SystemExit, match="robocasa"):
         run("symbolic", "scripted", out=tmp_path, quiet=True, video_speed=1)
+
+
+def test_coverage_names_the_unseen_part_of_a_long_fixture_and_how_to_get_there():
+    from chefbot.explore.scripted import _PART_HINT
+
+    world = WorldMap.from_dict({"frame": "world", "fixtures": {
+        "counter_1": {"location": [0.0, 0.0], "facing": [0.0, 1.0], "size": [6.0, 0.6]}}, "objects": {}})  # fmt: skip
+    coverage = Coverage(world, set(), 1.5, math.radians(60))
+    coverage.record_detect(Pose2D(-2.4, 1.0, -math.pi / 2), {})  # facing it from its right end (-x)
+    left = coverage.remaining({})
+    assert [line.split(";")[1].split(",")[0].strip() for line in left] == ["not the left part", "not the right part", "not the middle part"]
+    assert _PART_HINT.findall(left[0]) == [("counter_1", "", "-0.66")]

@@ -68,6 +68,12 @@ TOOL_SCHEMAS: list[dict] = [
         "carried object was dropped on the way.",
         {
             "place": {"type": "string", "description": 'Map name, e.g. "stove", "fridge", "counter_2".'},
+            "part": {"type": "string", "enum": ["left", "right"],
+                     "description": "Optional, for a long fixture (a counter or island): stand in front of "
+                                    "its left or right end, as you face it, instead of its middle."},
+            "along": {"type": "number", "minimum": -1, "maximum": 1,
+                      "description": "Optional, finer than part: where along a long fixture to stand, "
+                                     "-1 its left end, 0 its middle, 1 its right end."},  # fmt: skip
             "wait": _WAIT_PARAM,
         },
         ["place"],

@@ -2,6 +2,8 @@
 
 import math
 
+import pytest
+
 import numpy as np
 
 from chefbot.agent.config import AgentConfig
@@ -250,3 +252,26 @@ def test_big_surfaces_are_worked_on_at_their_near_point():
     registry.dispatch("pick", {"id": "egg"})
     registry.dispatch("place", {"id": "counter_1"})
     assert tuple(robot.places[-1].position_world) == tuple(near)
+
+
+def test_an_object_seen_again_from_afar_keeps_its_one_map_entry():
+    registry, robot, detector = make(Pose2D(0.0, 1.3, 0.0))  # 4.5 m from the stove: beyond the map query
+    detector.objects.append(("pan", (4.4, 0.35, 0.95)))
+    registry.dispatch("detect", {"classes": ["pan"]})
+    registry.dispatch("detect", {"classes": ["pan"]})
+    pans = [e.name for e in registry.tools._map.list() if e.kind == "object" and e.label == "pan"]
+    assert pans == ["pan_1"]
+
+
+def test_go_to_part_or_along_stands_at_that_part_of_a_long_fixture():
+    from chefbot.agent.world.map import MapEntry
+
+    registry, robot, _ = make()
+    registry.tools._map.put(MapEntry("island", (3.0, -2.0), facing=(0.0, 1.0), size=(4.0, 1.0)))
+    middle = registry.dispatch("go_to", {"place": "island"})
+    assert middle.success and robot.goals[-1].x == pytest.approx(3.0)
+    registry.dispatch("go_to", {"place": "island", "part": "left"})  # facing it, i.e. looking down -y: left is +x
+    assert robot.goals[-1].x == pytest.approx(3.0 + 1.6) and robot.goals[-1].y == pytest.approx(-1.0)
+    registry.dispatch("go_to", {"place": "island", "along": 0.5})
+    assert robot.goals[-1].x == pytest.approx(3.0 - 0.8)
+    assert not registry.dispatch("go_to", {"place": "island", "part": "top"}).success
