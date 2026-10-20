@@ -38,3 +38,12 @@ vision:
     coffee mug: mug
     cup of coffee: mug
     eggs: egg
+
+# The OWLv2 detector (explore/owl.py, --detector owl): the vision pipeline above with an
+# off-the-shelf open-vocabulary detector naming and boxing objects instead of the VLM.
+owl:
+  model: google/owlv2-base-patch16-ensemble   # Hugging Face id, downloaded once (~600 MB)
+  threshold: 0.2        # min score of a box's best-matching name
+  nms_iou: 0.3          # boxes overlapping a better one this much are the same object
+  prompt: "a photo of a {name}"
+  fixture_queries: true # also query fixture words; a box they win is a kitchen part, not an object

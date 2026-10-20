@@ -169,12 +169,13 @@ class VisionDetector(Detector):
         self._calls = 0
 
     @classmethod
-    def for_robocasa(cls, env, ground_truth, log_dir: Path | None = None, footprints: list | None = None) -> "VisionDetector":
+    def for_robocasa(cls, env, ground_truth, log_dir: Path | None = None, footprints: list | None = None,
+                     vlm=None) -> "VisionDetector":  # fmt: skip
         from chefbot.envs.robocasa.detector import FIXTURE_LABELS, PART_RULES
 
         camera = _CONFIG["vision"]["camera"]
         labels = set(FIXTURE_LABELS.values()) | {rule[3] for rule in PART_RULES} | set(_VOCAB["parts"])
-        return cls(lambda: env.get_camera_rgbd(camera), ground_truth, labels, log_dir=log_dir, footprints=footprints)
+        return cls(lambda: env.get_camera_rgbd(camera), ground_truth, labels, vlm, log_dir=log_dir, footprints=footprints)
 
     def detect(self, classes: list[str]) -> list[Detection]:
         wanted = set(classes)

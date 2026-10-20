@@ -102,12 +102,17 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str) -> World
     kitchen = RoboCasaKitchen(env, stack.robot._fixture_actuator, Timing.load(spec.get("timing")))
     agent_detector = stack.detector
     start = yaml.safe_load(start_path.read_text())
-    if detector == "vision":
+    if detector in ("vision", "owl"):
         from chefbot.explore.vision import VisionDetector
 
+        model = None  # vision: the VLM
+        if detector == "owl":
+            from chefbot.explore.owl import OwlV2Model
+
+            model = OwlV2Model()
         footprints = [e for e in WorldMap.from_dict(start).list() if e.kind == "fixture"]
         agent_detector = VisionDetector.for_robocasa(env, stack.detector, log_dir=run_dir / "vision",
-                                                     footprints=footprints)  # fmt: skip
+                                                     footprints=footprints, vlm=model)  # fmt: skip
 
     def truth() -> dict:
         occupied = np.load(grid_dir / GRID_FILE)
@@ -239,7 +244,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--env", choices=["symbolic", "robocasa"], default="symbolic")
     parser.add_argument("--policy", choices=["llm", "scripted"], default="llm")
-    parser.add_argument("--detector", choices=["groundtruth", "vision"], default="groundtruth",
+    parser.add_argument("--detector", choices=["groundtruth", "vision", "owl"], default="groundtruth",
                         help="robocasa: what detect() is backed by")  # fmt: skip
     parser.add_argument("--task", type=Path, default=TASK)
     parser.add_argument("--seed", type=int, default=0)
