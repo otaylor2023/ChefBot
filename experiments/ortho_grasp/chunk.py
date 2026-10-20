@@ -206,12 +206,16 @@ def execute(w, scene, waypoints: list[dict], out: Path, g) -> dict:
     env.wait_for_next_tick(0.2)
     cup = w.cup_root(scene)
     frames, tick, original = [], [0], env.wait_for_next_tick
+    track: list[dict] = []  # per video frame: where the gripper really is (robot frame), for the synced plot video
 
     def recording(dt):
         original(dt)
         tick[0] += 1
         if tick[0] % CLIP_EVERY == 0:
             frames.append(w.render(CLIP_CAMERA, 480, 360))
+            state = env.get_state()
+            tcp = pose_to_robot(w.arm.frames.pose_to_world(w.base, w.arm.ik.fk(state.arm_q)), w.base)
+            track.append({"pose": tcp.tolist(), "width": float(state.gripper_width), "t": float(state.time)})
 
     env.wait_for_next_tick = recording
     result = {"enclosed": False, "lifted": False, "e3_reason": None}
@@ -245,6 +249,7 @@ def execute(w, scene, waypoints: list[dict], out: Path, g) -> dict:
         env.gripper_hold = False
         if frames:
             iio.imwrite(out / "exec.mp4", np.stack(frames), fps=20 // CLIP_EVERY, codec="libx264")
+            (out / "exec_track.json").write_text(json.dumps(track))
     return result
 
 
