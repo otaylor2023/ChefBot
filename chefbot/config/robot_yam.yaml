@@ -1,0 +1,94 @@
+# Robot layer for TidyBot++ with an I2RT YAM arm (RoboCasa robot YamTidybot): footprint, control, goal handling, IK.
+# Lengths in meters, angles in degrees, time in seconds.
+
+footprint_radius: 0.35      # circle enclosing the base (TidyBot++: 0.48 x 0.48 m)
+safety_margin: 0.03         # added to the footprint when inflating the grid
+
+# Arm base frame expressed in the base frame (origin on the floor under the
+# base center, x forward): the YAM on TidyBot++'s arm plate.
+arm_mount:
+  xyz: [0.0, 0.0, 0.335]
+  yaw_deg: 0.0
+arm_model: yam
+# TCP frame relative to the arm flange: the gripper's grip point (between the
+# fingertip pads), z along the approach direction, x along the direction the
+# fingers close. Measured on the sim robot's 2F-85 grip site.
+tcp:
+  xyz: [0.0, 0.0, 0.1447]
+  yaw_deg: 0.0
+# Arm joint limits: the YAM's own.
+
+control_rate: 20            # Hz
+gains:
+  kp_pos: 2.0
+  kp_yaw: 2.5
+limits:
+  max_lin_vel: 0.5          # m/s
+  max_ang_vel: 1.0          # rad/s
+  max_lin_acc: 1.0          # m/s^2
+  max_ang_acc: 2.0          # rad/s^2
+tolerances:
+  pos: 0.015
+  yaw_deg: 1.5
+lookahead: 0.3              # carrot distance along the path
+deviation_threshold: 0.2    # distance off the path that counts as blocked
+motion_timeout_s: 60
+
+reach_clearance: 0.20       # align: the gripper must also reach this far above / in front of the target (pregrasp, lift)
+top_down_max_height: 1.2    # align: targets up to this height are worked on from above, higher ones from the front
+snap_radius: 0.5            # go_to_pose: how far a goal in collision may be moved
+standoff:                   # align_to_point: candidate rings around the target
+  min: 0.5
+  max: 1.1
+  rings: 7
+  angles: 24
+  closeness: 2.0            # prefer closer stances (m of extra path per m closer): the arm has more room
+
+ik:
+  pos_tolerance: 0.01       # position-only reachability
+  pose_pos_tolerance: 0.002 # full-pose IK used for execution
+  pose_rot_tolerance_deg: 1.0
+  max_iters: 150
+  dt: 0.1
+  damping: 0.001
+
+# -- Arm (MANIP_SPEC §5) ------------------------------------------------------
+arm:
+  # Named joint configurations (rad). All three point the gripper straight down.
+  stow: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]     # folded down over the base, the gripper forward: for driving
+  carry: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  ready: [0.0, 0.6, 0.6, 0.0, 0.0, 0.0]     # folded, the gripper level and forward, below the shoulder cameras' view
+  max_joint_vel: 1.2        # rad/s
+  max_joint_acc: 3.0        # rad/s^2
+  cart_speed: 0.12          # m/s along Cartesian lines
+  cart_acc: 0.5             # m/s^2
+  cart_step: 0.01           # spacing of the IK samples along a line
+  max_joint_jump: 0.25      # rad between neighboring samples; more means the line crosses a singularity
+  joint_tolerance: 0.02     # rad: a move is done when every joint is this close to its target
+  tracking_tolerance: 0.25  # rad: falling this far behind the commanded target means the arm is blocked
+  settle_s: 1.5             # time allowed to converge after the last target
+
+gripper:
+  open_width: 0.0938        # m between the pads, fully open
+  min_holding_width: 0.012  # closed further than this: nothing between the fingers
+  settle_s: 1.2             # max wait for the fingers to stop moving
+  grasp_settle_s: 0.3       # extra wait after closing on an object
+
+skills:
+  lift_height: 0.12         # straight up after grasping
+  retreat_height: 0.10      # straight up after releasing
+  motion_timeout_s: 60
+
+# -- Arm motion against what the camera sees (robot/kinematics/collision.py) ---
+# Each pick / place builds an octree from the depth cameras' images (the robot
+# itself filtered out) and checks every arm move against it; moves to and from
+# the approach pose are planned (OMPL RRT-Connect) when the straight one is
+# blocked. Space no camera saw counts as free: the side cameras see around the
+# arm, which blocks the middle one's view straight ahead.
+planning:
+  cameras: [robot0_frontview, robot0_agentview_left, robot0_agentview_right]  # []: no checking
+  voxel: 0.015              # octree resolution (m); an obstacle grows by up to 0.87 x this
+  self_filter_margin: 0.07  # depth points this close to the arm's shapes are the arm itself
+  base_box: [0.50, 0.50, 1.0]  # mobile base (length, width, height), also filtered out
+  timeout_s: 5.0            # per planning query
+  shorter_offsets: [0.06, 0.04]  # pre-grasp / pre-place / lift distances to try when the full one is blocked

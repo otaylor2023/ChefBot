@@ -22,7 +22,8 @@ class RobotConfig:
     # TCP relative to the flange
     tcp_xyz: tuple[float, float, float] = (0.0, 0.0, 0.16)
     tcp_yaw: float = 0.0
-    joint_limits: tuple | None = None  # 7 x (low, high); None: the FR3's own
+    joint_limits: tuple | None = None  # n x (low, high); None: the arm model's own
+    arm_model: str = "fr3"  # chefbot.robot.arm.ik.ARM_MODELS
     # Base controller
     control_rate: float = 20.0
     kp_pos: float = 2.0
@@ -106,6 +107,7 @@ class RobotConfig:
             tcp_xyz=tuple(tcp["xyz"]),
             tcp_yaw=math.radians(tcp["yaw_deg"]),
             joint_limits=tuple(tuple(pair) for pair in joint_limits) if joint_limits else None,
+            arm_model=raw.get("arm_model", "fr3"),
             arm_stow=tuple(arm["stow"]),
             arm_carry=tuple(arm["carry"]),
             arm_ready=tuple(arm["ready"]),
