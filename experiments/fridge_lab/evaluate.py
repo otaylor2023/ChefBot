@@ -53,6 +53,7 @@ def main() -> int:
     ap.add_argument("--vision-url", default=os.environ.get("FRIDGE_VISION_URL"))
     ap.add_argument("--name", default=None)
     ap.add_argument("--no-video", action="store_true")
+    ap.add_argument("--scenes", default=None, help="comma list of scene ids (default: the whole split)")
     args = ap.parse_args()
     if not args.oracle and not args.skill:
         ap.error("--skill or --oracle")
@@ -60,7 +61,7 @@ def main() -> int:
     sp = splits.load()
     seeds = [int(s) for s in args.seeds.split(",")] if args.seeds else list(
         sp["test_seeds"] if args.split == "test" else sp["val_seeds"] if args.split == "val" else (0, 1))  # fmt: skip
-    scenes = [s for s in sp["scenes"] if s["split"] == args.split]
+    scenes = [s for s in sp["scenes"] if s["split"] == args.split and (not args.scenes or s["id"] in args.scenes.split(","))]
     name = args.name or (f"oracle_{args.split}" if args.oracle else f"{args.skill.name}_{args.split}_{time.strftime('%m%d-%H%M')}")
     root = LAB_ROOT / "eval" / name
     root.mkdir(parents=True, exist_ok=True)

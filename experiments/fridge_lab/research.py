@@ -18,6 +18,7 @@ import json
 import os
 import queue
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -192,6 +193,13 @@ def main() -> int:
     note(f"workspace {ws}; deadline in {args.hours} h; usage cap {args.usage_cap}%; model cap ${args.model_usd}; "
          f"vision {'on' if args.vision_url else 'off'}; skill sandbox: {sandbox_kind()}")  # fmt: skip
     thread_id, sessions, capacity, over_cap = None, 0, False, False
+    proc = None
+
+    def _stop(signum, _frame):  # SIGTERM / SIGINT (a background job ignores SIGINT): end the run cleanly
+        raise KeyboardInterrupt(f"signal {signum}")
+
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
     try:
         while sessions < MAX_SESSIONS:
             left_min = (deadline - time.time()) / 60
@@ -260,7 +268,11 @@ def main() -> int:
             proc.wait()
             if time.time() > deadline or over_cap:
                 break
+    except KeyboardInterrupt as e:
+        note(f"stopped: {e}")
     finally:
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
         stop.set()
         if hasattr(lab, "close"):
             lab.close()
