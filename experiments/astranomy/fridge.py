@@ -104,8 +104,16 @@ class FridgeHost(Host):
     def door_deg(self) -> float:
         return float(np.degrees(self.env.data.qpos[self.door_qpos]))
 
+    success_deg = SUCCESS_DEG
+
     def success(self) -> bool:
-        return self.door_deg() >= SUCCESS_DEG
+        return self.door_deg() >= self.success_deg
+
+    def instruction(self) -> str:
+        return "Open the fridge door all the way." if self.success_deg >= 80.0 else "Open the fridge door."
+
+    def max_steps(self) -> int:
+        return 900 if self.success_deg < 80.0 else 1350  # 60 s, or 90 s for opening it all the way
 
     # -- frames --------------------------------------------------------------------
 

@@ -126,8 +126,8 @@ FRIDGE_MAX_STEPS = 900  # 60 s at 15 Hz
 def run_episode(host: Host, scene, model: str, effort: str, out: Path, task: str = "cup") -> dict:
     fridge = task == "fridge"
     system = direct_prompt_mobile() if fridge else direct_prompt()
-    instruction = FRIDGE_INSTRUCTION if fridge else INSTRUCTION
-    max_steps = FRIDGE_MAX_STEPS if fridge else MAX_STEPS
+    instruction = host.instruction() if fridge else INSTRUCTION
+    max_steps = host.max_steps() if fridge else MAX_STEPS
     width = 11 if fridge else 8
     if fridge:
         host.reset_fridge(scene)
@@ -166,7 +166,8 @@ def run_episode(host: Host, scene, model: str, effort: str, out: Path, task: str
               "sim_time_s": host.step_count / 15.0, "wall_time_s": time.time() - t0, "cost_usd": cost, "model": model, "effort": effort,
               "video": str(video) if video else None}  # fmt: skip
     if fridge:
-        result.update({"door_deg": host.door_deg(), "start_pose": [host.start_pose.x, host.start_pose.y, host.start_pose.yaw]})
+        result.update({"door_deg": host.door_deg(), "target_deg": host.success_deg, "instruction": instruction,
+                       "start_pose": [host.start_pose.x, host.start_pose.y, host.start_pose.yaw]})
     else:
         result.update({"cup_model": scene.cup_model, "cup_lift_m": host.cup_bottom() - host.cfg["counter_z"]})
     write_json(out / "result.json", result)
@@ -179,6 +180,7 @@ def main() -> int:
     ap.add_argument("--scenes", default="0", help="cup: scene indices; fridge: start-pose seeds")
     ap.add_argument("--model", default="openai/gpt-6-astra")
     ap.add_argument("--effort", default="medium")
+    ap.add_argument("--target-deg", type=float, default=60.0, help="fridge: the door angle that counts as open")
     ap.add_argument("--out", type=Path, default=REPO / "experiments" / "astranomy" / "results")
     args = ap.parse_args()
     load_env(REPO / ".env")
@@ -195,12 +197,14 @@ def main() -> int:
     try:
         for s in picked:
             name = f"seed{s}" if args.task == "fridge" else s.name
-            out = args.out / (f"fridge_direct_{tag}" if args.task == "fridge" else f"direct_{tag}") / name
+            fridge_dir = f"fridge_direct_{tag}" + ("" if args.target_deg == 60.0 else f"_{args.target_deg:.0f}deg")
+            out = args.out / (fridge_dir if args.task == "fridge" else f"direct_{tag}") / name
             if host is None:
                 if args.task == "fridge":
                     from experiments.astranomy.fridge import FridgeHost
 
                     host = FridgeHost(out)
+                    host.success_deg = args.target_deg
                 else:
                     host = Host(out)
             host.out = out

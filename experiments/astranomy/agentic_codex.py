@@ -150,7 +150,7 @@ class Server:
         if fridge:
             held = bool(self.host.env._grasped_roots() & {int(self.host.env.model.body_rootid[self.host.env.model.jnt_bodyid[self.host.door_joint]])})
             progress = {"grasp the fridge door handle": "holding" if held else "not holding",
-                        "open the door": f"{max(0.0, self.host.door_deg()):.1f} of 60.0 deg" + (" (done)" if self.success else "")}  # fmt: skip
+                        "open the door": f"{max(0.0, self.host.door_deg()):.1f} of {self.host.success_deg:.1f} deg" + (" (done)" if self.success else "")}  # fmt: skip
         else:
             lift = self.host.cup_bottom() - self.host.cfg["counter_z"]
             held = self.host.cup in self.host.env._grasped_roots()
@@ -187,21 +187,24 @@ def run_episode(host: Host, scene, model: str, effort: str, ws: Path, task: str 
     robot = ws / "robot"
     robot.write_text(ROBOT_CLI)
     robot.chmod(0o755)
-    max_steps = FRIDGE_MAX_STEPS if fridge else MAX_STEPS
+    max_steps = host.max_steps() if fridge else MAX_STEPS
     server = Server(host, ws, task, max_steps)
     dev = agentic_prompt_mobile("./robot") if fridge else agentic_prompt("./robot")
     (ws / "developer_prompt.txt").write_text(dev)
-    first = (f"Task: {FRIDGE_INSTRUCTION if fridge else INSTRUCTION}\n\nInitial observation (control step 0). measured_state = {json.dumps(obs.state)}\n"
+    first = (f"Task: {host.instruction() if fridge else INSTRUCTION}\n\nInitial observation (control step 0). measured_state = {json.dumps(obs.state)}\n"
              f"The three attached images are, in order, the left shoulder, right shoulder and wrist camera views at step 0.")  # fmt: skip
     base = ["codex", "exec", "--json", "--skip-git-repo-check", "-s", "workspace-write", "-m", model,
             "-c", f"model_reasoning_effort={effort}", "-c", f"developer_instructions={json.dumps(dev)}"]  # fmt: skip
     events = open(ws / "codex_events.jsonl", "a")
-    thread_id, sessions, t0 = None, 0, time.time()
+    thread_id, sessions, t0, capacity = None, 0, time.time(), False
     while not server.ended and sessions < MAX_SESSIONS:
         if thread_id is None:
             cmd = base + [a for p in obs.paths.values() for a in ("-i", p)] + ["--", first]  # -i takes several files: end it
         else:
-            cmd = base[:2] + ["resume", thread_id] + base[2:] + [
+            if capacity:  # the model was at capacity: wait before resuming
+                time.sleep(60.0)
+            # `exec resume` takes no -s: the sandbox goes in as config
+            cmd = base[:2] + ["resume", thread_id] + [a for a in base[2:] if a not in ("-s", "workspace-write")] + ["-c", 'sandbox_mode="workspace-write"'] + [
                 f"The episode has not ended (control step {host.step_count}, {max_steps - host.step_count} steps left). "
                 "Continue controlling the robot with ./robot until it reports that the episode has ended."]  # fmt: skip
         proc = subprocess.Popen(cmd, cwd=ws, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -209,7 +212,7 @@ def run_episode(host: Host, scene, model: str, effort: str, ws: Path, task: str 
         reader = threading.Thread(target=lambda: [lines_q.put(l.rstrip("\n")) for l in proc.stdout], daemon=True)
         reader.start()
         sessions += 1
-        ended_at = None
+        ended_at, capacity = None, False
         while True:
             server.poll()
             lines = []
@@ -223,6 +226,8 @@ def run_episode(host: Host, scene, model: str, effort: str, ws: Path, task: str 
                             thread_id = json.loads(line).get("thread_id")
                         except json.JSONDecodeError:
                             pass
+                    if '"turn.failed"' in line and "capacity" in line:
+                        capacity = True
                     if '"agent_message"' in line:
                         try:
                             print("   agent:", json.loads(line)["item"]["text"][:160].replace("\n", " "), flush=True)
@@ -251,7 +256,7 @@ def run_episode(host: Host, scene, model: str, effort: str, ws: Path, task: str 
               "sim_time_s": host.step_count / 15.0, "sessions": sessions, "tool_calls": sum(1 for _ in open(ws / "tool_calls.jsonl")),
               "wall_time_s": time.time() - t0, "model": model, "effort": effort, "codex_usage": usage,
               "video": str(video) if video else None}  # fmt: skip
-    result.update({"door_deg": host.door_deg()} if fridge else {"cup_model": scene.cup_model, "cup_lift_m": host.cup_bottom() - host.cfg["counter_z"]})
+    result.update({"door_deg": host.door_deg(), "target_deg": host.success_deg} if fridge else {"cup_model": scene.cup_model, "cup_lift_m": host.cup_bottom() - host.cfg["counter_z"]})
     write_json(ws / "result.json", result)
     return result
 
@@ -275,6 +280,7 @@ def main() -> int:
     ap.add_argument("--scenes", default="0", help="cup: scene indices; fridge: start-pose seeds")
     ap.add_argument("--model", default="gpt-6-astra")
     ap.add_argument("--effort", default="medium")
+    ap.add_argument("--target-deg", type=float, default=60.0, help="fridge: the door angle that counts as open")
     ap.add_argument("--out", type=Path, default=REPO / "experiments" / "astranomy" / "results")
     args = ap.parse_args()
     from experiments.ortho_grasp.run import parse_range
@@ -288,12 +294,14 @@ def main() -> int:
     try:
         for s in picked:
             name = f"seed{s}" if args.task == "fridge" else s.name
-            ws = args.out / (f"fridge_agentic_codex_{args.model}" if args.task == "fridge" else f"agentic_codex_{args.model}") / name
+            fridge_dir = f"fridge_agentic_codex_{args.model}" + ("" if args.target_deg == 60.0 else f"_{args.target_deg:.0f}deg")
+            ws = args.out / (fridge_dir if args.task == "fridge" else f"agentic_codex_{args.model}") / name
             if host is None:
                 if args.task == "fridge":
                     from experiments.astranomy.fridge import FridgeHost
 
                     host = FridgeHost(ws)
+                    host.success_deg = args.target_deg
                 else:
                     host = Host(ws)
             print(f"{name}:", flush=True)
