@@ -72,9 +72,12 @@ def run(host: LabHost, door: int, seed: int, pull_to: float = PULL_TO, verbose: 
         for _ in range(45):
             host.step(_row(host, base_nominal @ F_rel, 0.0, base_nominal))
     else:
-        # The YAM is too short to hold the flange still while the base drives: carry it with the base.
-        for _ in range(60):
-            host.step(_row(host, host.root() @ F_rel, 0.0, base_nominal))
+        # The YAM is too short to hold the flange still while the base drives: carry it with the base, from
+        # its start about 1 m out until the base has arrived.
+        for i in range(150):
+            r = host.step(_row(host, host.root() @ F_rel, 0.0, base_nominal))
+            if i >= 30 and r["base_error_m"] < 0.01 and r["base_yaw_error_rad"] < 0.02:
+                break
     root0 = host.root()
     # The two grasps 180 deg apart about the approach: take one the arm reaches (the YAM's wrist turns
     # only +-120 deg), the one nearer the wrist's current orientation if both.
@@ -94,7 +97,9 @@ def run(host: LabHost, door: int, seed: int, pull_to: float = PULL_TO, verbose: 
     # Prefer the grasp that keeps the wrist clear of its limits (stepping toward one at a limit stalls).
     options = sorted((closing, -closing), key=_turn)
     margins = [_margin(c) for c in options]
-    closing = options[int(np.argmax(margins))] if max(margins) < 0.3 or min(margins) < 0.3 else options[0]
+    # IK from the current joints can miss a reachable grasp (margin -1), so keep the nearer turn unless only the other
+    # one is clearly clear of the limits.
+    closing = options[1] if margins[1] >= 0.3 and margins[0] < 0.3 else options[0]
     if verbose:
         print({"grip": grip.round(3).tolist(), "pitch_deg": round(math.degrees(pitch)), "closing": closing.round(2).tolist(),
                "margins": [round(m, 2) for m in margins]}, flush=True)  # fmt: skip

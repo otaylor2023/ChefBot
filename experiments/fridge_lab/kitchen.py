@@ -64,7 +64,7 @@ ROBOTS = {
     # The YAM starts about 1 m out (base center), where its ZEDs see the fridge, and grasps from about
     # 0.57 m (its arm's base is 0.12 m ahead of the base center).
     "yam": LabRobot("YamTidybot", "chefbot/config/robot_yam.yaml", {"along": 0.20, "out": 1.0, "d_along": 0.12, "d_out": 0.10, "d_yaw_deg": 15.0},
-                    (1.0, 0.9, 1.1, 0.8), (0.57, 0.62, 0.52, 0.67), 0.1447, (0.1335, 0.1335),
+                    (1.0, 0.9, 1.1, 0.8, 0.7, 0.6), (0.57, 0.62, 0.52, 0.67), 0.1447, (0.1335, 0.1335),
                     {"pole": "robot0_pole_zed", "base": "robot0_base_zed", "wrist": "robot0_eye_in_hand"},
                     {"robot0_pole_zed": (0.03, 4.0, 0.05), "robot0_base_zed": (0.03, 4.0, 0.05), "robot0_eye_in_hand": (0.005, 2.0, 0.03)}),
 }
