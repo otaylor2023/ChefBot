@@ -57,6 +57,20 @@ _PAD_THICKNESS = 0.008
 _FRICTION_FADE = np.array([0.0005, 0.0005, 0.001])
 
 
+def _release_gl_context() -> None:
+    """With EGL (headless Linux), robosuite makes its offscreen context current in the thread that
+    built the env; release it so the render thread can make it current. Nothing to do elsewhere."""
+    import os
+
+    if os.environ.get("MUJOCO_GL") != "egl":
+        return
+    from OpenGL import EGL
+
+    display = EGL.eglGetCurrentDisplay()
+    if display != EGL.EGL_NO_DISPLAY:
+        EGL.eglMakeCurrent(display, EGL.EGL_NO_SURFACE, EGL.EGL_NO_SURFACE, EGL.EGL_NO_CONTEXT)
+
+
 class RoboCasaEnv(Env):
     """A RoboCasa kitchen with the default mobile Franka (PandaOmron).
 
@@ -115,6 +129,8 @@ class RoboCasaEnv(Env):
             ignore_done=True,
         )
         self.suite.reset()
+        if render:
+            _release_gl_context()  # rendering happens on the render thread; EGL contexts are current in one thread only
         self.model: mujoco.MjModel = self.suite.sim.model._model
         self.data: mujoco.MjData = self.suite.sim.data._data
         model = self.model

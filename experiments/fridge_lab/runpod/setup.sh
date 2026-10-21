@@ -31,7 +31,10 @@ codex --version
 echo "== uv + python 3.11"
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
+# Pythons outside /root, which is locked: the skill's user must be able to read its standard library.
+export UV_PYTHON_INSTALL_DIR=/opt/uv-python
 uv python install 3.11
+chmod -R a+rX /opt/uv-python
 
 echo "== robosuite + robocasa (pinned)"
 [ -d "$DEV/robosuite" ] || git clone -q https://github.com/ARISE-Initiative/robosuite.git "$DEV/robosuite"
