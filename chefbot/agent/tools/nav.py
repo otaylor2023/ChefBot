@@ -396,6 +396,8 @@ class NavTools:
 
     def align(self, id: str, wait: bool = True) -> ToolResult:
         entry = self.visible_entry(id)
+        if isinstance(entry, ToolResult) and id in self.opened_by:
+            entry = self.opened_by[id]  # a door you opened: to where you opened it from
         if isinstance(entry, ToolResult):
             return entry
 

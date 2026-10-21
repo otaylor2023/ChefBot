@@ -14,6 +14,7 @@ from chefbot.interface.types import ActuationResult, Detection
 
 OPEN = "open"
 CLOSED = "closed"
+AJAR = "ajar"  # neither open nor closed: a door or drawer stopped, or pushed back, part-way
 ON = "on"
 OFF = "off"
 UNKNOWN = "unknown"
@@ -27,7 +28,7 @@ class FixtureActuator(ABC):
 
     @abstractmethod
     def get_state(self, fixture: Detection) -> str:
-        """OPEN | CLOSED | UNKNOWN (also for things that do not open)."""
+        """OPEN | CLOSED | AJAR | UNKNOWN (also for things that do not open)."""
 
     def get_power(self, appliance: Detection) -> str:
         """ON | OFF | UNKNOWN (also for things that do not turn on): burners, appliances."""

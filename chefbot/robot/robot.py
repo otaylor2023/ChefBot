@@ -14,7 +14,7 @@ import threading
 import numpy as np
 
 from chefbot.interface.env import Env
-from chefbot.interface.fixtures import OPEN, UNKNOWN, FixtureActuator
+from chefbot.interface.fixtures import CLOSED, OPEN, UNKNOWN, FixtureActuator
 from chefbot.interface.proposers import GraspProposer, PlacementProposer
 from chefbot.interface.robot_api import (
     APPLIANCES,
@@ -170,6 +170,7 @@ class Robot(RobotAPI):
     # -- Base motions (run on the motion thread) ------------------------------
 
     def _run_go_to_pose(self, goal: Pose2D, preempt: threading.Event) -> MotionResult:
+        self._forget_closed_doors()
         grid, cfg = self._planner.grid, self._cfg
         snapped = snap_to_free(grid, goal, cfg.snap_radius)
         if snapped is None:
@@ -222,7 +223,18 @@ class Robot(RobotAPI):
     def _free_start(self, pose: Pose2D) -> Pose2D | None:
         return snap_to_free(self._planner.grid, pose, self._cfg.snap_radius)
 
+    def _forget_closed_doors(self) -> None:
+        """A door this robot opened that is closed now (closed some other way, or pushed shut)
+        is no longer in the way."""
+        is_closed = getattr(self._fixture_actuator, "is_closed", None)
+        closed = [name for name in self._extra_obstacles if is_closed is not None and is_closed(name)]
+        for name in closed:
+            self._extra_obstacles.pop(name)
+        if closed:
+            self._rebuild_planner()
+
     def _plan_and_drive(self, goal: Pose2D, preempt: threading.Event) -> MotionResult:
+        self._forget_closed_doors()
         pose = self.get_base_pose()
         start = self._free_start(pose)
         if start is None:
@@ -332,11 +344,15 @@ class Robot(RobotAPI):
         moving = require_base_at_rest(self._env)
         if not moving.ok:
             return self._from_arm(moving)
-        if (state == OPEN) == open:
+        if state in (OPEN, CLOSED) and (state == OPEN) == open:
             return self._result(MotionStatus.SUCCESS, f"the {fixture.label} is already {state}", scripted=True)
+        # Ajar (stopped or pushed back part-way): open or close it all the way, as asked.
         # The gripper has to be able to get to it; how it would take hold is not planned yet (scripted).
         within_reach = getattr(self._reachability, "can_touch", self._reachability.is_reachable)
-        if not within_reach(self.get_base_pose(), fixture.position_world):
+        target = fixture.position_world
+        if not open and (now := getattr(actuator, "handle_now", lambda f: None)(fixture)) is not None:
+            target = now  # the handle has moved with the open door
+        if not within_reach(self.get_base_pose(), target):
             return self._result(
                 MotionStatus.UNREACHABLE, f"the {fixture.label} is out of arm reach from here; align to it first"
             )

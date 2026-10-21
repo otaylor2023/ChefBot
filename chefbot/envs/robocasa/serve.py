@@ -19,7 +19,7 @@ from chefbot.envs.robocasa.env import RoboCasaEnv
 from chefbot.envs.robocasa.fixture_actuator import ScriptedFixtureActuator
 from chefbot.envs.robocasa.grasp_proposer import GroundTruthGraspProposer
 from chefbot.envs.robocasa.placement_proposer import GroundTruthPlacementProposer
-from chefbot.interface.fixtures import CLOSED, OFF, ON, OPEN
+from chefbot.interface.fixtures import AJAR, CLOSED, OFF, ON, OPEN
 from chefbot.interface.transport.server import RobotServer
 from chefbot.robot.config import RobotConfig
 from chefbot.robot.nav.grid import OccupancyGrid
@@ -53,7 +53,7 @@ def wire_stack(env: RoboCasaEnv, map_dir: Path, robot_config: RobotConfig | None
     detector = GroundTruthDetector(env)
     actuator = ScriptedFixtureActuator(env, detector)
     # Detections say whether doors are open and burners lit (from their joints), like a state classifier.
-    detector.state_of = lambda det: {OPEN: "open", CLOSED: "closed", ON: "on", OFF: "off"}.get(
+    detector.state_of = lambda det: {OPEN: "open", CLOSED: "closed", AJAR: "ajar", ON: "on", OFF: "off"}.get(
         actuator.get_power(det) if det.label == "burner" else actuator.get_state(det)
     )
     robot = Robot(

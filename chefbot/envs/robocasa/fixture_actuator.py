@@ -9,12 +9,13 @@ import numpy as np
 from chefbot.envs.robocasa.detector import GroundTruthDetector
 from chefbot.envs.robocasa.env import RoboCasaEnv
 from chefbot.envs.robocasa.appliances import burner_on, nearest_burner, set_burner
-from chefbot.interface.fixtures import CLOSED, OFF, ON, OPEN, UNKNOWN, FixtureActuator
+from chefbot.interface.fixtures import AJAR, CLOSED, OFF, ON, OPEN, UNKNOWN, FixtureActuator
 from chefbot.interface.types import ActuationResult, Detection
 
 # Which compartment of a fridge a label refers to.
 _COMPARTMENT = {"freezer handle": "freezer"}
 _OPEN_FRACTION = 0.9  # a joint this far along its range counts as open
+_CLOSED_FRACTION = 0.05  # and this little as closed; in between it is ajar (in the way, but not open)
 _SWEEP_STEPS = 8
 _LOCATE_RADIUS = 1.5
 _SAME_SPOT = 0.05
@@ -79,7 +80,8 @@ class ScriptedFixtureActuator(FixtureActuator):
             found = self._resolve(fixture)
             if found is None:
                 return UNKNOWN
-            return OPEN if self._fraction(found[2]) >= _OPEN_FRACTION else CLOSED
+            fraction = self._fraction(found[2])
+            return OPEN if fraction >= _OPEN_FRACTION else CLOSED if fraction <= _CLOSED_FRACTION else AJAR
 
     def set_state(self, fixture: Detection, open: bool) -> ActuationResult:
         env = self._env
@@ -99,6 +101,29 @@ class ScriptedFixtureActuator(FixtureActuator):
             obstacle = self._floor_points(env.data, moved_geoms(env, joints)) if open else None
         state = "open" if open else "closed"
         return ActuationResult(True, True, f"the {label} is now {state} (scripted)", name, obstacle)
+
+    def handle_now(self, fixture: Detection) -> np.ndarray | None:
+        """Where the handle `fixture` names is now: it moves with its door (a drawer pulled out
+        brings it toward you). None if it is not a handle of an openable fixture."""
+        with self._env.lock:
+            found = self._resolve(fixture)
+            if found is None:
+                return None
+            items = [i for i in self._detector._items if i.fixture == found[0] and i.label == fixture.label]
+            if not items:
+                return None
+            position = np.asarray(fixture.position_world, dtype=float)
+            nows = [self._detector._position(i) for i in items]
+        return min(nows, key=lambda p: float(np.linalg.norm(p - position)))
+
+    def is_closed(self, sim_name: str) -> bool:
+        """Whether the fixture `sim_name` (as an ActuationResult names it) is closed now."""
+        fixture = self._env.suite.fixtures.get(sim_name)
+        joints = door_joints(fixture) if fixture is not None else []
+        if not joints:
+            return False
+        with self._env.lock:
+            return self._fraction(joints) <= _CLOSED_FRACTION
 
     def swept_xy(self, fixture: Detection, open: bool) -> np.ndarray | None:
         env = self._env

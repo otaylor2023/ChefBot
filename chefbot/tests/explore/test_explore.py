@@ -139,3 +139,9 @@ def test_scripted_explorer_visits_a_group_of_cabinets_from_one_stop_one_door_at_
     assert calls.count(("detect", {})) == 2  # a look into each, one door open at a time
     assert tools.index("close") < tools.index("open", tools.index("open") + 1)
     assert Coverage(world, frozenset({"cabinet"}), storage_max_bottom=1.6).fixtures() == [world.get("cabinet_1"), world.get("drawer_1")]
+
+
+def test_a_door_left_ajar_counts_as_left_open():
+    world = WorldMap.from_dict({"frame": "world", "fixtures": {"fridge": {"location": [0.0, 0.0], "facing": [0.0, 1.0]}},
+                                "objects": {}})  # fmt: skip
+    assert "fridge: left ajar (close it)" in Coverage(world, frozenset({"fridge"})).remaining({"fridge": "ajar"})

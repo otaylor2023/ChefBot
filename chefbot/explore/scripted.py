@@ -109,9 +109,12 @@ class ScriptedExplorer:
                 # handle here shows open (a swung door's).
                 if (yield ("close", {"id": entry.name})).get("success"):
                     continue
+                yield ("align", {"id": entry.name})  # the open door moved its handle out of reach
+                if (yield ("close", {"id": entry.name})).get("success"):
+                    continue
                 for _ in range(3):
                     found = (yield ("detect", {"classes": classes})).get("data", {}).get("detections", [])
-                    mine = [d["id"] for d in found if d.get("of") == entry.name] + [d["id"] for d in found if d.get("state") == "open"]
+                    mine = [d["id"] for d in found if d.get("of") == entry.name] + [d["id"] for d in found if d.get("state") in ("open", "ajar")]
                     if not mine:
                         break
                     if (yield ("close", {"id": mine[0]})).get("success"):

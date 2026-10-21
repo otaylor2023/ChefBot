@@ -94,8 +94,8 @@ class Coverage:
                 out.append(f"{entry.name}: not looked inside yet (open it, then detect)")
         for name, state in states.items():
             entry = self.world_map.get(name)
-            if state == "open" and entry is not None and self.openable(entry):
-                out.append(f"{name}: left open (close it)")
+            if state in ("open", "ajar") and entry is not None and self.openable(entry):
+                out.append(f"{name}: left {state} (close it)")
         return out
 
 
