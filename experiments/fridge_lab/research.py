@@ -43,25 +43,31 @@ ROBOT_TEXT = {
   it is all the skill gets.""",
     "yam": """- **Robot.** TidyBot++: a small holonomic base (0.48 m square, 0.34 m tall) with an
   I2RT YAM arm on top and the YAM's linear parallel gripper. It sits in a RoboCasa
-  kitchen, about 0.4–0.6 m from a closed fridge door, roughly facing it.
-  - The YAM is a small 6-DoF arm: its base is 0.34 m above the floor and it reaches about
-    0.6 m. With the gripper level it reaches handle heights up to about 0.9 m; tilting the
-    approach upward gets to about 1.0–1.1 m. Fridge handles mostly come down to 0.7–0.9 m,
-    a few only to 1.0–1.1 m.
+  kitchen, about 0.5–0.7 m (base center) from a closed fridge door, roughly facing it.
+  - The YAM is a small 6-DoF arm: its base is on a riser 0.12 m ahead of the base center
+    and 0.40 m above the floor, and it reaches about 0.6 m. With the gripper level it
+    reaches handle heights up to about 0.95 m; tilting the approach upward gets to about
+    1.05–1.15 m. Fridge handles mostly come down to 0.7–0.9 m, a few only to 1.0–1.1 m.
   - The wrist (joint 6) turns only ±120°: of the two finger orientations about an approach
     direction, usually only one is reachable.
   - Joint torques are small (28 N·m on joints 1–3, 10 N·m on 4–6). The base is much
     stronger: let it do the pulling.
   - The gripper: fingers slide straight across, 0–94 mm apart, with 50 N of grip force.
     Each fingertip pad is 27 mm long (along the fingers) and 28 mm wide.
-- **Sensors.** Three RGB-D cameras: two "shoulder" cameras on a 1 m mast at the back
-  corners of the base, looking forward, and a RealSense D405 on the wrist, above the
-  fingers. Each comes with intrinsics and its pose. You also get the arm's joint state
-  (6 joints), the flange pose, the gripper and the base odometry. That is what a real
-  robot has, and it is all the skill gets.""",
+- **Sensors.** Three RGB-D cameras, as on the real robot this one copies:
+  - `pole`: a ZED 2 on a pole beside the arm, about 0.72 m up and 0.18 m left of center,
+    turned about 25° to the right (across the arm) and tilted about 12° down;
+  - `base`: a ZED 2 low on the front of the base (about 0.39 m up), looking straight ahead;
+  - `wrist`: a RealSense D405 on the wrist, above the fingers.
+  The ZEDs are wide (about 100° x 68°). Like a real robot's, the cameras are not exactly
+  where the drawings say: every episode each one sits up to a few cm off and a few degrees
+  turned, with a slightly different field of view. Each observation comes with that
+  camera's true intrinsics and pose (its calibration), so use them rather than assuming
+  a fixed view. You also get the arm's joint state (6 joints), the flange pose, the
+  gripper and the base odometry. That is what a real robot has, and it is all the skill gets.""",
 }
 
-PRIOR_TEXT = """## Prior work
+PRIOR_TEXT = {"panda": """## Prior work
 
 A previous research session wrote a fridge-opening skill for a different robot (a
 mobile Franka with a Robotiq gripper, bigger reach, a 7-DoF arm) under the same rules
@@ -71,11 +77,21 @@ and lab. It is in `prior/`: the skill (`prior/skill/`), its `REPORT.md` and its
 doors, handles and hinges from RGB-D) does not depend on the robot; its grasping and
 pulling do. Start from it, but check every assumption against this robot.
 
-"""
+""", "yam": """## Prior work
+
+A previous research session wrote a fridge-opening skill for this robot under the same
+rules and lab, but with a different camera set (two level cameras on a 1 m mast at the
+back of the base) and the arm mounted at the base center, 6 cm lower. It is in `prior/`:
+the skill (`prior/skill/`), its `REPORT.md` and its `research_log.md`. Its grasping and
+pulling transfer, after moving the stance by the arm's new offset; its perception was
+built for the old cameras' views and names. Start from it, and make its perception work
+from the new cameras and hold up when they shift between episodes.
+
+"""}
 
 
 def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, sandbox: str | None = None,
-                    robot: str = "panda", prior: Path | None = None) -> None:
+                    robot: str = "panda", prior: Path | None = None, prior_robot: str = "panda") -> None:
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "docs").mkdir(exist_ok=True)
     (ws / "skills").mkdir(exist_ok=True)
@@ -86,7 +102,7 @@ def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, 
     text = text.replace("{HOURS}", f"{hours:g}").replace("{USAGE_CAP}", f"{usage_cap:g}").replace("{MODEL_USD}", f"{model_usd:g}")
     text = text.replace("{LIMITS}", json.dumps(LIMITS)).replace("{VAL_SUBMISSIONS}", str(lab_server.VAL_SUBMISSIONS))
     text = text.replace("{SANDBOX}", sandbox or sandbox_kind())
-    text = text.replace("{ROBOT}", ROBOT_TEXT[robot]).replace("{PRIOR}", PRIOR_TEXT if prior else "")
+    text = text.replace("{ROBOT}", ROBOT_TEXT[robot]).replace("{PRIOR}", PRIOR_TEXT[prior_robot] if prior else "")
     if prior and not (ws / "prior").exists():
         # prior/: a finished workspace (skills/final, REPORT.md, research_log.md).
         (ws / "prior").mkdir()
@@ -134,10 +150,11 @@ def main() -> int:
     ap.add_argument("--robot", default=os.environ.get("FRIDGE_ROBOT", "panda"), choices=sorted(ROBOT_TEXT),
                     help="the lab's robot (set FRIDGE_ROBOT to the same on the lab's side), for the brief")
     ap.add_argument("--prior", type=Path, default=None, help="a finished workspace to give the researcher as prior work")
+    ap.add_argument("--prior-robot", default="panda", choices=sorted(ROBOT_TEXT), help="the robot the prior work was done on")
     args = ap.parse_args()
     load_env(REPO / ".env")
     ws, private = args.root / "workspace", args.root / "private"
-    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None, args.robot, args.prior)
+    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None, args.robot, args.prior, args.prior_robot)
     codex_home = Path.home()
     if args.codex_user:
         import pwd

@@ -83,11 +83,12 @@ class Robot:
         base_in_contact."""
         return self._call("proprio")["proprio"]
 
-    def observe(self, cameras: tuple[str, ...] = ("left_shoulder", "right_shoulder", "wrist")) -> dict:
-        """proprio plus, per camera: rgb (360x640x3 uint8), depth (360x640 float32, meters along the
-        optical axis, 0 where nothing), K (3x3 intrinsics), cam_to_odom (4x4, OpenCV axes: x right,
-        y down, z forward). The shoulder cameras ride on the base; the wrist camera on the flange."""
-        r = self._call("observe", cameras=list(cameras))
+    def observe(self, cameras: tuple[str, ...] | None = None) -> dict:
+        """proprio plus, per camera (all of them by default): rgb (360x640x3 uint8), depth (360x640
+        float32, meters along the optical axis, 0 where nothing), K (3x3 intrinsics), cam_to_odom (4x4,
+        OpenCV axes: x right, y down, z forward). The wrist camera rides on the flange, the others on
+        the base. The robot's camera names are in AGENTS.md."""
+        r = self._call("observe", cameras=list(cameras) if cameras else None)
         cams = {}
         for name, c in r["cameras"].items():
             cams[name] = {"rgb": self._get(c["rgb"]), "depth": self._get(c["depth"]), "K": np.array(c["K"]),

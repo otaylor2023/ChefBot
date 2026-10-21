@@ -23,16 +23,17 @@ def row(F: np.ndarray, gripper: float, base) -> list[float]:
 def run(robot):
     obs = robot.observe()
     cams, p = obs["cameras"], obs["proprio"]
-    robot.save_image("left_shoulder", cams["left_shoulder"]["rgb"])
+    view = next(n for n in cams if n != "wrist")  # the first base camera
+    robot.save_image(view, cams[view]["rgb"])
     try:
-        dets = robot.detect(cams["left_shoulder"]["rgb"], ["fridge door handle"], model="grounding-dino", threshold=0.25)
+        dets = robot.detect(cams[view]["rgb"], ["fridge door handle"], model="grounding-dino", threshold=0.25)
     except RuntimeError as e:  # no vision server on this machine
         robot.log("detect unavailable:", e)
         dets = []
     robot.log("detections:", dets[:3])
     if dets:
         x0, y0, x1, y1 = dets[0]["box"]
-        point = pixel_to_odom(cams["left_shoulder"], (x0 + x1) / 2, (y0 + y1) / 2)
+        point = pixel_to_odom(cams[view], (x0 + x1) / 2, (y0 + y1) / 2)
         robot.log("handle box center in odom:", None if point is None else np.round(point, 3).tolist())
 
     # Move the flange 5 cm forward over 15 steps (1 s), base held where it is.

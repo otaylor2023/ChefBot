@@ -9,11 +9,13 @@ succeeds when any fridge door reaches the target angle.
 
 The start pose is the one the Astranomy fridge used, relative to the door: the base
 about 0.2 m past the handle (away from the hinge, clear of the swing) and 0.87 m out
-from the door front, facing the fridge, randomized per seed.
+from the door front, facing the fridge, randomized per seed (the YAM's: about 1 m).
 
 The robot is RoboCasa's mobile Franka (PandaOmron), or with FRIDGE_ROBOT=yam TidyBot++
 with an I2RT YAM arm (chefbot/envs/robocasa/yam_tidybot.py), which starts closer: its arm
-is centered on a small base and reaches about 0.45 m.
+reaches about 0.45 m. The YAM's cameras are MessyMem's (a ZED 2 on a pole, one low on the base,
+the D405 on the wrist), each moved and its field of view changed a little per episode
+(CAMERA_JITTER): the skill gets each camera's true pose and intrinsics, as a calibrated robot would.
 """
 
 from __future__ import annotations
@@ -48,22 +50,31 @@ class LabRobot:
     config: str | None  # robot-layer config (None: chefbot/config/robot.yaml)
     start: dict  # nominal stance and per-seed jitter, relative to the handle
     start_outs: tuple  # stance distances out from the handle, tried in order
+    grasp_outs: tuple  # the oracle's grasping stance distances, tried in order
     grip_site: float  # m from the flange (the skill's, DROID axes) to the grip site along the fingers
     pad_depth: tuple  # (open, closed): m from the flange to the pads' midpoint along the fingers
+    cameras: dict  # the skill's camera names -> the model's
+    camera_jitter: dict  # model camera -> (position m, rotation deg, fovy fraction): uniform +- per episode
 
 
 ROBOTS = {
     "panda": LabRobot("PandaOmron", None, {"along": 0.20, "out": 0.87, "d_along": 0.15, "d_out": 0.12, "d_yaw_deg": 15.0},
-                      (0.87, 0.78, 0.70, 0.62, 0.55), 0.1488, (0.1367, 0.1477)),
-    "yam": LabRobot("YamTidybot", "chefbot/config/robot_yam.yaml", {"along": 0.20, "out": 0.45, "d_along": 0.12, "d_out": 0.06, "d_yaw_deg": 15.0},
-                    (0.45, 0.50, 0.40, 0.55), 0.1447, (0.1335, 0.1335)),
+                      (0.87, 0.78, 0.70, 0.62, 0.55), (0.87, 0.78, 0.70, 0.62, 0.55), 0.1488, (0.1367, 0.1477),
+                      {"left_shoulder": "robot0_agentview_left", "right_shoulder": "robot0_agentview_right", "wrist": "robot0_eye_in_hand"}, {}),
+    # The YAM starts about 1 m out (base center), where its ZEDs see the fridge, and grasps from about
+    # 0.57 m (its arm's base is 0.12 m ahead of the base center).
+    "yam": LabRobot("YamTidybot", "chefbot/config/robot_yam.yaml", {"along": 0.20, "out": 1.0, "d_along": 0.12, "d_out": 0.10, "d_yaw_deg": 15.0},
+                    (1.0, 0.9, 1.1, 0.8), (0.57, 0.62, 0.52, 0.67), 0.1447, (0.1335, 0.1335),
+                    {"pole": "robot0_pole_zed", "base": "robot0_base_zed", "wrist": "robot0_eye_in_hand"},
+                    {"robot0_pole_zed": (0.03, 4.0, 0.05), "robot0_base_zed": (0.03, 4.0, 0.05), "robot0_eye_in_hand": (0.005, 2.0, 0.03)}),
 }
 ROBOT = ROBOTS[os.environ.get("FRIDGE_ROBOT", "panda")]
 START = ROBOT.start
 # (along, out) from the handle, tried in order; along < 0 is in front of the door (toward the hinge)
-START_CANDIDATES = [(a, o) for o in ROBOT.start_outs for a in (0.20, 0.35, 0.05, -0.10)]
+START_ALONGS = (0.20, 0.35, 0.05, -0.10)
 MIN_DOOR_RANGE = math.radians(80.0)
-CAMERAS = {"left_shoulder": "robot0_agentview_left", "right_shoulder": "robot0_agentview_right", "wrist": "robot0_eye_in_hand"}
+CAMERAS = ROBOT.cameras
+CAMERA_JITTER = ROBOT.camera_jitter
 CAM_W, CAM_H = 640, 360
 
 
@@ -170,11 +181,12 @@ class LabHost(FridgeHost):
         yaw = math.atan2(-D.out[1], -D.out[0]) + k * math.radians(rng.uniform(-START["d_yaw_deg"], START["d_yaw_deg"]))
         return Pose2D(float(p[0]), float(p[1]), float(yaw))
 
-    def find_start(self, door: int, seed: int, jitter: bool = True) -> Pose2D | None:
+    def find_start(self, door: int, seed: int, jitter: bool = True, outs: tuple | None = None) -> Pose2D | None:
         """The seed's start pose, or (when the robot would touch something there, e.g. the cabinets
         beside a fridge in a housing) the first clear one of a few alternatives nearer the door's middle.
-        jitter=False: the nominal stance (no per-seed randomization)."""
-        for along, out in START_CANDIDATES:
+        jitter=False: the nominal stance (no per-seed randomization). outs: the distances out to try
+        (default the robot's start distances)."""
+        for along, out in [(a, o) for o in (outs or ROBOT.start_outs) for a in START_ALONGS]:
             pose = self.start_pose(door, seed, along, out, jitter)
             self.reset_at(door, seed, pose)
             if not self.debug()["robot_touching"]:
@@ -191,6 +203,7 @@ class LabHost(FridgeHost):
         with env.lock:
             for D in self.doors:
                 env.data.qpos[D.qpos] = 0.0
+            self._jitter_cameras(seed)
             mujoco.mj_forward(env.model, env.data)
         for _ in range(10):
             env.set_base_velocity(0.0, 0.0, 0.0)
@@ -203,6 +216,22 @@ class LabHost(FridgeHost):
         self._ticks = 0
         self.out.mkdir(parents=True, exist_ok=True)
         self.door, self.seed, self.start = door, seed, pose
+
+    def _jitter_cameras(self, seed: int) -> None:
+        """Move and turn each camera a little and change its field of view, per (scene, seed)."""
+        m = self.env.model
+        if not hasattr(self, "_cam_nominal"):
+            self._cam_nominal = {c: (m.cam_pos[m.camera(c).id].copy(), m.cam_quat[m.camera(c).id].copy(), float(m.cam_fovy[m.camera(c).id]))
+                                 for c in CAMERA_JITTER}  # fmt: skip
+        rng = np.random.default_rng([seed, self.layout, self.style, 7])
+        for c, (dp, dr, df) in CAMERA_JITTER.items():
+            pos, quat, fovy = self._cam_nominal[c]
+            i = m.camera(c).id
+            m.cam_pos[i] = pos + rng.uniform(-dp, dp, 3)
+            turn = Rotation.from_rotvec(np.radians(rng.uniform(-dr, dr, 3)))
+            x, y, z, w = (turn * Rotation.from_quat([*quat[1:], quat[0]])).as_quat()
+            m.cam_quat[i] = [w, x, y, z]
+            m.cam_fovy[i] = fovy * (1.0 + rng.uniform(-df, df))
 
     def door_angles(self) -> list[float]:
         return [float(np.degrees(self.env.data.qpos[D.qpos])) for D in self.doors]

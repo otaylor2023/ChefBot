@@ -26,9 +26,9 @@ PULL_DEG_PER_STEP = 0.5
 PULL_TO = 88.0
 D_OPEN, D_CLOSED = ROBOT.pad_depth
 # Where on a vertical bar to grasp, and the approach's upward pitch there: the Franka grasps at
-# 1.05 m, level; the YAM reaches level only to about 0.9 m, so it grasps low and tilts up above that.
-GRASP_Z = 1.05 if ROBOT.robocasa == "PandaOmron" else 0.86
-LEVEL_MAX_Z, PITCH_UP = (9.0, 0.0) if ROBOT.robocasa == "PandaOmron" else (0.88, math.radians(40.0))
+# 1.05 m, level; the YAM reaches level only to about 0.95 m, so it grasps low and tilts up above that.
+GRASP_Z = 1.05 if ROBOT.robocasa == "PandaOmron" else 0.92
+LEVEL_MAX_Z, PITCH_UP = (9.0, 0.0) if ROBOT.robocasa == "PandaOmron" else (0.94, math.radians(40.0))
 
 
 def _rot_about(axis: np.ndarray, point: np.ndarray, theta: float) -> np.ndarray:
@@ -54,7 +54,7 @@ def _pads_on(host: LabHost, D) -> bool:
 
 
 def run(host: LabHost, door: int, seed: int, pull_to: float = PULL_TO, verbose: bool = False) -> dict:
-    nominal = host.find_start(door, seed, jitter=False)  # where to stand: the clear stance without the seed's jitter
+    nominal = host.find_start(door, seed, jitter=False, outs=ROBOT.grasp_outs)  # where to stand: a clear stance, no jitter
     pose = host.find_start(door, seed)
     if pose is None or nominal is None:
         return {"door": door, "seed": seed, "door_deg": 0.0, "max_deg": 0.0, "steps": 0, "start": None}
