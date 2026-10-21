@@ -33,7 +33,49 @@ MAX_SESSIONS = 400
 WRAP_UP_MIN = 40
 
 
-def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, sandbox: str | None = None) -> None:
+ROBOT_TEXT = {
+    "panda": """- **Robot.** A mobile Franka arm with a Robotiq-style parallel gripper, on a holonomic
+  base. It sits in a RoboCasa kitchen, about 0.6–1.0 m from a closed fridge door,
+  roughly facing it.
+- **Sensors.** Three RGB-D cameras: two shoulder cameras on the base and a wrist camera.
+  Each comes with intrinsics and its pose. You also get the arm's joint state, the
+  flange pose, the gripper and the base odometry. That is what a real robot has, and
+  it is all the skill gets.""",
+    "yam": """- **Robot.** TidyBot++: a small holonomic base (0.48 m square, 0.34 m tall) with an
+  I2RT YAM arm on top and the YAM's linear parallel gripper. It sits in a RoboCasa
+  kitchen, about 0.4–0.6 m from a closed fridge door, roughly facing it.
+  - The YAM is a small 6-DoF arm: its base is 0.34 m above the floor and it reaches about
+    0.6 m. With the gripper level it reaches handle heights up to about 0.9 m; tilting the
+    approach upward gets to about 1.0–1.1 m. Fridge handles mostly come down to 0.7–0.9 m,
+    a few only to 1.0–1.1 m.
+  - The wrist (joint 6) turns only ±120°: of the two finger orientations about an approach
+    direction, usually only one is reachable.
+  - Joint torques are small (28 N·m on joints 1–3, 10 N·m on 4–6). The base is much
+    stronger: let it do the pulling.
+  - The gripper: fingers slide straight across, 0–94 mm apart, with 50 N of grip force.
+    Each fingertip pad is 27 mm long (along the fingers) and 28 mm wide.
+- **Sensors.** Three RGB-D cameras: two "shoulder" cameras on a 1 m mast at the back
+  corners of the base, looking forward, and a RealSense D405 on the wrist, above the
+  fingers. Each comes with intrinsics and its pose. You also get the arm's joint state
+  (6 joints), the flange pose, the gripper and the base odometry. That is what a real
+  robot has, and it is all the skill gets.""",
+}
+
+PRIOR_TEXT = """## Prior work
+
+A previous research session wrote a fridge-opening skill for a different robot (a
+mobile Franka with a Robotiq gripper, bigger reach, a 7-DoF arm) under the same rules
+and lab. It is in `prior/`: the skill (`prior/skill/`), its `REPORT.md` and its
+`research_log.md`. On that robot it opened the held-out val fridges 28/28 past 60° and
+26/28 past 85° in about 21 s for about $0.0024 per episode. Its perception (finding
+doors, handles and hinges from RGB-D) does not depend on the robot; its grasping and
+pulling do. Start from it, but check every assumption against this robot.
+
+"""
+
+
+def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, sandbox: str | None = None,
+                    robot: str = "panda", prior: Path | None = None) -> None:
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "docs").mkdir(exist_ok=True)
     (ws / "skills").mkdir(exist_ok=True)
@@ -44,6 +86,13 @@ def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, 
     text = text.replace("{HOURS}", f"{hours:g}").replace("{USAGE_CAP}", f"{usage_cap:g}").replace("{MODEL_USD}", f"{model_usd:g}")
     text = text.replace("{LIMITS}", json.dumps(LIMITS)).replace("{VAL_SUBMISSIONS}", str(lab_server.VAL_SUBMISSIONS))
     text = text.replace("{SANDBOX}", sandbox or sandbox_kind())
+    text = text.replace("{ROBOT}", ROBOT_TEXT[robot]).replace("{PRIOR}", PRIOR_TEXT if prior else "")
+    if prior and not (ws / "prior").exists():
+        # prior/: a finished workspace (skills/final, REPORT.md, research_log.md).
+        (ws / "prior").mkdir()
+        shutil.copytree(prior / "skills" / "final", ws / "prior" / "skill", ignore=shutil.ignore_patterns("__pycache__"))
+        for f in ("REPORT.md", "research_log.md"):
+            shutil.copy(prior / f, ws / "prior" / f)
     (ws / "AGENTS.md").write_text(text)
     if not (ws / "skills" / "example").exists():
         shutil.copytree(HERE / "example_skill", ws / "skills" / "example")
@@ -82,10 +131,13 @@ def main() -> int:
     ap.add_argument("--codex-user", default=None, help="run Codex as this user (Linux, as root); its workspace is chowned to it")
     ap.add_argument("--remote", default=None, help="HOST:WORKSPACE of a lab running elsewhere (lab_server.py there); Codex runs here")
     ap.add_argument("--remote-sandbox", default="user fridgeskill + guard", help="the remote lab's skill sandbox, for the brief")
+    ap.add_argument("--robot", default=os.environ.get("FRIDGE_ROBOT", "panda"), choices=sorted(ROBOT_TEXT),
+                    help="the lab's robot (set FRIDGE_ROBOT to the same on the lab's side), for the brief")
+    ap.add_argument("--prior", type=Path, default=None, help="a finished workspace to give the researcher as prior work")
     args = ap.parse_args()
     load_env(REPO / ".env")
     ws, private = args.root / "workspace", args.root / "private"
-    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None)
+    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None, args.robot, args.prior)
     codex_home = Path.home()
     if args.codex_user:
         import pwd

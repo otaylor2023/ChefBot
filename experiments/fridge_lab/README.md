@@ -22,6 +22,14 @@ has never seen. This follows the autoresearch loops of sooool and ENPIRE.
 | `evaluate.py` | The final test-set evaluation of a frozen skill, and the oracle |
 | `runpod/` | Setup, checks and a runbook for a 4090 pod |
 
+## The robot
+
+`FRIDGE_ROBOT` picks the robot for everything here (lab server, evaluation, oracle):
+`panda` (default) is RoboCasa's mobile Franka; `yam` is TidyBot++ with an I2RT YAM arm, its
+linear gripper and wrist D405 (`chefbot/envs/robocasa/yam_tidybot.py`, IK in
+`chefbot/robot/arm/ik.py`, config `chefbot/config/robot_yam.yaml`). Give `research.py` the same
+`--robot` for the brief, and `--prior <workspace>` to hand the researcher an earlier night's skill.
+
 ## The split
 
 RoboCasa's train and test kitchens (layouts and styles 11–60 versus 1–10) use disjoint fridge

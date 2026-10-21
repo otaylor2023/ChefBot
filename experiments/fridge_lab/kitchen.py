@@ -10,12 +10,17 @@ succeeds when any fridge door reaches the target angle.
 The start pose is the one the Astranomy fridge used, relative to the door: the base
 about 0.2 m past the handle (away from the hinge, clear of the swing) and 0.87 m out
 from the door front, facing the fridge, randomized per seed.
+
+The robot is RoboCasa's mobile Franka (PandaOmron), or with FRIDGE_ROBOT=yam TidyBot++
+with an I2RT YAM arm (chefbot/envs/robocasa/yam_tidybot.py), which starts closer: its arm
+is centered on a small base and reaches about 0.45 m.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,11 +37,31 @@ from chefbot.robot.kinematics.reachability import ReachabilityChecker
 from chefbot.robot.skills.common import ArmStack
 
 from experiments.astranomy.fridge import FridgeHost
+from experiments.astranomy.host import REPO
 from experiments.ortho_grasp.sim import ExperimentEnv, World
 
-START = {"along": 0.20, "out": 0.87, "d_along": 0.15, "d_out": 0.12, "d_yaw_deg": 15.0}
+
+
+@dataclass(frozen=True)
+class LabRobot:
+    robocasa: str  # RoboCasa robot name
+    config: str | None  # robot-layer config (None: chefbot/config/robot.yaml)
+    start: dict  # nominal stance and per-seed jitter, relative to the handle
+    start_outs: tuple  # stance distances out from the handle, tried in order
+    grip_site: float  # m from the flange (the skill's, DROID axes) to the grip site along the fingers
+    pad_depth: tuple  # (open, closed): m from the flange to the pads' midpoint along the fingers
+
+
+ROBOTS = {
+    "panda": LabRobot("PandaOmron", None, {"along": 0.20, "out": 0.87, "d_along": 0.15, "d_out": 0.12, "d_yaw_deg": 15.0},
+                      (0.87, 0.78, 0.70, 0.62, 0.55), 0.1488, (0.1367, 0.1477)),
+    "yam": LabRobot("YamTidybot", "chefbot/config/robot_yam.yaml", {"along": 0.20, "out": 0.45, "d_along": 0.12, "d_out": 0.06, "d_yaw_deg": 15.0},
+                    (0.45, 0.50, 0.40, 0.55), 0.1447, (0.1335, 0.1335)),
+}
+ROBOT = ROBOTS[os.environ.get("FRIDGE_ROBOT", "panda")]
+START = ROBOT.start
 # (along, out) from the handle, tried in order; along < 0 is in front of the door (toward the hinge)
-START_CANDIDATES = [(a, o) for o in (0.87, 0.78, 0.70, 0.62, 0.55) for a in (0.20, 0.35, 0.05, -0.10)]
+START_CANDIDATES = [(a, o) for o in ROBOT.start_outs for a in (0.20, 0.35, 0.05, -0.10)]
 MIN_DOOR_RANGE = math.radians(80.0)
 CAMERAS = {"left_shoulder": "robot0_agentview_left", "right_shoulder": "robot0_agentview_right", "wrist": "robot0_eye_in_hand"}
 CAM_W, CAM_H = 640, 360
@@ -62,12 +87,13 @@ class LabWorld(World):
     """A kitchen with no loose objects; the arm stack without the navigation map."""
 
     def __init__(self, layout: int, style: int):
-        cfg = dataclasses.replace(RoboCasaConfig.load(layout=layout, style=style), objects=(), camera_width=CAM_W, camera_height=CAM_H)
+        cfg = dataclasses.replace(RoboCasaConfig.load(layout=layout, style=style), objects=(), camera_width=CAM_W, camera_height=CAM_H,
+                                  robot=ROBOT.robocasa)  # fmt: skip
         self.config = {"counter_z": 0.92}
         self.env = ExperimentEnv(cfg, render=True)
         self.objects = {}
         self.counter_z = 0.92
-        rc = RobotConfig.load()
+        rc = RobotConfig.load(REPO / ROBOT.config if ROBOT.config else None)
         frames = ReachabilityChecker(rc)
         self.arm = ArmStack(self.env, rc, frames.ik, ArmController(self.env, frames.ik, rc), Gripper(self.env, rc), frames)
         self.robot_config = rc
@@ -125,6 +151,7 @@ class LabHost(FridgeHost):
         self.out, self.record = Path(out_dir), record
         self.history, self.actions, self.frames, self.step_count = [], [], [], 0
         self.gap_open = 0.085
+        self.grip_site = ROBOT.grip_site
         self.fixture, self.model_xml, self.doors = fridge_doors(self.env)
         self.cup = None
         self._q_cmd = None

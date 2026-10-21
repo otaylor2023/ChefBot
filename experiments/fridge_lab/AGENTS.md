@@ -8,7 +8,7 @@ you have never seen, and it should be **fast and cheap**.
 ## Why
 
 A large VLM can open these doors as the robot's policy, choosing every motion itself.
-This was measured on one fridge:
+This was measured on one fridge, with a mobile Franka:
 
 | Policy | Success at 60° / 85° | Time per episode | Cost per episode |
 |---|---|---|---|
@@ -21,13 +21,7 @@ the skill pays for every second and every cent it spends.
 
 ## The robot and the task
 
-- **Robot.** A mobile Franka arm with a Robotiq-style parallel gripper, on a holonomic
-  base. It sits in a RoboCasa kitchen, about 0.6–1.0 m from a closed fridge door,
-  roughly facing it.
-- **Sensors.** Three RGB-D cameras: two shoulder cameras on the base and a wrist camera.
-  Each comes with intrinsics and its pose. You also get the arm's joint state, the
-  flange pose, the gripper and the base odometry. That is what a real robot has, and
-  it is all the skill gets.
+{ROBOT}
 - **Control.** 11-D whole-body targets at 15 Hz. The full contract is in
   `docs/fridge_robot.py`: read it first.
 - **Physics.** The door is a real hinged body. It opens only if the robot pulls it
@@ -41,7 +35,7 @@ the skill pays for every second and every cent it spends.
 - **Success.** The door's final angle is at least 60° (also reported at 85°; aim for
   fully open). The skill decides when it is done: return from `run(robot)`.
 
-## Scoring
+{PRIOR}## Scoring
 
 Your final skill is scored by us on a **held-out test set: fridge models and kitchens
 you never see**. Ranked by:

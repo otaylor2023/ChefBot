@@ -19,12 +19,16 @@ import numpy as np
 
 from experiments.astranomy.fridge_oracle import flange_for_pads
 from experiments.astranomy.host import REPO, quat_wxyz
-from experiments.fridge_lab.kitchen import LabHost
+from experiments.fridge_lab.kitchen import ROBOT, LabHost
 
 STANDOFF = 0.12
 PULL_DEG_PER_STEP = 0.5
 PULL_TO = 88.0
-D_OPEN, D_CLOSED = 0.1367, 0.1477
+D_OPEN, D_CLOSED = ROBOT.pad_depth
+# Where on a vertical bar to grasp, and the approach's upward pitch there: the Franka grasps at
+# 1.05 m, level; the YAM reaches level only to about 0.9 m, so it grasps low and tilts up above that.
+GRASP_Z = 1.05 if ROBOT.robocasa == "PandaOmron" else 0.86
+LEVEL_MAX_Z, PITCH_UP = (9.0, 0.0) if ROBOT.robocasa == "PandaOmron" else (0.88, math.radians(40.0))
 
 
 def _rot_about(axis: np.ndarray, point: np.ndarray, theta: float) -> np.ndarray:
@@ -56,24 +60,44 @@ def run(host: LabHost, door: int, seed: int, pull_to: float = PULL_TO, verbose: 
         return {"door": door, "seed": seed, "door_deg": 0.0, "max_deg": 0.0, "steps": 0, "start": None}
     D = host.doors[door]
     vertical = (D.handle_hi[2] - D.handle_lo[2]) > max(D.handle_hi[:2] - D.handle_lo[:2])
-    z = float(np.clip(1.05, D.handle_lo[2] + 0.04, D.handle_hi[2] - 0.04)) if vertical else float(D.handle[2])
+    z = float(np.clip(GRASP_Z, D.handle_lo[2] + 0.04, D.handle_hi[2] - 0.04)) if vertical else float(D.handle[2])
     grip = np.array([D.handle[0], D.handle[1], z])
-    approach = -D.out
+    pitch = PITCH_UP if z > LEVEL_MAX_Z else 0.0
+    approach = math.cos(pitch) * -D.out + math.sin(pitch) * np.array([0.0, 0.0, 1.0])
     closing = D.along if vertical else np.array([0.0, 0.0, 1.0])
     # Step to the nominal stance first (arm held), so every seed grasps from the same place.
     base_nominal = host.arm.frames.arm_base_in_world(nominal)
     F_rel = host.flange_pose()  # keep the arm as it is relative to the base
-    for _ in range(45):
-        host.step(_row(host, base_nominal @ F_rel, 0.0, base_nominal))
+    if ROBOT.robocasa == "PandaOmron":
+        for _ in range(45):
+            host.step(_row(host, base_nominal @ F_rel, 0.0, base_nominal))
+    else:
+        # The YAM is too short to hold the flange still while the base drives: carry it with the base.
+        for _ in range(60):
+            host.step(_row(host, host.root() @ F_rel, 0.0, base_nominal))
     root0 = host.root()
-    # The two grasps 180 deg apart about the approach: take the one nearer the wrist's current orientation.
+    # The two grasps 180 deg apart about the approach: take one the arm reaches (the YAM's wrist turns
+    # only +-120 deg), the one nearer the wrist's current orientation if both.
     from scipy.spatial.transform import Rotation
 
     R_now = (host.root() @ host.flange_pose())[:3, :3]
     def _turn(c):
         return np.linalg.norm(Rotation.from_matrix(flange_for_pads(grip, approach, c, D_OPEN)[:3, :3] @ R_now.T).as_rotvec())
-    if _turn(-closing) < _turn(closing):
-        closing = -closing
+
+    def _margin(c):
+        """Smallest distance (rad) of the grasp's IK solution from a joint limit; -1 if unreachable."""
+        T = np.linalg.inv(root0) @ flange_for_pads(grip, approach, c, D_OPEN)
+        q = host.arm.ik.solve_pose(host.tcp_from_flange(T), seed=host.env.get_state().arm_q)
+        lim = host.arm.ik.joint_limits
+        return -1.0 if q is None else float(np.min(np.minimum(q - lim[:, 0], lim[:, 1] - q)))
+
+    # Prefer the grasp that keeps the wrist clear of its limits (stepping toward one at a limit stalls).
+    options = sorted((closing, -closing), key=_turn)
+    margins = [_margin(c) for c in options]
+    closing = options[int(np.argmax(margins))] if max(margins) < 0.3 or min(margins) < 0.3 else options[0]
+    if verbose:
+        print({"grip": grip.round(3).tolist(), "pitch_deg": round(math.degrees(pitch)), "closing": closing.round(2).tolist(),
+               "margins": [round(m, 2) for m in margins]}, flush=True)  # fmt: skip
 
     def row(T, g, base_world):
         return _row(host, T, g, base_world)

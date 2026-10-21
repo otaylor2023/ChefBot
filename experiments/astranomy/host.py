@@ -62,6 +62,8 @@ class Observation:
 
 
 class Host:
+    grip_site = GRIP_SITE
+
     def __init__(self, out_dir: Path, record: bool = True):
         from experiments.ortho_grasp.sim import World
 
@@ -114,7 +116,7 @@ class Host:
         q = self.env.get_state().arm_q if q is None else q
         tcp = self.arm.ik.fk(np.asarray(q))  # arm base frame, our TCP axes (z along the fingers)
         mount = tcp.copy()
-        mount[:3, 3] -= GRIP_SITE * tcp[:3, 2]
+        mount[:3, 3] -= self.grip_site * tcp[:3, 2]
         out = np.eye(4)
         out[:3, :3] = mount[:3, :3] @ MOUNT_TO_FLANGE
         out[:3, 3] = mount[:3, 3]
@@ -124,7 +126,7 @@ class Host:
         mount_R = F[:3, :3] @ MOUNT_TO_FLANGE.T
         tcp = np.eye(4)
         tcp[:3, :3] = mount_R
-        tcp[:3, 3] = F[:3, 3] + GRIP_SITE * mount_R[:, 2]
+        tcp[:3, 3] = F[:3, 3] + self.grip_site * mount_R[:, 2]
         return tcp
 
     def closure(self) -> float:
