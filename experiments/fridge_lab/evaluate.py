@@ -17,6 +17,7 @@ import os
 import shutil
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
 from experiments.astranomy.host import REPO
@@ -67,22 +68,46 @@ def main() -> int:
     results = []
     ctx = mp.get_context("spawn")
     env = {k: v for k, v in os.environ.items() if k.startswith(("MUJOCO", "PYOPENGL", "GEMINI", "FRIDGE", "EGL", "CUDA"))}
-    with ProcessPoolExecutor(args.jobs, mp_context=ctx, initializer=_worker_init, initargs=(env,)) as ex:
-        if args.oracle:
-            futs = [ex.submit(_oracle_run, s, sd, str(root / f"{s['id']}_s{sd}")) for s, sd in episodes]
+    if not args.oracle:
+        skill = snapshot_dir() / f"eval-{name}"
+        if not skill.exists():
+            shutil.copytree(args.skill, skill, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            _world_readable(skill)
+        ledger = (str(root / "model_ledger.jsonl"), args.model_usd)
+    # Rerunning with the same --name resumes: finished episodes are read back. A worker that dies (a native crash in the
+    # renderer) breaks the whole pool; the unfinished episodes then go to a fresh pool, and after 3 crashes count as failures.
+    crashes: dict[tuple, int] = {}
+    todo = []
+    for s, sd in episodes:
+        f = root / f"{s['id']}_s{sd}" / "result.json"
+        if f.exists():
+            results.append(json.loads(f.read_text()))
         else:
-            skill = snapshot_dir() / f"eval-{name}"
-            if not skill.exists():
-                shutil.copytree(args.skill, skill, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-                _world_readable(skill)
-            ledger = (str(root / "model_ledger.jsonl"), args.model_usd)
-            futs = [ex.submit(_worker_run, s, sd, str(skill), str(root / f"{s['id']}_s{sd}"), ledger, args.vision_url, not args.no_video,
-                              f"eval/{name}/{s['id']}_s{sd}", None) for s, sd in episodes]  # fmt: skip
-        for f in as_completed(futs):
-            r = f.result()
-            results.append(r)
-            print(f"{r['scene']} s{r['seed']}: {r.get('final_deg')} deg  {'OK' if r.get('success60') else 'fail'}  "
-                  f"robot {r.get('robot_time_s')} s  ${r.get('model_usd')}  {r.get('error') or ''}", flush=True)  # fmt: skip
+            todo.append((s, sd))
+    while todo:
+        with ProcessPoolExecutor(args.jobs, mp_context=ctx, initializer=_worker_init, initargs=(env,)) as ex:
+            if args.oracle:
+                futs = {ex.submit(_oracle_run, s, sd, str(root / f"{s['id']}_s{sd}")): (s, sd) for s, sd in todo}
+            else:
+                futs = {ex.submit(_worker_run, s, sd, str(skill), str(root / f"{s['id']}_s{sd}"), ledger, args.vision_url, not args.no_video,
+                                  f"eval/{name}/{s['id']}_s{sd}", None): (s, sd) for s, sd in todo}  # fmt: skip
+            todo = []
+            for f in as_completed(futs):
+                s, sd = futs[f]
+                try:
+                    r = f.result()
+                except BrokenProcessPool:
+                    key = (s["id"], sd)
+                    crashes[key] = crashes.get(key, 0) + 1
+                    if crashes[key] < 3:
+                        todo.append((s, sd))
+                        continue
+                    r = {"scene": s["id"], "seed": sd, "final_deg": None, "success60": False, "success85": False, "error": "worker crashed 3 times"}
+                results.append(r)
+                print(f"{r['scene']} s{r['seed']}: {r.get('final_deg')} deg  {'OK' if r.get('success60') else 'fail'}  "
+                      f"robot {r.get('robot_time_s')} s  ${r.get('model_usd')}  {r.get('error') or ''}", flush=True)  # fmt: skip
+        if todo:
+            print(f"worker pool broke; rerunning {len(todo)} unfinished episodes", flush=True)
     results.sort(key=lambda r: (r["scene"], r["seed"]))
     summ = summarize(results)
     by_type: dict[str, list] = {}
