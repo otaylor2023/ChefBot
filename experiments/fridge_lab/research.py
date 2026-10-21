@@ -68,6 +68,11 @@ ROBOT_TEXT = {
   gripper and the base odometry. That is what a real robot has, and it is all the skill gets.""",
 }
 
+WEB_TEXT = """   - You have web search (every query is logged). Use it for general knowledge: papers,
+     library and controller docs, robotics methods. Don't use it to look up RoboCasa's
+     kitchens, layouts, fixtures or fridge models, or anything about this lab's scenes.
+"""
+
 PRIOR_TEXT = {"panda": """## Prior work
 
 A previous research session wrote a fridge-opening skill for a different robot (a
@@ -92,7 +97,7 @@ from the new cameras and hold up when they shift between episodes.
 
 
 def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, sandbox: str | None = None,
-                    robot: str = "panda", prior: Path | None = None, prior_robot: str = "panda") -> None:
+                    robot: str = "panda", prior: Path | None = None, prior_robot: str = "panda", web_search: bool = False) -> None:
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "docs").mkdir(exist_ok=True)
     (ws / "skills").mkdir(exist_ok=True)
@@ -103,6 +108,7 @@ def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, 
     text = text.replace("{HOURS}", f"{hours:g}").replace("{USAGE_CAP}", f"{usage_cap:g}").replace("{MODEL_USD}", f"{model_usd:g}")
     text = text.replace("{LIMITS}", json.dumps(LIMITS)).replace("{VAL_SUBMISSIONS}", str(lab_server.VAL_SUBMISSIONS))
     text = text.replace("{SANDBOX}", sandbox or sandbox_kind())
+    text = text.replace("{WEB}", WEB_TEXT if web_search else "")
     text = text.replace("{ROBOT}", ROBOT_TEXT[robot]).replace("{PRIOR}", PRIOR_TEXT[prior_robot] if prior else "")
     if prior and not (ws / "prior").exists():
         # prior/: a finished workspace (skills/final, REPORT.md, research_log.md).
@@ -122,8 +128,8 @@ def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, 
         subprocess.run(["git", "-c", "user.name=lab", "-c", "user.email=lab@localhost", "commit", "-q", "-m", "workspace"], cwd=ws, check=True)
 
 
-def codex_cmd(model: str, effort: str, sandbox: str, resume: str | None, prompt: str) -> list[str]:
-    cmd = ["codex", "exec"] + (["resume", resume] if resume else []) + ["--json", "--skip-git-repo-check", "-m", model,
+def codex_cmd(model: str, effort: str, sandbox: str, resume: str | None, prompt: str, search: bool = False) -> list[str]:
+    cmd = ["codex"] + (["--search"] if search else []) + ["exec"] + (["resume", resume] if resume else []) + ["--json", "--skip-git-repo-check", "-m", model,
                                                                          "-c", f"model_reasoning_effort={effort}"]  # fmt: skip
     if sandbox == "none":
         cmd.append("--dangerously-bypass-approvals-and-sandbox")
@@ -151,11 +157,12 @@ def main() -> int:
     ap.add_argument("--robot", default=os.environ.get("FRIDGE_ROBOT", "panda"), choices=sorted(ROBOT_TEXT),
                     help="the lab's robot (set FRIDGE_ROBOT to the same on the lab's side), for the brief")
     ap.add_argument("--prior", type=Path, default=None, help="a finished workspace to give the researcher as prior work")
+    ap.add_argument("--web-search", action="store_true", help="give Codex its web search tool (each query is logged); commands stay offline")
     ap.add_argument("--prior-robot", default="panda", choices=sorted(ROBOT_TEXT), help="the robot the prior work was done on")
     args = ap.parse_args()
     load_env(REPO / ".env")
     ws, private = args.root / "workspace", args.root / "private"
-    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None, args.robot, args.prior, args.prior_robot)
+    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None, args.robot, args.prior, args.prior_robot, args.web_search)
     codex_home = Path.home()
     if args.codex_user:
         import pwd
@@ -220,7 +227,7 @@ def main() -> int:
             else:
                 prompt = (f"Your turn ended, but the research session continues: {left_min / 60:.1f} hours left. Keep going with the "
                           "next experiment from your research log. (./lab budget for budgets.)")  # fmt: skip
-            cmd = codex_cmd(args.model, args.effort, args.codex_sandbox, thread_id, prompt)
+            cmd = codex_cmd(args.model, args.effort, args.codex_sandbox, thread_id, prompt, args.web_search)
             env = None
             if args.codex_user:  # the pod: Codex runs as an unprivileged user (no access to the lab's private files)
                 cmd = ["setpriv", f"--reuid={args.codex_user}", f"--regid={args.codex_user}", "--init-groups", "--"] + cmd

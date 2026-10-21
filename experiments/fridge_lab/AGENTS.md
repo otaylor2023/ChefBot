@@ -107,7 +107,7 @@ the conservative choice.
      its fridge models), the lab's private directory, `scenes.json`, or any val or
      test results beyond what `./lab val` prints.
    - Don't build simulator environments yourself. Use `./lab` only.
-2. **The skill uses the robot API only.**
+{WEB}2. **The skill uses the robot API only.**
    - No simulator state, no files from runs, no hidden channels.
    - Don't try to get around the sandbox, the budgets or the time accounting.
 3. **No lookup tables of specific fridges.**
