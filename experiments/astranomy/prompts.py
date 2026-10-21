@@ -123,3 +123,58 @@ def agentic_prompt(robot_cmd: str | None = None) -> str:
     t = _tables(cal)
     tools = TOOLS_SHELL.format(robot=robot_cmd) if robot_cmd else TOOLS_NATIVE
     return AGENTIC.format(frames=FRAMES, gripper=GRIPPER.format(**t), camera=CAMERA.format(**t), tools=tools, **t)
+
+
+# -- the mobile-base version (fridge task): the paper's text, generalized to a fixed odom frame and an 11-D whole-body target.
+
+MOBILE_ROBOT = ("You control a simulated mobile DROID robot: a Franka Panda arm with a Robotiq 2F-85 gripper on a holonomic wheeled "
+                "base that can drive in any direction and turn in place.")  # fmt: skip
+
+MOBILE_FRAMES = """This robot uses a fixed odom Cartesian frame: the robot-root (arm base) frame where the episode started. It does not move with the robot: +x points forward from where the robot started, +y to its left, and +z upward. EEF position coordinates, base poses and Cartesian motion targets use these fixed axes; they do not rotate with the gripper or the base. The ee_pos/ee_quat fields and EEF action poses describe the Robotiq base_link at the gripper mount flange, not the fingertip center. Quaternions describe the orientation of the local base_link axes in the odom frame. Positive roll, pitch, and yaw follow the right-hand rule about the fixed odom +x, +y, and +z axes.
+
+MOBILE BASE
+base_pose = [base_x, base_y, base_yaw] is where the robot root (the arm's mounting point on the base) is in odom: metres and radians, yaw about odom +z, 0 = facing odom +x. The base is holonomic. Each control step drives the base toward the base target and re-solves the arm for the EEF target relative to where the base actually is, so an EEF target held fixed while the base moves keeps the gripper still in odom, as far as the arm can reach. The arm reaches about 0.85 m from the robot root. measured_state.effectors.base.in_contact reports the base touching something (a wall, a counter, a door)."""
+
+MOBILE_CAMERA_NOTE = ("The two shoulder cameras are mounted on the mobile base: their extrinsics below are relative to the robot root, "
+                      "so they move and turn with the base (p_odom = base pose applied to p_root).")  # fmt: skip
+
+
+def _mobile(text: str) -> str:
+    text = text.replace("You control a simulated DROID robot, which is a Franka Panda arm with a Robotiq 2F-85 gripper.", MOBILE_ROBOT)
+    text = text.replace("Avoid self-collision, the table, and unrelated objects.", "Avoid self-collision, the counters, walls, and unrelated objects.")
+    text = text.replace("CAMERA CALIBRATION AND TILT\n", "CAMERA CALIBRATION AND TILT\n" + MOBILE_CAMERA_NOTE + "\n")
+    text = text.replace("DROID robot-root frame", "odom frame").replace("DROID robot root frame", "odom frame")
+    text = text.replace("The shoulder cameras stay fixed in robot-root space, so their flange-relative",
+                        "The shoulder cameras stay fixed relative to the robot root (they ride on the base), so their flange-relative")
+    text = text.replace("t_camera_flange = R(ee_quat)^T*(t_camera_root-ee_pos)", "t_camera_flange = R(ee_quat_root)^T*(t_camera_root-ee_pos_root)")
+    text = text.replace("robot-root", "odom")  # action and pose axes; the camera table's robot_root parent stays
+    return text
+
+
+def direct_prompt_mobile() -> str:
+    cal = json.loads(CALIBRATION.read_text())
+    t = _tables(cal)
+    body = DIRECT.format(frames=MOBILE_FRAMES, gripper=GRIPPER.format(**t), camera=CAMERA.format(**t))
+    body = body.replace(
+        "Each EEF action is an ABSOLUTE pose of the Robotiq base_link in the odom frame: [x, y, z, qw, qx, qy, qz, gripper]. Positions are metres, quaternions use unit wxyz order, and gripper is 0=open or 1=closed.",
+        "Each action is an ABSOLUTE whole-body target in the odom frame: [x, y, z, qw, qx, qy, qz, gripper, base_x, base_y, base_yaw]: the pose of the Robotiq base_link, the gripper command (0=open, 1=closed), and the base pose. Positions are metres, quaternions use unit wxyz order, base_yaw is radians.")  # fmt: skip
+    body = body.replace(
+        "Translation targets are limited to 0.02 m per row and rotation changes to 0.1 rad per row.",
+        "Translation targets are limited to 0.02 m per row and rotation changes to 0.1 rad per row; base targets to 0.02 m and 0.05 rad per row.")  # fmt: skip
+    body = body.replace(
+        "containing between 3 and 15 consecutive absolute 8D EEF actions. Each action is [x, y, z, qw, qx, qy, qz, gripper] for the Robotiq base_link in the odom frame.",
+        "containing between 3 and 15 consecutive absolute 11D whole-body actions. Each action is [x, y, z, qw, qx, qy, qz, gripper, base_x, base_y, base_yaw] in the odom frame.")  # fmt: skip
+    return _mobile(body)
+
+
+def agentic_prompt_mobile(robot_cmd: str) -> str:
+    body = agentic_prompt(robot_cmd)
+    body = body.replace(FRAMES, MOBILE_FRAMES)
+    body = body.replace(
+        "Call execute_eef_target with one COMPLETE absolute target and 1 to 5 control steps at 15 Hz.",
+        "Call execute_eef_target with one COMPLETE absolute target (the EEF pose and gripper, and optionally a base pose; without one the base holds where it is) and 1 to 5 control steps at 15 Hz.")  # fmt: skip
+    body = body.replace(
+        "The target must be within 0.05 m translation and 0.35 rad rotation of the latest measured EEF pose.",
+        "The EEF target must be within 0.05 m translation and 0.35 rad rotation of the latest measured EEF pose, and the base target within 0.10 m and 0.25 rad of the latest measured base pose.")  # fmt: skip
+    body = body.replace("--target x y z qw qx qy qz gripper --steps N", "--target x y z qw qx qy qz gripper [--base base_x base_y base_yaw] --steps N")
+    return _mobile(body)

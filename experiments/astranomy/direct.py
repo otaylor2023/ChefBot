@@ -25,7 +25,7 @@ from PIL import Image
 from scipy.spatial.transform import Rotation
 
 from experiments.astranomy.host import REPO, Host, R_of, quat_wxyz, write_json
-from experiments.astranomy.prompts import direct_prompt
+from experiments.astranomy.prompts import direct_prompt, direct_prompt_mobile
 from experiments.ortho_grasp import scenes as scene_set
 from experiments.ortho_grasp.query.models import OPENROUTER, _http, _or_headers, load_env
 
@@ -33,15 +33,15 @@ INSTRUCTION = "Pick up the cup."
 HISTORY = (14, 7, 0)  # control steps back: t-14, t-7, t
 MAX_STEPS = 600  # 40 s at 15 Hz
 MAX_CALLS = 80
-TOOL = {
-    "type": "function",
-    "function": {
-        "name": "emit_eef_actions",
-        "description": "Emit 3 to 15 consecutive absolute 8D EEF actions [x, y, z, qw, qx, qy, qz, gripper] for the Robotiq base_link in the DROID robot-root frame.",
-        "parameters": {"type": "object", "properties": {"actions": {"type": "array", "minItems": 3, "maxItems": 15,
-            "items": {"type": "array", "minItems": 8, "maxItems": 8, "items": {"type": "number"}}}}, "required": ["actions"]},
-    },
-}  # fmt: skip
+def tool(width: int = 8) -> dict:
+    what = ("absolute 8D EEF actions [x, y, z, qw, qx, qy, qz, gripper] for the Robotiq base_link in the DROID robot-root frame" if width == 8
+            else "absolute 11D whole-body actions [x, y, z, qw, qx, qy, qz, gripper, base_x, base_y, base_yaw] in the odom frame")  # fmt: skip
+    return {"type": "function", "function": {"name": "emit_eef_actions", "description": f"Emit 3 to 15 consecutive {what}.",
+            "parameters": {"type": "object", "properties": {"actions": {"type": "array", "minItems": 3, "maxItems": 15,
+                "items": {"type": "array", "minItems": width, "maxItems": width, "items": {"type": "number"}}}}, "required": ["actions"]}}}  # fmt: skip
+
+
+TOOL = tool(8)
 LABELS = {"over_shoulder_left_camera": "left shoulder", "over_shoulder_right_camera": "right shoulder", "wrist_cam": "wrist"}
 
 
@@ -51,9 +51,9 @@ def _png(img: np.ndarray) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def user_message(host: Host) -> list[dict]:
+def user_message(host: Host, instruction: str = INSTRUCTION) -> list[dict]:
     now = host.step_count
-    content = [{"type": "text", "text": f"Task: {INSTRUCTION}"}]
+    content = [{"type": "text", "text": f"Task: {instruction}"}]
     seen = set()
     for back in HISTORY:
         obs = host.at(now - back)
@@ -69,10 +69,21 @@ def user_message(host: Host) -> list[dict]:
     return content
 
 
-def clamp_rows(rows: list[list[float]], start: np.ndarray) -> list[list[float]]:
-    """Normalize quaternions; each row within 0.02 m and 0.1 rad of the previous (the first of the measured pose)."""
+def clamp_rows(rows: list[list[float]], start: np.ndarray, base: tuple | None = None) -> list[list[float]]:
+    """Normalize quaternions; each row within 0.02 m and 0.1 rad of the previous (the first of the measured pose);
+    with a base (11D rows), each base target within 0.02 m and 0.05 rad of the previous."""
     out, prev_p, prev_R = [], start[:3, 3].copy(), start[:3, :3].copy()
+    prev_b = None if base is None else np.array(base, dtype=float)
     for r in rows:
+        b = None
+        if prev_b is not None:
+            b = np.array(r[8:11] if len(r) >= 11 else prev_b, dtype=float)
+            dxy = b[:2] - prev_b[:2]
+            if np.linalg.norm(dxy) > 0.02:
+                b[:2] = prev_b[:2] + dxy * 0.02 / np.linalg.norm(dxy)
+            dyaw = (b[2] - prev_b[2] + np.pi) % (2 * np.pi) - np.pi
+            b[2] = prev_b[2] + float(np.clip(dyaw, -0.05, 0.05))
+            prev_b = b
         p, q, g = np.asarray(r[:3], float), np.asarray(r[3:7], float), float(r[7])
         if np.linalg.norm(q) < 1e-9:
             q = np.array(quat_wxyz(prev_R))
@@ -83,14 +94,14 @@ def clamp_rows(rows: list[list[float]], start: np.ndarray) -> list[list[float]]:
         rot = Rotation.from_matrix(R @ prev_R.T).as_rotvec()
         if np.linalg.norm(rot) > 0.1:
             R = Rotation.from_rotvec(rot * 0.1 / np.linalg.norm(rot)).as_matrix() @ prev_R
-        out.append([*p.tolist(), *quat_wxyz(R), 1.0 if g >= 0.5 else 0.0])
+        out.append([*p.tolist(), *quat_wxyz(R), 1.0 if g >= 0.5 else 0.0] + ([] if b is None else b.tolist()))
         prev_p, prev_R = p, R
     return out
 
 
-def call(model: str, effort: str, system: str, content: list[dict]) -> tuple[list | None, dict]:
+def call(model: str, effort: str, system: str, content: list[dict], width: int = 8) -> tuple[list | None, dict]:
     body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
-            "tools": [TOOL], "tool_choice": {"type": "function", "function": {"name": "emit_eef_actions"}},
+            "tools": [tool(width)], "tool_choice": {"type": "function", "function": {"name": "emit_eef_actions"}},
             "reasoning": {"effort": effort}, "usage": {"include": True}, "max_tokens": 16000}  # fmt: skip
     t0 = time.time()
     resp = _http(f"{OPENROUTER}/chat/completions", body, _or_headers())
@@ -100,7 +111,7 @@ def call(model: str, effort: str, system: str, content: list[dict]) -> tuple[lis
         if tc.get("function", {}).get("name") == "emit_eef_actions":
             try:
                 rows = json.loads(tc["function"]["arguments"]).get("actions")
-                if isinstance(rows, list) and rows and all(isinstance(r, list) and len(r) == 8 for r in rows):
+                if isinstance(rows, list) and rows and all(isinstance(r, list) and len(r) == width for r in rows):
                     return rows, meta
             except (json.JSONDecodeError, AttributeError):
                 pass
@@ -108,22 +119,33 @@ def call(model: str, effort: str, system: str, content: list[dict]) -> tuple[lis
     return None, meta
 
 
-def run_episode(host: Host, scene, model: str, effort: str, out: Path) -> dict:
-    system = direct_prompt()
-    host.reset(scene)
+FRIDGE_INSTRUCTION = "Open the fridge door."
+FRIDGE_MAX_STEPS = 900  # 60 s at 15 Hz
+
+
+def run_episode(host: Host, scene, model: str, effort: str, out: Path, task: str = "cup") -> dict:
+    fridge = task == "fridge"
+    system = direct_prompt_mobile() if fridge else direct_prompt()
+    instruction = FRIDGE_INSTRUCTION if fridge else INSTRUCTION
+    max_steps = FRIDGE_MAX_STEPS if fridge else MAX_STEPS
+    width = 11 if fridge else 8
+    if fridge:
+        host.reset_fridge(scene)
+    else:
+        host.reset(scene)
     t0 = time.time()
-    calls, cost, steps_log = 0, 0.0, []
+    calls, cost = 0, 0.0
     success = False
     log = open(out / "calls.jsonl", "w")
-    while host.step_count < MAX_STEPS and calls < MAX_CALLS and not success:
-        rows, meta = call(model, effort, system, user_message(host))
+    while host.step_count < max_steps and calls < MAX_CALLS and not success:
+        rows, meta = call(model, effort, system, user_message(host, instruction), width)
         calls += 1
         cost += float((meta.get("usage") or {}).get("cost") or 0.0)
         if rows is None:
             log.write(json.dumps({"call": calls, "step": host.step_count, **meta, "actions": None}) + "\n")
             continue
         rows = rows[:15]
-        executed = clamp_rows(rows, host.flange_pose())
+        executed = clamp_rows(rows, host.flange_in_odom() if fridge else host.flange_pose(), host.base_in_odom() if fridge else None)
         log.write(json.dumps({"call": calls, "step": host.step_count, **meta, "actions": rows, "executed": executed}) + "\n")
         log.flush()
         for row in executed:
@@ -132,22 +154,29 @@ def run_episode(host: Host, scene, model: str, effort: str, out: Path) -> dict:
             if host.success():
                 success = True
                 break
-            if host.step_count >= MAX_STEPS:
+            if host.step_count >= max_steps:
                 break
+        status = f"door {host.door_deg():5.1f} deg" if fridge else f"cup bottom {host.cup_bottom() - host.cfg['counter_z']:+.3f} m"
         print(f"  call {calls:2d}: {len(rows):2d} actions, step {host.step_count:3d}, gripper {'closed' if executed[-1][7] else 'open'}, "
-              f"cup bottom {host.cup_bottom() - host.cfg['counter_z']:+.3f} m, {meta['latency_s']:.0f} s, ${cost:.2f}", flush=True)  # fmt: skip
+              f"{status}, {meta['latency_s']:.0f} s, ${cost:.2f}", flush=True)  # fmt: skip
     log.close()
     video = host.save_video()
-    result = {"scene": scene.name, "cup_model": scene.cup_model, "success": success, "calls": calls, "control_steps": host.step_count,
+    name = f"seed{scene}" if fridge else scene.name
+    result = {"scene": name, "task": task, "success": success, "calls": calls, "control_steps": host.step_count,
               "sim_time_s": host.step_count / 15.0, "wall_time_s": time.time() - t0, "cost_usd": cost, "model": model, "effort": effort,
-              "cup_lift_m": host.cup_bottom() - host.cfg["counter_z"], "video": str(video) if video else None}  # fmt: skip
+              "video": str(video) if video else None}  # fmt: skip
+    if fridge:
+        result.update({"door_deg": host.door_deg(), "start_pose": [host.start_pose.x, host.start_pose.y, host.start_pose.yaw]})
+    else:
+        result.update({"cup_model": scene.cup_model, "cup_lift_m": host.cup_bottom() - host.cfg["counter_z"]})
     write_json(out / "result.json", result)
     return result
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Astranomy Direct Policy on the cup scenes.")
-    ap.add_argument("--scenes", default="0")
+    ap = argparse.ArgumentParser(description="Astranomy Direct Policy on the cup scenes or the fridge.")
+    ap.add_argument("--task", choices=["cup", "fridge"], default="cup")
+    ap.add_argument("--scenes", default="0", help="cup: scene indices; fridge: start-pose seeds")
     ap.add_argument("--model", default="openai/gpt-6-astra")
     ap.add_argument("--effort", default="medium")
     ap.add_argument("--out", type=Path, default=REPO / "experiments" / "astranomy" / "results")
@@ -155,26 +184,36 @@ def main() -> int:
     load_env(REPO / ".env")
     from experiments.ortho_grasp.run import parse_range
 
-    scenes = scene_set.load(REPO / "experiments" / "ortho_grasp" / "results" / "scenes.json")
-    picked = [scenes[i] for i in parse_range(args.scenes, len(scenes))]
+    if args.task == "fridge":
+        picked = parse_range(args.scenes, 1000)
+    else:
+        scenes = scene_set.load(REPO / "experiments" / "ortho_grasp" / "results" / "scenes.json")
+        picked = [scenes[i] for i in parse_range(args.scenes, len(scenes))]
     tag = args.model.split("/")[-1]
     host = None
     results = []
     try:
         for s in picked:
-            out = args.out / f"direct_{tag}" / s.name
+            name = f"seed{s}" if args.task == "fridge" else s.name
+            out = args.out / (f"fridge_direct_{tag}" if args.task == "fridge" else f"direct_{tag}") / name
             if host is None:
-                host = Host(out)
+                if args.task == "fridge":
+                    from experiments.astranomy.fridge import FridgeHost
+
+                    host = FridgeHost(out)
+                else:
+                    host = Host(out)
             host.out = out
             out.mkdir(parents=True, exist_ok=True)
-            print(f"{s.name} ({s.cup_model}):", flush=True)
-            r = run_episode(host, s, args.model, args.effort, out)
+            print(f"{name}:", flush=True)
+            r = run_episode(host, s, args.model, args.effort, out, args.task)
             results.append(r)
-            print(f"{s.name}: {'SUCCESS' if r['success'] else 'failure'} after {r['calls']} calls, {r['control_steps']} steps, ${r['cost_usd']:.2f}", flush=True)
+            print(f"{name}: {'SUCCESS' if r['success'] else 'failure'} after {r['calls']} calls, {r['control_steps']} steps, "
+                  f"{r['wall_time_s'] / 60:.1f} min, ${r['cost_usd']:.2f}", flush=True)  # fmt: skip
     finally:
         if host is not None:
             host.close()
-    print(f"direct {tag}: {sum(r['success'] for r in results)}/{len(results)} succeeded, ${sum(r['cost_usd'] for r in results):.2f}")
+    print(f"direct {args.task} {tag}: {sum(r['success'] for r in results)}/{len(results)} succeeded, ${sum(r['cost_usd'] for r in results):.2f}")
     return 0
 
 

@@ -26,3 +26,18 @@ servers (the agent views the returned image paths with Codex's image viewer).
 python -m experiments.astranomy.direct --scenes 0-4
 python -m experiments.astranomy.agentic_codex --scenes 0-4
 ```
+
+## Fridge (mobile base, physics)
+
+`--task fridge`: open the main fridge door to at least 60 degrees by grasping its handle and pulling. There's no
+scripted actuation and no handle lock. The robot starts about 0.8-1.0 m in front of the fridge (seeded). Every
+target is absolute in a fixed odom frame (the robot root at the episode's start), and each one carries a base pose
+(`fridge.py`): Direct rows are 11-D `[x,y,z,qw,qx,qy,qz,gripper,base_x,base_y,base_yaw]` (base limited to
+0.02 m / 0.05 rad per row), and the Codex tool takes `--base bx by byaw` (within 0.10 m / 0.25 rad of the
+measured base). Each control step drives the base toward its target and re-solves the arm against the measured
+base. `fridge_oracle.py` is a scripted opener on the same controller: it shows the door opens by contact.
+
+```
+python -m experiments.astranomy.direct --task fridge --scenes 0-4
+python -m experiments.astranomy.agentic_codex --task fridge --scenes 0-4
+```

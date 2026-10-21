@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import queue
 import subprocess
@@ -33,13 +34,16 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from experiments.astranomy.host import REPO, Host, R_of, write_json
-from experiments.astranomy.prompts import agentic_prompt
+from experiments.astranomy.prompts import agentic_prompt, agentic_prompt_mobile
 from experiments.ortho_grasp import scenes as scene_set
 
 INSTRUCTION = "Pick up the cup."
 MAX_STEPS = 600  # 40 s of simulation at 15 Hz
 MAX_SESSIONS = 6  # the agent ending its turn early is resumed this many times
 TARGET_POS_LIMIT, TARGET_ROT_LIMIT = 0.05, 0.35
+BASE_POS_LIMIT, BASE_ROT_LIMIT = 0.10, 0.25  # fridge (mobile base): base target vs the measured base pose
+FRIDGE_INSTRUCTION = "Open the fridge door."
+FRIDGE_MAX_STEPS = 900
 
 ROBOT_CLI = r'''#!/opt/miniconda3/envs/chefbot/bin/python
 """The robot tools for this episode. Each call is handed to the host process and its result printed."""
@@ -64,8 +68,8 @@ sys.exit(1)
 class Server:
     """The tools, on the host side."""
 
-    def __init__(self, host: Host, ws: Path):
-        self.host, self.ws = host, ws
+    def __init__(self, host: Host, ws: Path, task: str = "cup", max_steps: int = MAX_STEPS):
+        self.host, self.ws, self.task, self.max_steps = host, ws, task, max_steps
         self.ipc = ws / "ipc"
         self.ipc.mkdir(parents=True, exist_ok=True)
         self.notes: list[str] = []
@@ -115,7 +119,17 @@ class Server:
         steps = int(_flag(args, "--steps", 1)[0])
         if not 1 <= steps <= 5:
             return "rejected: --steps must be 1 to 5"
-        F = self.host.flange_pose()
+        fridge = self.task == "fridge"
+        if fridge:
+            mb = self.host.base_in_odom()
+            base = [float(v) for v in _flag(args, "--base", 3)] if "--base" in args else list(mb)
+            db = math.hypot(base[0] - mb[0], base[1] - mb[1])
+            dyaw = abs((base[2] - mb[2] + math.pi) % (2 * math.pi) - math.pi)
+            if db > BASE_POS_LIMIT or dyaw > BASE_ROT_LIMIT:
+                return (f"rejected: the base target is {db:.3f} m and {dyaw:.3f} rad from the latest measured base pose "
+                        f"(limits {BASE_POS_LIMIT} m, {BASE_ROT_LIMIT} rad). Nothing moved.")  # fmt: skip
+            target = target + base
+        F = self.host.flange_in_odom() if fridge else self.host.flange_pose()
         dp = float(np.linalg.norm(np.asarray(target[:3]) - F[:3, 3]))
         dr = float(np.linalg.norm(Rotation.from_matrix(R_of(target[3:7]) @ F[:3, :3].T).as_rotvec()))
         if dp > TARGET_POS_LIMIT or dr > TARGET_ROT_LIMIT:
@@ -129,17 +143,22 @@ class Server:
             if self.host.success():
                 self.ended, self.success = True, True
                 break
-            if self.host.step_count >= MAX_STEPS:
+            if self.host.step_count >= self.max_steps:
                 self.ended = True
                 break
         obs = self.host.history[-1]
-        lift = self.host.cup_bottom() - self.host.cfg["counter_z"]
-        held = self.host.cup in self.host.env._grasped_roots()
-        progress = {"grasp the cup": "done" if held else "not yet", "lift the cup": f"{max(0.0, lift):.3f} of 0.050 m" + (" (done)" if self.success else "")}
+        if fridge:
+            held = bool(self.host.env._grasped_roots() & {int(self.host.env.model.body_rootid[self.host.env.model.jnt_bodyid[self.host.door_joint]])})
+            progress = {"grasp the fridge door handle": "holding" if held else "not holding",
+                        "open the door": f"{max(0.0, self.host.door_deg()):.1f} of 60.0 deg" + (" (done)" if self.success else "")}  # fmt: skip
+        else:
+            lift = self.host.cup_bottom() - self.host.cfg["counter_z"]
+            held = self.host.cup in self.host.env._grasped_roots()
+            progress = {"grasp the cup": "done" if held else "not yet", "lift the cup": f"{max(0.0, lift):.3f} of 0.050 m" + (" (done)" if self.success else "")}
         out = {"executed_steps": done,
                "motion_feedback": {"position_error_m": round(rec["pos_error_m"], 4), "rotation_error_rad": round(rec["rot_error_rad"], 4),
                                    "ik_ok": rec["ik_ok"]},
-               "measured_state": obs.state, "remaining_budget_steps": MAX_STEPS - self.host.step_count,
+               "measured_state": obs.state, "remaining_budget_steps": self.max_steps - self.host.step_count,
                "subtask_progress": progress, "episode_ended": self.ended,
                "images": {"step": obs.step, **obs.paths}}  # fmt: skip
         text = json.dumps(out, indent=1)
@@ -160,17 +179,19 @@ def _flag(args: list[str], name: str, n: int | None) -> list[str]:
     return args[i:] if n is None else args[i : i + n]
 
 
-def run_episode(host: Host, scene, model: str, effort: str, ws: Path) -> dict:
+def run_episode(host: Host, scene, model: str, effort: str, ws: Path, task: str = "cup") -> dict:
     ws.mkdir(parents=True, exist_ok=True)
     host.out = ws
-    obs = host.reset(scene)
+    fridge = task == "fridge"
+    obs = host.reset_fridge(scene) if fridge else host.reset(scene)
     robot = ws / "robot"
     robot.write_text(ROBOT_CLI)
     robot.chmod(0o755)
-    server = Server(host, ws)
-    dev = agentic_prompt("./robot")
+    max_steps = FRIDGE_MAX_STEPS if fridge else MAX_STEPS
+    server = Server(host, ws, task, max_steps)
+    dev = agentic_prompt_mobile("./robot") if fridge else agentic_prompt("./robot")
     (ws / "developer_prompt.txt").write_text(dev)
-    first = (f"Task: {INSTRUCTION}\n\nInitial observation (control step 0). measured_state = {json.dumps(obs.state)}\n"
+    first = (f"Task: {FRIDGE_INSTRUCTION if fridge else INSTRUCTION}\n\nInitial observation (control step 0). measured_state = {json.dumps(obs.state)}\n"
              f"The three attached images are, in order, the left shoulder, right shoulder and wrist camera views at step 0.")  # fmt: skip
     base = ["codex", "exec", "--json", "--skip-git-repo-check", "-s", "workspace-write", "-m", model,
             "-c", f"model_reasoning_effort={effort}", "-c", f"developer_instructions={json.dumps(dev)}"]  # fmt: skip
@@ -181,7 +202,7 @@ def run_episode(host: Host, scene, model: str, effort: str, ws: Path) -> dict:
             cmd = base + [a for p in obs.paths.values() for a in ("-i", p)] + ["--", first]  # -i takes several files: end it
         else:
             cmd = base[:2] + ["resume", thread_id] + base[2:] + [
-                f"The episode has not ended (control step {host.step_count}, {MAX_STEPS - host.step_count} steps left). "
+                f"The episode has not ended (control step {host.step_count}, {max_steps - host.step_count} steps left). "
                 "Continue controlling the robot with ./robot until it reports that the episode has ended."]  # fmt: skip
         proc = subprocess.Popen(cmd, cwd=ws, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         lines_q: queue.Queue[str] = queue.Queue()
@@ -221,14 +242,16 @@ def run_episode(host: Host, scene, model: str, effort: str, ws: Path) -> dict:
                     events.write(lines_q.get() + "\n")
                 break
             time.sleep(0.05)
-        print(f"  session {sessions} ended: step {host.step_count}, cup lift {host.cup_bottom() - host.cfg['counter_z']:+.3f} m", flush=True)
+        status = f"door {host.door_deg():.1f} deg" if fridge else f"cup lift {host.cup_bottom() - host.cfg['counter_z']:+.3f} m"
+        print(f"  session {sessions} ended: step {host.step_count}, {status}", flush=True)
     events.close()
     video = host.save_video()
     usage = _usage(ws / "codex_events.jsonl")
-    result = {"scene": scene.name, "cup_model": scene.cup_model, "success": server.success, "control_steps": host.step_count,
+    result = {"scene": f"seed{scene}" if fridge else scene.name, "task": task, "success": server.success, "control_steps": host.step_count,
               "sim_time_s": host.step_count / 15.0, "sessions": sessions, "tool_calls": sum(1 for _ in open(ws / "tool_calls.jsonl")),
               "wall_time_s": time.time() - t0, "model": model, "effort": effort, "codex_usage": usage,
-              "cup_lift_m": host.cup_bottom() - host.cfg["counter_z"], "video": str(video) if video else None}  # fmt: skip
+              "video": str(video) if video else None}  # fmt: skip
+    result.update({"door_deg": host.door_deg()} if fridge else {"cup_model": scene.cup_model, "cup_lift_m": host.cup_bottom() - host.cfg["counter_z"]})
     write_json(ws / "result.json", result)
     return result
 
@@ -247,31 +270,41 @@ def _usage(path: Path) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Astranomy Agentic Policy (Codex) on the cup scenes.")
-    ap.add_argument("--scenes", default="0")
+    ap = argparse.ArgumentParser(description="Astranomy Agentic Policy (Codex) on the cup scenes or the fridge.")
+    ap.add_argument("--task", choices=["cup", "fridge"], default="cup")
+    ap.add_argument("--scenes", default="0", help="cup: scene indices; fridge: start-pose seeds")
     ap.add_argument("--model", default="gpt-6-astra")
     ap.add_argument("--effort", default="medium")
     ap.add_argument("--out", type=Path, default=REPO / "experiments" / "astranomy" / "results")
     args = ap.parse_args()
     from experiments.ortho_grasp.run import parse_range
 
-    scenes = scene_set.load(REPO / "experiments" / "ortho_grasp" / "results" / "scenes.json")
-    picked = [scenes[i] for i in parse_range(args.scenes, len(scenes))]
+    if args.task == "fridge":
+        picked = parse_range(args.scenes, 1000)
+    else:
+        scenes = scene_set.load(REPO / "experiments" / "ortho_grasp" / "results" / "scenes.json")
+        picked = [scenes[i] for i in parse_range(args.scenes, len(scenes))]
     host, results = None, []
     try:
         for s in picked:
-            ws = args.out / f"agentic_codex_{args.model}" / s.name
+            name = f"seed{s}" if args.task == "fridge" else s.name
+            ws = args.out / (f"fridge_agentic_codex_{args.model}" if args.task == "fridge" else f"agentic_codex_{args.model}") / name
             if host is None:
-                host = Host(ws)
-            print(f"{s.name} ({s.cup_model}):", flush=True)
-            r = run_episode(host, s, args.model, args.effort, ws)
+                if args.task == "fridge":
+                    from experiments.astranomy.fridge import FridgeHost
+
+                    host = FridgeHost(ws)
+                else:
+                    host = Host(ws)
+            print(f"{name}:", flush=True)
+            r = run_episode(host, s, args.model, args.effort, ws, args.task)
             results.append(r)
-            print(f"{s.name}: {'SUCCESS' if r['success'] else 'failure'} after {r['tool_calls']} tool calls, {r['control_steps']} steps, "
+            print(f"{name}: {'SUCCESS' if r['success'] else 'failure'} after {r['tool_calls']} tool calls, {r['control_steps']} steps, "
                   f"{r['wall_time_s'] / 60:.1f} min", flush=True)  # fmt: skip
     finally:
         if host is not None:
             host.close()
-    print(f"agentic codex: {sum(r['success'] for r in results)}/{len(results)} succeeded")
+    print(f"agentic codex {args.task}: {sum(r['success'] for r in results)}/{len(results)} succeeded")
     return 0
 
 
