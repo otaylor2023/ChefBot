@@ -133,20 +133,22 @@ class LabHost(FridgeHost):
 
     # -- episode -------------------------------------------------------------------
 
-    def start_pose(self, door: int, seed: int, along: float = START["along"], out: float = START["out"]) -> Pose2D:
+    def start_pose(self, door: int, seed: int, along: float = START["along"], out: float = START["out"], jitter: bool = True) -> Pose2D:
         D = self.doors[door]
         rng = np.random.default_rng(seed)
-        a = along + rng.uniform(-START["d_along"], START["d_along"])
-        b = out + rng.uniform(-START["d_out"], START["d_out"])
+        k = 1.0 if jitter else 0.0
+        a = along + k * rng.uniform(-START["d_along"], START["d_along"])
+        b = out + k * rng.uniform(-START["d_out"], START["d_out"])
         p = D.handle[:2] + a * D.along[:2] + b * D.out[:2]
-        yaw = math.atan2(-D.out[1], -D.out[0]) + math.radians(rng.uniform(-START["d_yaw_deg"], START["d_yaw_deg"]))
+        yaw = math.atan2(-D.out[1], -D.out[0]) + k * math.radians(rng.uniform(-START["d_yaw_deg"], START["d_yaw_deg"]))
         return Pose2D(float(p[0]), float(p[1]), float(yaw))
 
-    def find_start(self, door: int, seed: int) -> Pose2D | None:
+    def find_start(self, door: int, seed: int, jitter: bool = True) -> Pose2D | None:
         """The seed's start pose, or (when the robot would touch something there, e.g. the cabinets
-        beside a fridge in a housing) the first clear one of a few alternatives nearer the door's middle."""
+        beside a fridge in a housing) the first clear one of a few alternatives nearer the door's middle.
+        jitter=False: the nominal stance (no per-seed randomization)."""
         for along, out in START_CANDIDATES:
-            pose = self.start_pose(door, seed, along, out)
+            pose = self.start_pose(door, seed, along, out, jitter)
             self.reset_at(door, seed, pose)
             if not self.debug()["robot_touching"]:
                 return pose

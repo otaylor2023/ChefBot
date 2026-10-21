@@ -36,6 +36,13 @@ def _rot_about(axis: np.ndarray, point: np.ndarray, theta: float) -> np.ndarray:
     return M
 
 
+def _row(host: LabHost, T: np.ndarray, g: float, base_world: np.ndarray) -> list[float]:
+    """11-D row from a world flange pose, gripper, and a world robot-root pose."""
+    F = np.linalg.inv(host.odom) @ T
+    B = np.linalg.inv(host.odom) @ base_world
+    return [*F[:3, 3].tolist(), *quat_wxyz(F[:3, :3]), g, float(B[0, 3]), float(B[1, 3]), float(math.atan2(B[1, 0], B[0, 0]))]
+
+
 def _pads_on(host: LabHost, D) -> bool:
     pads = set().union(*host.env._pad_geoms.values())
     hg = set(D.handle_geoms)
@@ -43,8 +50,9 @@ def _pads_on(host: LabHost, D) -> bool:
 
 
 def run(host: LabHost, door: int, seed: int, pull_to: float = PULL_TO, verbose: bool = False) -> dict:
+    nominal = host.find_start(door, seed, jitter=False)  # where to stand: the clear stance without the seed's jitter
     pose = host.find_start(door, seed)
-    if pose is None:
+    if pose is None or nominal is None:
         return {"door": door, "seed": seed, "door_deg": 0.0, "max_deg": 0.0, "steps": 0, "start": None}
     D = host.doors[door]
     vertical = (D.handle_hi[2] - D.handle_lo[2]) > max(D.handle_hi[:2] - D.handle_lo[:2])
@@ -52,6 +60,11 @@ def run(host: LabHost, door: int, seed: int, pull_to: float = PULL_TO, verbose: 
     grip = np.array([D.handle[0], D.handle[1], z])
     approach = -D.out
     closing = D.along if vertical else np.array([0.0, 0.0, 1.0])
+    # Step to the nominal stance first (arm held), so every seed grasps from the same place.
+    base_nominal = host.arm.frames.arm_base_in_world(nominal)
+    F_rel = host.flange_pose()  # keep the arm as it is relative to the base
+    for _ in range(45):
+        host.step(_row(host, base_nominal @ F_rel, 0.0, base_nominal))
     root0 = host.root()
     # The two grasps 180 deg apart about the approach: take the one nearer the wrist's current orientation.
     from scipy.spatial.transform import Rotation
@@ -63,9 +76,7 @@ def run(host: LabHost, door: int, seed: int, pull_to: float = PULL_TO, verbose: 
         closing = -closing
 
     def row(T, g, base_world):
-        F = np.linalg.inv(host.odom) @ T
-        B = np.linalg.inv(host.odom) @ base_world
-        return [*F[:3, 3].tolist(), *quat_wxyz(F[:3, :3]), g, float(B[0, 3]), float(B[1, 3]), float(math.atan2(B[1, 0], B[0, 0]))]
+        return _row(host, T, g, base_world)
 
     for T, g, n in [(flange_for_pads(grip - STANDOFF * approach, approach, closing, D_OPEN), 0.0, 60),
                     (flange_for_pads(grip, approach, closing, D_OPEN), 0.0, 30),

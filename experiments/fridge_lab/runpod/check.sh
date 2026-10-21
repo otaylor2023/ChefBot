@@ -3,7 +3,7 @@
 # Starts the vision server if it is not running (in tmux session "vision").
 set -uo pipefail
 REPO="$(pwd)"
-LAB="${FRIDGE_LAB_ROOT:-/workspace/fridge_lab}"
+LAB="${FRIDGE_LAB_ROOT:-/opt/fridge_lab}"
 source "$LAB/env.sh"
 SIM="$LAB/venvs/sim/bin/python"
 ok() { echo "  OK   $*"; }
@@ -22,7 +22,7 @@ for p in "$REPO/.env" "$REPO/experiments/fridge_lab/scenes.json" "$LAB/private" 
     else ok "$u cannot read $p"; fi
   done
 done 2>/dev/null
-setpriv --reuid=researcher --regid=researcher --init-groups -- ls /workspace/dev/robocasa >/dev/null 2>&1 && bad "researcher can list robocasa" || ok "researcher cannot list robocasa (test kitchens)"
+setpriv --reuid=researcher --regid=researcher --init-groups -- ls /opt/dev/robocasa >/dev/null 2>&1 && bad "researcher can list robocasa" || ok "researcher cannot list robocasa (test kitchens)"
 setpriv --reuid=researcher --regid=researcher --init-groups -- cat "$REPO/experiments/fridge_lab/kitchen.py" >/dev/null 2>&1 && ok "researcher can read the lab source" || bad "researcher cannot read the lab source"
 
 echo "== rendering ($MUJOCO_GL)"

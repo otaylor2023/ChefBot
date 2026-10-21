@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # One-time setup of the fridge lab on a RunPod GPU pod (Ubuntu + CUDA, as root).
-# Run from the ChefBot repo root (e.g. /workspace/ChefBot):
+# Run from the ChefBot repo root (e.g. /opt/ChefBot):
 #     bash experiments/fridge_lab/runpod/setup.sh
-# Needs ~80 GB of disk on /workspace (RoboCasa's assets are ~23 GB unpacked).
+# Everything lives on the container disk (/opt): RunPod's /workspace volume ignores permissions. Needs ~80 GB (RoboCasa: ~23 GB).
 # Afterwards: copy .env into the repo, and log Codex in as the researcher (see README.md here).
 set -euo pipefail
 
 REPO="$(pwd)"
-LAB="${FRIDGE_LAB_ROOT:-/workspace/fridge_lab}"
-DEV="${FRIDGE_DEV:-/workspace/dev}"
+LAB="${FRIDGE_LAB_ROOT:-/opt/fridge_lab}"
+DEV="${FRIDGE_DEV:-/opt/dev}"
 ROBOSUITE_COMMIT=5ce6643f3092639d08f7b0f90ed1c6a84f50552c
 ROBOCASA_COMMIT=456174f62b89b8fca99eaaf33949c29fec9cfc2a
 test -f "$REPO/pyproject.toml" && test -d "$REPO/experiments/fridge_lab" || { echo "run from the ChefBot repo root"; exit 1; }
@@ -97,7 +97,7 @@ id fridgeskill >/dev/null 2>&1 || useradd -M -s /usr/sbin/nologin fridgeskill
 
 echo "== permissions"
 # Readable by everyone: the repo's code (the researcher may read the lab's source), the skill venv.
-chmod 755 /workspace "$LAB" "$LAB/venvs"
+chmod 755 /opt "$LAB" "$LAB/venvs"
 chmod -R a+rX "$LAB/venvs/skill" "$REPO"
 # Not readable by the researcher or skills: keys, the scene splits and results, RoboCasa (test kitchens), the sim and
 # vision venvs, model weights, the lab's private data and evals.
