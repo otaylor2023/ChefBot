@@ -1,9 +1,13 @@
 """One skill episode: the skill's process (sandboxed, see skill_api/fridge_robot.py)
 drives a LabHost through JSON lines; this side serves its requests and keeps time.
 
-Time is split three ways. sim: control steps / 15 (the robot moving). think: the
-skill's own compute (from each reply sent to its next request). model: the wall time
-of its Gemini and vision calls. robot_time = sim + think + model is the score's clock.
+The world does not wait for the skill. Whatever time the skill spends computing (from
+each reply sent to its next request) or waiting on its Gemini and vision calls, the
+simulator is advanced by that much before the next request is served, the robot
+holding its last command (the base still driving to its last target). So simulated
+time is the episode's wall time: robot_time = sim time, which includes think and model
+time (reported separately too). Time the harness itself spends (stepping, rendering)
+is not charged.
 
 Limits per episode (LIMITS): control steps, think seconds, model dollars, and a hard
 wall-clock cap. Whatever the skill does, the result has the final and max door angles
@@ -30,7 +34,7 @@ import numpy as np
 from experiments.fridge_lab import models as M
 
 SKILL_API = Path(__file__).resolve().parent / "skill_api" / "fridge_robot.py"
-LIMITS = {"control_steps": 1350, "think_s": 120.0, "model_usd": 0.10, "wall_s": 900.0}
+LIMITS = {"control_steps": 1350, "think_s": 90.0, "model_usd": 0.10, "wall_s": 900.0}  # 1350 steps = 90 s of world time, thinking included
 MAX_ROWS = 150
 STARTUP_GRACE_S = 15.0
 
@@ -149,8 +153,42 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
         return {"control_steps": limits["control_steps"] - host.step_count, "think_s": round(limits["think_s"] - clock["think_s"], 2),
                 "model_usd": round(limits["model_usd"] - clock["model_usd"], 4)}  # fmt: skip
 
+    from experiments.astranomy.host import quat_wxyz
+
+    hold = {"row": None, "carry": 0.0}
+
+    def hold_row() -> list[float]:
+        if hold["row"] is not None:
+            return hold["row"]
+        p = host.proprio()
+        F = np.array(p["flange_pose_odom"])
+        return [*F[:3, 3].tolist(), *quat_wxyz(F[:3, :3]), 1.0 if p["gripper_closed_cmd"] else 0.0, *p["base_pose_odom"]]
+
+    def record(row, rec, held: bool) -> None:
+        nonlocal max_deg
+        dbg = host.debug()
+        ang = [d["angle_deg"] for d in dbg["doors"]]
+        max_deg = max(max_deg, *ang)
+        trace.write(json.dumps({"step": host.step_count, "hold": held, "target": [round(v, 4) for v in row],
+                                "pos_err": round(rec["pos_error_m"], 4), "rot_err": round(rec["rot_error_rad"], 4),
+                                "base_err": round(rec["base_error_m"], 4), "door_deg": [round(a, 2) for a in ang],
+                                "handle_odom": [[round(v, 3) for v in d["handle_odom"]] for d in dbg["doors"]],
+                                "touching": dbg["robot_touching"]}) + "\n")  # fmt: skip
+
+    def advance(seconds: float) -> None:
+        """The world goes on while the skill thinks: step the sim `seconds`, holding the last command."""
+        hold["carry"] += seconds * 15.0
+        n = int(hold["carry"])
+        hold["carry"] -= n
+        row = hold_row()
+        for _ in range(n):
+            if host.step_count >= limits["control_steps"]:
+                break
+            record(row, host.step(row), True)
+
     try:
         t_reply, first = time.time(), True
+        debt = 0.0  # model-call seconds not yet lived through
         while True:
             left = limits["think_s"] - clock["think_s"]
             try:
@@ -160,8 +198,11 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                 reason = "think budget exhausted" if clock["think_s"] >= limits["think_s"] else "wall-clock cap"
                 break
             waited = time.time() - t_reply
-            clock["think_s"] += max(0.0, waited - STARTUP_GRACE_S) if first else waited  # process start + imports are free (up to a point)
+            think = max(0.0, waited - STARTUP_GRACE_S) if first else waited  # process start + imports are free (up to a point)
+            clock["think_s"] += think
             first = False
+            advance(think + debt)
+            debt = 0.0
             if line is None:
                 reason = "skill exited" if proc.poll() not in (0, None) else "skill returned"
                 break
@@ -179,6 +220,8 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                     resp = {}
                 elif clock["think_s"] >= limits["think_s"]:
                     resp = over("think budget exhausted")
+                elif host.step_count >= limits["control_steps"] and op not in ("log", "budget"):
+                    resp = over("time budget exhausted (90 s of world time)")
                 elif op == "proprio":
                     resp = {"proprio": host.proprio()}
                 elif op == "observe":
@@ -204,14 +247,8 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                             if host.step_count >= limits["control_steps"]:
                                 break
                             rec = host.step(r.tolist())
-                            dbg = host.debug()
-                            ang = [d["angle_deg"] for d in dbg["doors"]]
-                            max_deg = max(max_deg, *ang)
-                            trace.write(json.dumps({"step": host.step_count, "target": [round(v, 4) for v in r.tolist()],
-                                                    "pos_err": round(rec["pos_error_m"], 4), "rot_err": round(rec["rot_error_rad"], 4),
-                                                    "base_err": round(rec["base_error_m"], 4), "door_deg": [round(a, 2) for a in ang],
-                                                    "handle_odom": [[round(v, 3) for v in d["handle_odom"]] for d in dbg["doors"]],
-                                                    "touching": dbg["robot_touching"]}) + "\n")  # fmt: skip
+                            hold["row"] = r.tolist()
+                            record(hold["row"], rec, False)
                             steps.append({k: rec[k] for k in ("pos_error_m", "rot_error_rad", "base_error_m", "ik_ok")})
                         resp = {"proprio": host.proprio(), "steps": steps}
                 elif op == "llm":
@@ -260,6 +297,7 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
             dt = time.time() - t0
             if op in ("llm", "detect", "segment"):
                 clock["model_s"] += dt
+                debt += dt  # the world goes on during the call: lived through before the next request
             calls.write(json.dumps({"op": op, "step": host.step_count, "dt_s": round(dt, 3), "error": resp.get("error"),
                                     **({"cost_usd": resp.get("cost_usd"), "model": req.get("model")} if op == "llm" else {})}) + "\n")  # fmt: skip
             if op == "done":
@@ -298,7 +336,7 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
     result = {"scene": scene["id"], "seed": seed, "door": scene["door"], "final_deg": round(final, 2), "max_deg": round(max_deg, 2),
               "success60": final >= 60.0, "success85": final >= 85.0, "end": reason, "steps": host.step_count, "sim_s": round(sim_s, 2),
               "think_s": round(clock["think_s"], 2), "model_s": round(clock["model_s"], 2),
-              "robot_time_s": round(sim_s + clock["think_s"] + clock["model_s"], 2), "model_usd": round(clock["model_usd"], 5),
+              "robot_time_s": round(sim_s, 2), "model_usd": round(clock["model_usd"], 5),
               "n_llm": clock["n_llm"], "n_vision": clock["n_vision"], "n_observe": clock["n_observe"],
               "wall_s": round(time.time() - t_start, 2), "sandbox": sandbox_kind(), "sandbox_blocked": blocked,
               "start_pose": [pose.x, pose.y, pose.yaw]}  # fmt: skip

@@ -33,7 +33,7 @@ MAX_SESSIONS = 400
 WRAP_UP_MIN = 40
 
 
-def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float) -> None:
+def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, sandbox: str | None = None) -> None:
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "docs").mkdir(exist_ok=True)
     (ws / "skills").mkdir(exist_ok=True)
@@ -43,7 +43,7 @@ def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float) 
     text = (HERE / "AGENTS.md").read_text()
     text = text.replace("{HOURS}", f"{hours:g}").replace("{USAGE_CAP}", f"{usage_cap:g}").replace("{MODEL_USD}", f"{model_usd:g}")
     text = text.replace("{LIMITS}", json.dumps(LIMITS)).replace("{VAL_SUBMISSIONS}", str(lab_server.VAL_SUBMISSIONS))
-    text = text.replace("{SANDBOX}", sandbox_kind())
+    text = text.replace("{SANDBOX}", sandbox or sandbox_kind())
     (ws / "AGENTS.md").write_text(text)
     if not (ws / "skills" / "example").exists():
         shutil.copytree(HERE / "example_skill", ws / "skills" / "example")
@@ -80,10 +80,12 @@ def main() -> int:
     ap.add_argument("--codex-sandbox", default="workspace-write", help="workspace-write, or none inside a container")
     ap.add_argument("--root", type=Path, default=lab_server.LAB_ROOT)
     ap.add_argument("--codex-user", default=None, help="run Codex as this user (Linux, as root); its workspace is chowned to it")
+    ap.add_argument("--remote", default=None, help="HOST:WORKSPACE of a lab running elsewhere (lab_server.py there); Codex runs here")
+    ap.add_argument("--remote-sandbox", default="user fridgeskill + guard", help="the remote lab's skill sandbox, for the brief")
     args = ap.parse_args()
     load_env(REPO / ".env")
     ws, private = args.root / "workspace", args.root / "private"
-    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd)
+    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None)
     codex_home = Path.home()
     if args.codex_user:
         import pwd
@@ -95,12 +97,19 @@ def main() -> int:
         (ws / "runs").mkdir(exist_ok=True)
         subprocess.run(["chown", "-R", f"{pw.pw_uid}:{pw.pw_gid}", str(ws)], check=True)
 
-    lab = lab_server.Lab(ws, private, args.jobs, args.vision_url, args.model_usd)
-    os.chmod(private, 0o700)  # the lab's ledger, val results, snapshots: not the researcher's
+    private.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     deadline = t0 + args.hours * 3600
-    lab.deadline = deadline
     stop = threading.Event()
+    if args.remote:  # the lab runs elsewhere: relay ./lab to it
+        from experiments.fridge_lab.relay import Relay
+
+        host, rws = args.remote.split(":", 1)
+        lab = Relay(ws, host, rws)
+    else:
+        lab = lab_server.Lab(ws, private, args.jobs, args.vision_url, args.model_usd)
+        os.chmod(private, 0o700)  # the lab's ledger, val results, snapshots: not the researcher's
+        lab.deadline = deadline
     threading.Thread(target=lab.serve_forever, args=(stop,), daemon=True).start()
     events = open(private / "codex_events.jsonl", "a")
     run_log = open(private / "research_run.log", "a")
@@ -184,7 +193,10 @@ def main() -> int:
                 break
     finally:
         stop.set()
-        lab.close()
+        if hasattr(lab, "close"):
+            lab.close()
+        if args.remote:
+            lab.pull_runs()
         note(f"research run over after {(time.time() - t0) / 3600:.2f} h, {sessions} sessions; usage {lab_server.codex_usage()}%")
     return 0
 

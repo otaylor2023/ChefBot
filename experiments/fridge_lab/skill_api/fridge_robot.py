@@ -13,10 +13,14 @@ be (x, y, yaw in odom). Each step the base drives toward its target (at most 0.5
 1 rad/s) and the arm takes one IK step toward the flange target (at most about
 0.02 m and 0.1 rad per 20 Hz tick), re-solved against where the base really is.
 
-Time: the simulator is paused between calls. The episode is scored on robot time =
-simulated time (control steps / 15) + the time your process spends computing + the
-time your model calls take. Budgets (see `robot.budget()`): control steps, think
-seconds, model dollars.
+Time: the world does not wait for you. While your process computes, or waits on an
+llm/detect/segment call, the simulation keeps running for that long, the robot holding
+its last command (the base still driving to its last target, the gripper as it was),
+before your next request is served. An episode is 90 s of world time (1350 steps of
+15 Hz), thinking included, and is scored on that time (`robot_time_s`). You may compute
+in a thread while `act()` executes motion: that overlap is free, as on a real robot.
+Calls to the robot are served one at a time. Budgets (see `robot.budget()`): control
+steps (world time) left, think seconds, model dollars.
 """
 
 from __future__ import annotations

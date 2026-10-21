@@ -259,6 +259,9 @@ class Lab:
                 resp = self.handle(req)
         except Exception as e:  # noqa: BLE001
             resp = {"error": f"{type(e).__name__}: {e}"}
+        notice = LAB_ROOT / "notice.txt"  # a message for the researcher from us, attached to every answer
+        if notice.exists() and notice.read_text().strip():
+            resp["lab_notice"] = notice.read_text().strip()
         if left is not None and left <= WRAP_UP_MIN:
             resp["lab_note"] = (f"{max(left, 0):.0f} min left in the research session: wrap up (skills/final, commit, REPORT.md).")
         self.log.write(json.dumps({"t": time.time(), "req": req, "resp_keys": list(resp)}) + "\n")
@@ -322,10 +325,14 @@ def main() -> int:
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--vision-url", default=os.environ.get("FRIDGE_VISION_URL"))
     ap.add_argument("--model-usd", type=float, default=1.0)
+    ap.add_argument("--hours", type=float, default=None, help="research session length: wrap-up notes near the end, no new jobs after")
     args = ap.parse_args()
     load_env(REPO / ".env")
-    setup_workspace(args.root / "workspace", 8, 40, args.model_usd)
+    setup_workspace(args.root / "workspace", args.hours or 8, 40, args.model_usd)
     lab = Lab(args.root / "workspace", args.root / "private", args.jobs, args.vision_url, args.model_usd)
+    os.chmod(args.root / "private", 0o700)
+    if args.hours:
+        lab.deadline = time.time() + args.hours * 3600
     print(f"lab serving {args.root / 'workspace'}", flush=True)
     try:
         lab.serve_forever()

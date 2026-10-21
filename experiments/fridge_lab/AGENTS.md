@@ -47,8 +47,11 @@ Your final skill is scored by us on a **held-out test set: fridge models and kit
 you never see**. Ranked by:
 
 1. Success rate at 60° and at 85°.
-2. **Robot time** per episode: sim time + your skill's compute + model-call latency.
-   The sim is paused between calls; the clock is not.
+2. **Time** per episode: wall time in the world. **The simulation never pauses for
+   you:** while your skill computes or waits on a model, the world runs on, with the
+   robot holding its last command. An episode has 90 s of world time, thinking included.
+   Overlapping computation with motion (a thread while `act()` runs) is fine and is
+   free, as on a real robot.
 3. Model dollars per episode.
 
 **Per-episode limits:** {LIMITS}. That is control steps, think seconds, model USD, and
@@ -140,7 +143,9 @@ the conservative choice.
    - the hypothesis and the change;
    - the dev result versus the previous best;
    - whether you kept it or not.
-4. **Commit kept versions** with git. Small commits are fine.
+4. **Keep every version** as its own `skills/vN` folder. The lab snapshots each one you
+   run. Commit with git if your sandbox allows it; if it doesn't, the folders are the
+   record.
 5. **Use val sparingly.** Use it when a version is clearly better on dev, or to
    compare two very different approaches.
 6. **Make it robust, then fast, then cheap.**
@@ -165,7 +170,6 @@ you to wrap up.
 **Wrap-up (required).**
 - Put your best skill in `skills/final`, and run it once with `./lab` to make sure it
   works.
-- Commit.
 - Write `REPORT.md` with:
   - your approach;
   - what worked and what didn't (with numbers);
