@@ -20,7 +20,6 @@ import queue
 import shutil
 import signal
 import subprocess
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -143,7 +142,8 @@ def hide_prefix(hide: list[str], workspace: Path) -> list[str]:
         elif p.exists():
             args += ["--ro-bind", "/dev/null", str(p)]
     codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-    for w in (workspace, codex_home, Path(tempfile.gettempdir())):
+    args += ["--tmpfs", "/tmp", "--dir", f"/tmp/user/{os.getuid()}"]  # its own /tmp (Codex's own sandbox makes mount points there)
+    for w in (workspace, codex_home):
         args += ["--bind", str(w.resolve()), str(w.resolve())]
     return args + ["--"]
 
