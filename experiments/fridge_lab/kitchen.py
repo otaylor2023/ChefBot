@@ -30,6 +30,8 @@ import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation
 
+from robosuite.utils.camera_utils import get_camera_extrinsic_matrix
+
 from chefbot.envs.robocasa.config import RoboCasaConfig
 from chefbot.interface.types import Pose2D
 from chefbot.robot.arm.arm_controller import ArmController
@@ -39,6 +41,7 @@ from chefbot.robot.kinematics.reachability import ReachabilityChecker
 from chefbot.robot.skills.common import ArmStack
 
 from experiments.astranomy.fridge import FridgeHost
+from experiments.fridge_lab import fisheye
 from experiments.astranomy.host import REPO
 from experiments.ortho_grasp.sim import ExperimentEnv, World
 
@@ -56,6 +59,7 @@ class LabRobot:
     cameras: dict  # the skill's camera names -> the model's
     camera_jitter: dict  # model camera -> (position m, rotation deg, fovy fraction): uniform +- per episode
     rgb_only: tuple = ()  # the skill's cameras with no depth (as on the real robot)
+    fisheye: tuple = ()  # the skill's cameras with a fisheye lens (fisheye.py; their fovy jitter becomes focal-length jitter)
 
 
 ROBOTS = {
@@ -68,7 +72,7 @@ ROBOTS = {
                     (1.0, 0.9, 1.1, 0.8, 0.7, 0.6), (0.57, 0.62, 0.52, 0.67), 0.1447, (0.1335, 0.1335),
                     {"pole": "robot0_pole_zed", "base": "robot0_base_zed", "wrist": "robot0_eye_in_hand"},
                     {"robot0_pole_zed": (0.03, 4.0, 0.05), "robot0_base_zed": (0.03, 4.0, 0.05), "robot0_eye_in_hand": (0.005, 2.0, 0.03)},
-                    rgb_only=("wrist",)),  # MessyMem's wrist camera is a plain (fisheye) USB camera: no depth
+                    rgb_only=("wrist",), fisheye=("wrist",)),  # MessyMem's wrist camera: an Arducam 160 degree fisheye USB camera, no depth
 }
 ROBOT = ROBOTS[os.environ.get("FRIDGE_ROBOT", "panda")]
 START = ROBOT.start
@@ -78,6 +82,8 @@ MIN_DOOR_RANGE = math.radians(80.0)
 CAMERAS = ROBOT.cameras
 CAMERA_JITTER = ROBOT.camera_jitter
 CAM_W, CAM_H = 640, 360
+FISHEYE_CAMS = {CAMERAS[n] for n in ROBOT.fisheye}
+FISH_EXT = fisheye.pinhole_extent(fisheye.nominal_f() * (1 - CAMERA_JITTER.get(next(iter(FISHEYE_CAMS)), (0, 0, 0))[2])) if FISHEYE_CAMS else None
 
 
 @dataclass
@@ -164,6 +170,7 @@ class LabHost(FridgeHost):
         self.out, self.record = Path(out_dir), record
         self.history, self.actions, self.frames, self.step_count = [], [], [], 0
         self.gap_open = 0.085
+        self._fish_f = fisheye.nominal_f()
         self.grip_site = ROBOT.grip_site
         self.fixture, self.model_xml, self.doors = fridge_doors(self.env)
         self.cup = None
@@ -233,7 +240,11 @@ class LabHost(FridgeHost):
             turn = Rotation.from_rotvec(np.radians(rng.uniform(-dr, dr, 3)))
             x, y, z, w = (turn * Rotation.from_quat([*quat[1:], quat[0]])).as_quat()
             m.cam_quat[i] = [w, x, y, z]
-            m.cam_fovy[i] = fovy * (1.0 + rng.uniform(-df, df))
+            if c in FISHEYE_CAMS:  # the pinhole render covers the widest lens; the lens itself varies in focal length
+                self._fish_f = fisheye.nominal_f() * (1.0 + rng.uniform(-df, df))
+                m.cam_fovy[i] = fisheye.fovy_deg(FISH_EXT)
+            else:
+                m.cam_fovy[i] = fovy * (1.0 + rng.uniform(-df, df))
 
     def door_angles(self) -> list[float]:
         return [float(np.degrees(self.env.data.qpos[D.qpos])) for D in self.doors]
@@ -262,9 +273,19 @@ class LabHost(FridgeHost):
         inv = np.linalg.inv(self.odom)
         out = {}
         for name, cam in CAMERAS.items():
+            if cam in FISHEYE_CAMS:
+                out[name] = {"rgb": self._fisheye(cam, 1.0), "depth": None, "K": fisheye.K_of(self._fish_f), "D": list(fisheye.D),
+                             "model": "fisheye", "cam_to_odom": inv @ get_camera_extrinsic_matrix(self.env.suite.sim, cam)}  # fmt: skip
+                continue
             r = self.env.get_camera_rgbd(cam)
-            out[name] = {"rgb": r.rgb, "depth": None if name in ROBOT.rgb_only else r.depth, "K": r.intrinsics, "cam_to_odom": inv @ r.cam_to_world}
+            out[name] = {"rgb": r.rgb, "depth": None if name in ROBOT.rgb_only else r.depth, "K": r.intrinsics, "D": None, "model": "pinhole",
+                         "cam_to_odom": inv @ r.cam_to_world}  # fmt: skip
         return out
+
+    def _fisheye(self, cam: str, scale: float) -> np.ndarray:
+        """The fisheye image: a wide pinhole render, warped (fisheye.py)."""
+        _, _, pw, ph = fisheye.maps(self._fish_f, scale, FISH_EXT)
+        return fisheye.warp(self.world.render(cam, pw, ph), self._fish_f, scale, FISH_EXT)
 
     def debug(self) -> dict:
         """Privileged, for the researcher's logs only: never sent to the skill."""
@@ -286,7 +307,7 @@ class LabHost(FridgeHost):
         self._ticks = getattr(self, "_ticks", 0) + 1
         if self._ticks % self.frame_every:
             return
-        views = [self.world.render(cam, 320, 180) for cam in CAMERAS.values()]
+        views = [self._fisheye(cam, 0.5) if cam in FISHEYE_CAMS else self.world.render(cam, 320, 180) for cam in CAMERAS.values()]
         side = self.world.render("robot0_robotview", 320, 180)
         self.frames.append(np.concatenate([np.concatenate(views[:2], 1), np.concatenate([views[2], side], 1)], 0))
 

@@ -59,7 +59,8 @@ ROBOT_TEXT = {
   - `pole`: a ZED 2 on a pole beside the arm, about 0.72 m up and 0.18 m left of center,
     turned about 25° to the right (across the arm) and tilted about 12° down;
   - `base`: a ZED 2 low on the front of the base (about 0.39 m up), looking straight ahead;
-  - `wrist`: a camera on the wrist, above the fingers: color only, no depth (`depth` is None).
+  - `wrist`: a fisheye USB camera (Arducam IMX291, 160° diagonal, about 140° x 78° here) on the wrist,
+    above the fingers: color only, no depth (`depth` is None); calibrated with OpenCV's fisheye model (`K`, `D`).
   The ZEDs are wide (about 100° x 68°). Like a real robot's, the cameras are not exactly
   where the drawings say: every episode each one sits up to a few cm off and a few degrees
   turned, with a slightly different field of view. Each observation comes with that

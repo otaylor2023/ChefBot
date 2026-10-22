@@ -246,7 +246,8 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                             dn = None
                         else:
                             np.save(xchg / dn, c["depth"])
-                        cams[name] = {"rgb": rn, "depth": dn, "K": c["K"].tolist(), "cam_to_odom": c["cam_to_odom"].tolist()}
+                        cams[name] = {"rgb": rn, "depth": dn, "K": c["K"].tolist(), "D": c.get("D"), "model": c.get("model", "pinhole"),
+                                      "cam_to_odom": c["cam_to_odom"].tolist()}  # fmt: skip
                     resp = {"proprio": host.proprio(), "cameras": cams}
                 elif op == "act":
                     rows = np.asarray(req.get("rows") or [], dtype=float)
