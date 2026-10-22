@@ -75,9 +75,9 @@ is ambiguous, write it down in `research_log.md` and make the conservative choic
    - We check this: the final policy is also run on the test set with each episode's Astra
      answers swapped for answers recorded on a different fridge. A policy whose code does
      the deciding will still succeed there; one where Astra decides will fail. We report both.
-2. **Don't look for the val or test sets.** Don't open or search for the RoboCasa test split
-   (styles and layouts 1–10, or its fridge models), the lab's private directory,
-   `scenes.json`, or any val or test results beyond what `./lab val` prints. Don't build
+2. **Don't look for the val or test sets.** Don't open or search for RoboCasa's kitchens, layouts,
+   styles or fridge models, the lab's private directory, the scene files (`scenes*.json`), or any
+   val or test results beyond what `./lab val` prints. Don't build
    simulator environments yourself. Use `./lab` only.
 {WEB}3. **The policy uses the robot API only.** No simulator state, no files from runs, no hidden
    channels. Don't try to get around the sandbox, the budgets or the time accounting.
