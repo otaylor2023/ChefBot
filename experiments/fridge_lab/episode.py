@@ -242,7 +242,10 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                         c = rgbd[name]
                         rn, dn = f"o{clock['n_observe']}_{name}_rgb.npy", f"o{clock['n_observe']}_{name}_depth.npy"
                         np.save(xchg / rn, c["rgb"])
-                        np.save(xchg / dn, c["depth"])
+                        if c["depth"] is None:
+                            dn = None
+                        else:
+                            np.save(xchg / dn, c["depth"])
                         cams[name] = {"rgb": rn, "depth": dn, "K": c["K"].tolist(), "cam_to_odom": c["cam_to_odom"].tolist()}
                     resp = {"proprio": host.proprio(), "cameras": cams}
                 elif op == "act":

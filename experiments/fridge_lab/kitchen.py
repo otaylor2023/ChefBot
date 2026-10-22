@@ -55,6 +55,7 @@ class LabRobot:
     pad_depth: tuple  # (open, closed): m from the flange to the pads' midpoint along the fingers
     cameras: dict  # the skill's camera names -> the model's
     camera_jitter: dict  # model camera -> (position m, rotation deg, fovy fraction): uniform +- per episode
+    rgb_only: tuple = ()  # the skill's cameras with no depth (as on the real robot)
 
 
 ROBOTS = {
@@ -66,7 +67,8 @@ ROBOTS = {
     "yam": LabRobot("YamTidybot", "chefbot/config/robot_yam.yaml", {"along": 0.20, "out": 1.0, "d_along": 0.12, "d_out": 0.10, "d_yaw_deg": 15.0},
                     (1.0, 0.9, 1.1, 0.8, 0.7, 0.6), (0.57, 0.62, 0.52, 0.67), 0.1447, (0.1335, 0.1335),
                     {"pole": "robot0_pole_zed", "base": "robot0_base_zed", "wrist": "robot0_eye_in_hand"},
-                    {"robot0_pole_zed": (0.03, 4.0, 0.05), "robot0_base_zed": (0.03, 4.0, 0.05), "robot0_eye_in_hand": (0.005, 2.0, 0.03)}),
+                    {"robot0_pole_zed": (0.03, 4.0, 0.05), "robot0_base_zed": (0.03, 4.0, 0.05), "robot0_eye_in_hand": (0.005, 2.0, 0.03)},
+                    rgb_only=("wrist",)),  # MessyMem's wrist camera is a plain (fisheye) USB camera: no depth
 }
 ROBOT = ROBOTS[os.environ.get("FRIDGE_ROBOT", "panda")]
 START = ROBOT.start
@@ -256,12 +258,12 @@ class LabHost(FridgeHost):
                 "base_in_contact": bool(s.base_in_contact)}  # fmt: skip
 
     def rgbd(self) -> dict[str, dict]:
-        """Each camera: rgb (H,W,3 uint8), depth (H,W float32 m), K (3x3), cam_to_odom (4x4, OpenCV axes)."""
+        """Each camera: rgb (H,W,3 uint8), depth (H,W float32 m; None for an RGB-only camera), K (3x3), cam_to_odom (4x4, OpenCV axes)."""
         inv = np.linalg.inv(self.odom)
         out = {}
         for name, cam in CAMERAS.items():
             r = self.env.get_camera_rgbd(cam)
-            out[name] = {"rgb": r.rgb, "depth": r.depth, "K": r.intrinsics, "cam_to_odom": inv @ r.cam_to_world}
+            out[name] = {"rgb": r.rgb, "depth": None if name in ROBOT.rgb_only else r.depth, "K": r.intrinsics, "cam_to_odom": inv @ r.cam_to_world}
         return out
 
     def debug(self) -> dict:
