@@ -30,6 +30,17 @@ linear gripper and wrist D405 (`chefbot/envs/robocasa/yam_tidybot.py`, IK in
 `chefbot/robot/arm/ik.py`, config `chefbot/config/robot_yam.yaml`). Give `research.py` the same
 `--robot` for the brief, and `--prior <workspace>` to hand the researcher an earlier night's skill.
 
+## On the real robot
+
+`real/` runs a skill on the real TidyBot++ through the same sandboxed API: `RealHost` stands in for
+the simulator, with real time (a 15 Hz control thread holds the last command while the skill thinks)
+and the same per-step motion limits, scaled by `safety.speed`. It drives the base through
+tidybot2-arx's `base_server.py` and the arm through a backend: the ARX5 L5 via
+`real/nuc/arx_arm_server.py` (a joint-space version of tidybot2-arx's `arm_server.py`), a YAM
+backend still to be written, and fakes for `--dry-run`. Cameras are MessyMem's two ZED 2s
+(their calibration) and the wrist fisheye. Settings and calibration are in `real/robot_real.yaml`.
+Start with `run_real check`, then `run_real run real/bringup_skill` at low speed.
+
 ## The split
 
 RoboCasa's train and test kitchens (layouts and styles 11–60 versus 1–10) use disjoint fridge

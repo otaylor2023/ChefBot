@@ -1,0 +1,48 @@
+# The real TidyBot++ for experiments/fridge_lab/real (run_real.py --config). Values from MessyMem's
+# homer/envs/cfgs/real_base_arm.yaml and homer/constants.py, and tidybot2-arx's constants.py.
+
+nuc:
+  host: 192.168.1.1          # the NUC's ethernet address (BASE_RPC_HOST / ARM_RPC_HOST)
+  base_port: 50000           # tidybot2-arx base_server.py
+  arm_port: 50002            # real/nuc/arx_arm_server.py (not arm_server.py's 50001)
+  authkey: secret password   # RPC_AUTHKEY
+
+arm:
+  type: arx_l5               # arx_l5 | yam (not written yet) | fake (no hardware)
+  ready_q: null              # joints (rad) to start each episode from; null: the SDK's home pose
+  # The arm base frame (the skill's "robot root") in the base frame: MessyMem's ARM_X_OFFSET and
+  # BASE_HEIGHT, measured for their arm. CHECK for the arm actually mounted.
+  root_in_base: [0.1199, 0.0, 0.3948]
+
+base:
+  max_vel: [0.25, 0.25, 0.8]     # m/s, m/s, rad/s: the base server's trajectory limits (MessyMem uses 0.25 m/s)
+  max_accel: [0.25, 0.25, 0.8]
+  geofence_m: 1.5                # base targets are kept within this distance of where the episode started
+  yaw_limit_deg: 120             # ... and this much turn
+
+cameras:
+  pole:                      # MessyMem's base1: the ZED 2 on the pole beside the arm
+    type: zed
+    serial: "21582473"
+    extrinsics: null         # 4x4 camera (OpenCV axes) in the arm base frame; null: MessyMem's 09/18 calibration
+    exposure: 40
+    gain: 30
+  base:                      # MessyMem's base2: the ZED 2 low on the front of the base
+    type: zed
+    serial: "26279249"
+    extrinsics: null
+    exposure: 40
+    gain: 30
+  wrist:                     # Arducam IMX291 160-degree fisheye, USB, RGB only
+    type: usb
+    serial: UC684
+    width: 1920
+    height: 1080
+    K: null                  # 3x3 at 640x360; null: the nominal lens (fisheye.py). CALIBRATE (cv2.fisheye.calibrate)
+    D: [-0.02, 0.002, 0.0, 0.0]
+    cam_in_flange: null      # 4x4 camera (OpenCV axes) in the flange frame; null: the sim's mount. CALIBRATE (hand-eye)
+
+safety:
+  speed: 0.5                 # scales the per-step arm limits (the sim's: 2 cm, 0.1 rad, 0.05 rad/joint per step)
+  flange_z_min: -0.30        # m in the arm base frame (~0.1 m above the floor with root_in_base's height)
+  max_episode_s: 90

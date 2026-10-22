@@ -177,8 +177,8 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
     def record(row, rec, held: bool) -> None:
         nonlocal max_deg
         dbg = host.debug()
-        ang = [d["angle_deg"] for d in dbg["doors"]]
-        max_deg = max(max_deg, *ang)
+        ang = [d["angle_deg"] for d in dbg["doors"]]  # none on a real robot
+        max_deg = max(max_deg, *ang) if ang else max_deg
         trace.write(json.dumps({"step": host.step_count, "hold": held, "target": [round(v, 4) for v in row],
                                 "pos_err": round(rec["pos_error_m"], 4), "rot_err": round(rec["rot_error_rad"], 4),
                                 "base_err": round(rec["base_error_m"], 4), "door_deg": [round(a, 2) for a in ang],
@@ -186,7 +186,10 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                                 "touching": dbg["robot_touching"]}) + "\n")  # fmt: skip
 
     def advance(seconds: float) -> None:
-        """The world goes on while the skill thinks: step the sim `seconds`, holding the last command."""
+        """The world goes on while the skill thinks: step the sim `seconds`, holding the last command.
+        A real robot (host.realtime) lived through that time already, holding the command on its own."""
+        if getattr(host, "realtime", False):
+            return
         hold["carry"] += seconds * 15.0
         n = int(hold["carry"])
         hold["carry"] -= n
@@ -386,12 +389,14 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                 t["call"].thread.join(timeout=0)
         log.close()
         shutil.rmtree(xchg, ignore_errors=True)
-    final = host.door_deg()
-    max_deg = max(max_deg, final)
+    final = host.door_deg()  # a real robot: what the operator measured, or None
+    max_deg = max(max_deg, final) if final is not None else None
     sim_s = host.step_count / 15.0
     blocked = (out / "skill_log.txt").read_text(errors="replace").count("[skill sandbox] blocked")
-    result = {"scene": scene["id"], "seed": seed, "door": scene["door"], "final_deg": round(final, 2), "max_deg": round(max_deg, 2),
-              "success60": final >= 60.0, "success85": final >= 85.0, "end": reason, "steps": host.step_count, "sim_s": round(sim_s, 2),
+    rnd = lambda v: None if v is None else round(v, 2)  # noqa: E731
+    result = {"scene": scene["id"], "seed": seed, "door": scene["door"], "final_deg": rnd(final), "max_deg": rnd(max_deg),
+              "success60": None if final is None else final >= 60.0, "success85": None if final is None else final >= 85.0,
+              "end": reason, "steps": host.step_count, "sim_s": round(sim_s, 2),
               "think_s": round(clock["think_s"], 2), "model_s": round(clock["model_s"], 2),
               "robot_time_s": round(sim_s, 2), "model_usd": round(clock["model_usd"], 5),
               "n_llm": clock["n_llm"], "n_vision": clock["n_vision"], "n_observe": clock["n_observe"],
