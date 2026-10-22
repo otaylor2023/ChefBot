@@ -39,7 +39,8 @@ tidybot2-arx's `base_server.py` and the arm through a backend: the ARX5 L5 via
 `real/nuc/arx_arm_server.py` (a joint-space version of tidybot2-arx's `arm_server.py`), a YAM
 backend still to be written, and fakes for `--dry-run`. Cameras are MessyMem's two ZED 2s
 (their calibration) and the wrist fisheye. Settings and calibration are in `real/robot_real.yaml`.
-Start with `run_real check`, then `run_real run real/bringup_skill` at low speed.
+Bring-up: `run_real check`; `calibrate_wrist intrinsics`, then `handeye`, for the wrist camera's
+lens and mount; then `run_real run real/bringup_skill` at low speed.
 
 ## The split
 
