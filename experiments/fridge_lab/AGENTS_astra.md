@@ -91,7 +91,7 @@ is ambiguous, write it down in `research_log.md` and make the conservative choic
 ## Your tools
 
 `./lab` (run `./lab -h`):
-- `./lab scenes`: the dev scenes (31 fridge doors, 24 models).
+- `./lab scenes`: the dev scenes (fridge doors, their type and model).
 - `./lab run skills/X --scene dev05 --seed 0`: one episode. Results go to
   `runs/<job>/<scene>_s<seed>/`: `result.json`, `video.mp4`, `keyframes.jpg`,
   `skill_log.txt`, `images/`, `astra.jsonl` (every request's settings, latency and answer),
