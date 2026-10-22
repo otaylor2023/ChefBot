@@ -10,6 +10,8 @@
   ./lab val SKILL                                score SKILL on the held-out val scenes (aggregate only;
                                                  limited submissions per night): prints a job id; then ./lab wait
   ./lab budget                                   model dollars spent, val submissions left, time left
+  ./lab profile --prompt TEXT [--image PNG] [--effort low] [--tier default] [--n 1] [--reps 3]
+                                                 (Astra lab) time GPT-6 Astra calls, no robot: latency per call
 
 SKILL is a directory under skills/ with a main.py, e.g. skills/v3.
 """
@@ -42,6 +44,8 @@ def call(req: dict, timeout: float) -> dict:
 
 def table(eps: list[dict]) -> str:
     cols = ["scene", "seed", "final_deg", "success60", "success85", "robot_time_s", "sim_s", "think_s", "model_s", "model_usd", "end"]
+    if any("n_astra" in e for e in eps):
+        cols = ["scene", "seed", "final_deg", "success60", "success85", "robot_time_s", "think_s", "n_astra", "astra_s", "end"]
     lines = ["  ".join(f"{c:>12s}" if c != "end" else c for c in cols)]
     for e in eps:
         if e.get("error"):
@@ -60,7 +64,7 @@ def show(r: dict) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(prog="./lab", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["scenes", "run", "suite", "wait", "status", "jobs", "val", "budget"])
+    ap.add_argument("cmd", choices=["scenes", "run", "suite", "wait", "status", "jobs", "val", "budget", "profile"])
     ap.add_argument("arg", nargs="?", help="SKILL (run/suite/val) or JOB (wait/status)")
     ap.add_argument("--scene")
     ap.add_argument("--scenes", default="all")
@@ -68,6 +72,12 @@ def main() -> int:
     ap.add_argument("--seeds", default="0")
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--timeout", type=float, default=900)
+    ap.add_argument("--prompt")
+    ap.add_argument("--image", action="append", default=[], help="a PNG/JPG in the workspace (repeatable)")
+    ap.add_argument("--effort", default="low")
+    ap.add_argument("--tier", default="default")
+    ap.add_argument("--n", type=int, default=1)
+    ap.add_argument("--reps", type=int, default=3)
     a = ap.parse_args()
     if a.cmd in ("run", "suite", "val") and not a.arg:
         ap.error(f"{a.cmd} needs a SKILL directory (e.g. skills/v1)")
@@ -88,6 +98,12 @@ def main() -> int:
     if a.cmd == "suite":
         r = call({"cmd": "suite", "skill": a.arg, "scenes": a.scenes.split(","), "seeds": [int(s) for s in a.seeds.split(",")],
                   "no_video": a.no_video}, 120)  # fmt: skip
+    elif a.cmd == "profile":
+        if not a.prompt:
+            ap.error("profile needs --prompt")
+        imgs = [str(Path(i).resolve()) for i in a.image]
+        r = call({"cmd": "profile", "prompt": a.prompt, "images": imgs, "effort": a.effort, "tier": a.tier, "n": a.n, "reps": a.reps},
+                 a.reps * 150 + 60)  # fmt: skip
     elif a.cmd == "val":
         r = call({"cmd": "val", "skill": a.arg}, 120)
     elif a.cmd in ("wait", "status"):

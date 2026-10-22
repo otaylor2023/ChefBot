@@ -31,10 +31,13 @@ from pathlib import Path
 import imageio.v3 as iio
 import numpy as np
 
+from experiments.fridge_lab import astra as A
 from experiments.fridge_lab import models as M
 
 SKILL_API = Path(__file__).resolve().parent / "skill_api" / "fridge_robot.py"
-LIMITS = {"control_steps": 1350, "think_s": 90.0, "model_usd": 0.10, "wall_s": 900.0}  # 1350 steps = 90 s of world time, thinking included
+LIMITS = {"control_steps": 1350, "think_s": 90.0, "model_usd": 0.10, "wall_s": 900.0, "astra_calls": 16, "astra_in_flight": 2}  # 1350 steps = 90 s of world time
+# Which models a skill may call: "gemini" (Gemini + OWLv2/DINO/SAM, the skill labs) or "astra" (GPT-6 Astra through Codex only).
+MODELS = os.environ.get("FRIDGE_MODELS", "gemini")
 MAX_ROWS = 150
 STARTUP_GRACE_S = 15.0
 
@@ -118,8 +121,10 @@ def sandbox_kind() -> str:
 
 
 def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, ledger: M.Ledger, vision: M.Vision,
-                      limits: dict | None = None, record: bool = True, tag: str = "") -> dict:  # fmt: skip
-    """Reset the host at the scene's door with this seed, run the skill to the end, score it."""
+                      limits: dict | None = None, record: bool = True, tag: str = "", astra_replay: list | None = None) -> dict:  # fmt: skip
+    """Reset the host at the scene's door with this seed, run the skill to the end, score it.
+    astra_replay: Astra answers recorded in another episode, given back in order instead of calling Astra (the
+    answer-swap check: does the skill still succeed when the model's decisions are about a different fridge?)."""
     limits = {**LIMITS, **(limits or {})}
     out.mkdir(parents=True, exist_ok=True)
     host.out, host.record = out, record
@@ -142,7 +147,12 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
 
     trace = open(out / "trace.jsonl", "w")
     calls = open(out / "calls.jsonl", "w")
-    clock = {"think_s": 0.0, "model_s": 0.0, "model_usd": 0.0, "n_llm": 0, "n_vision": 0, "n_observe": 0}
+    clock = {"think_s": 0.0, "model_s": 0.0, "model_usd": 0.0, "n_llm": 0, "n_vision": 0, "n_observe": 0, "n_astra": 0, "astra_s": 0.0,
+             "astra_in_tokens": 0, "astra_out_tokens": 0}  # fmt: skip
+    tickets: dict[int, dict] = {}  # Astra calls: ticket -> {call, sim_t0}
+    sessions: dict[str, str] = {}
+    transcript = open(out / "astra.jsonl", "w") if MODELS == "astra" else None
+    replay = list(astra_replay or [])
     t_start = time.time()
     reason, max_deg, images_saved = "skill returned", 0.0, 0
 
@@ -251,6 +261,44 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                             record(hold["row"], rec, False)
                             steps.append({k: rec[k] for k in ("pos_error_m", "rot_error_rad", "base_error_m", "ik_ok")})
                         resp = {"proprio": host.proprio(), "steps": steps}
+                elif op in ("llm", "detect", "segment") and MODELS == "astra":
+                    resp = {"error": "this lab has no Gemini or vision models: the only model is robot.astra(...)"}
+                elif op == "astra_start":
+                    if MODELS != "astra":
+                        raise A.AstraError("robot.astra is not available in this lab")
+                    a = A.check(req)
+                    if clock["n_astra"] >= limits["astra_calls"]:
+                        raise A.AstraError(f"at most {limits['astra_calls']} Astra calls per episode")
+                    if sum(1 for t in tickets.values() if not t.get("collected")) >= limits["astra_in_flight"]:
+                        raise A.AstraError(f"at most {limits['astra_in_flight']} Astra calls in flight; collect one first")
+                    clock["n_astra"] += 1
+                    imgs = [np.load(xchg / Path(n).name) for n in a["images"]]
+                    call = A.Replay(replay.pop(0) if replay else {"ok": False, "error": "no recorded answer", "latency_s": 0.0}) \
+                        if astra_replay is not None else A.Call(a, imgs, sessions, A.codex_env())
+                    tickets[clock["n_astra"]] = {"call": call, "sim_t0": host.step_count / 15.0, "args": a}
+                    resp = {"ticket": clock["n_astra"]}
+                elif op in ("astra_poll", "astra_wait"):
+                    t = tickets.get(int(req.get("ticket") or 0))
+                    if t is None:
+                        raise A.AstraError("unknown ticket")
+                    call, sim_now = t["call"], host.step_count / 15.0
+                    if op == "astra_poll" and not (call.done() and sim_now >= t["sim_t0"] + call.result["latency_s"]):
+                        resp = {"ready": False}
+                    else:
+                        r = call.wait()
+                        # the answer arrives `latency` after the request, in world time: wait for it if it hasn't yet
+                        debt += max(0.0, t["sim_t0"] + r["latency_s"] - sim_now)
+                        if not t.get("collected"):
+                            t["collected"] = True
+                            clock["astra_s"] += r["latency_s"]
+                            u = r.get("usage") or {}
+                            clock["astra_in_tokens"] += int(u.get("input_tokens") or 0)
+                            clock["astra_out_tokens"] += int(u.get("output_tokens") or 0)
+                            transcript.write(json.dumps({"ticket": req.get("ticket"), "sim_t0": round(t["sim_t0"], 2), "args": {k: v for k, v in t["args"].items() if k != "images"},
+                                                         "n_images": len(t["args"]["images"]), "result": r}) + "\n")  # fmt: skip
+                            transcript.flush()
+                        resp = {"ready": True, "ok": r.get("ok"), "text": r.get("text"), "json": r.get("json"), "failure": r.get("error"),
+                                "latency_s": r.get("latency_s"), "usage": r.get("usage")}  # fmt: skip
                 elif op == "llm":
                     imgs = [np.load(xchg / Path(n).name) for n in req.get("images") or []]
                     clock["n_llm"] += 1
@@ -327,6 +375,11 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
             proc.kill()
         trace.close()
         calls.close()
+        if transcript:
+            transcript.close()
+        for t in tickets.values():
+            if not t["call"].done():
+                t["call"].thread.join(timeout=0)
         log.close()
         shutil.rmtree(xchg, ignore_errors=True)
     final = host.door_deg()
@@ -338,6 +391,8 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
               "think_s": round(clock["think_s"], 2), "model_s": round(clock["model_s"], 2),
               "robot_time_s": round(sim_s, 2), "model_usd": round(clock["model_usd"], 5),
               "n_llm": clock["n_llm"], "n_vision": clock["n_vision"], "n_observe": clock["n_observe"],
+              "n_astra": clock["n_astra"], "astra_s": round(clock["astra_s"], 2), "astra_in_tokens": clock["astra_in_tokens"],
+              "astra_out_tokens": clock["astra_out_tokens"],
               "wall_s": round(time.time() - t_start, 2), "sandbox": sandbox_kind(), "sandbox_blocked": blocked,
               "start_pose": [pose.x, pose.y, pose.yaw]}  # fmt: skip
     if record:

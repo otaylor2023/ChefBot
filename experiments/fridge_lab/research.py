@@ -20,6 +20,7 @@ import queue
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -97,16 +98,19 @@ from the new cameras and hold up when they shift between episodes.
 
 
 def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, sandbox: str | None = None,
-                    robot: str = "panda", prior: Path | None = None, prior_robot: str = "panda", web_search: bool = False) -> None:
+                    robot: str = "panda", prior: Path | None = None, prior_robot: str = "panda", web_search: bool = False,
+                    astra: bool = False) -> None:
     ws.mkdir(parents=True, exist_ok=True)
     (ws / "docs").mkdir(exist_ok=True)
     (ws / "skills").mkdir(exist_ok=True)
     shutil.copy(HERE / "lab_cli.py", ws / "lab")
     os.chmod(ws / "lab", 0o755)
     shutil.copy(HERE / "skill_api" / "fridge_robot.py", ws / "docs" / "fridge_robot.py")
-    text = (HERE / "AGENTS.md").read_text()
+    text = (HERE / ("AGENTS_astra.md" if astra else "AGENTS.md")).read_text()
     text = text.replace("{HOURS}", f"{hours:g}").replace("{USAGE_CAP}", f"{usage_cap:g}").replace("{MODEL_USD}", f"{model_usd:g}")
-    text = text.replace("{LIMITS}", json.dumps(LIMITS)).replace("{VAL_SUBMISSIONS}", str(lab_server.VAL_SUBMISSIONS))
+    limits = {k: v for k, v in LIMITS.items() if k in ("control_steps", "think_s", "wall_s", "astra_calls", "astra_in_flight")} if astra else \
+        {k: v for k, v in LIMITS.items() if not k.startswith("astra")}
+    text = text.replace("{LIMITS}", json.dumps(limits)).replace("{VAL_SUBMISSIONS}", str(lab_server.VAL_SUBMISSIONS))
     text = text.replace("{SANDBOX}", sandbox or sandbox_kind())
     text = text.replace("{WEB}", WEB_TEXT if web_search else "")
     text = text.replace("{ROBOT}", ROBOT_TEXT[robot]).replace("{PRIOR}", PRIOR_TEXT[prior_robot] if prior else "")
@@ -118,7 +122,7 @@ def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, 
             shutil.copy(prior / f, ws / "prior" / f)
     (ws / "AGENTS.md").write_text(text)
     if not (ws / "skills" / "example").exists():
-        shutil.copytree(HERE / "example_skill", ws / "skills" / "example")
+        shutil.copytree(HERE / ("example_astra" if astra else "example_skill"), ws / "skills" / "example")
     if not (ws / "research_log.md").exists():
         (ws / "research_log.md").write_text("# Research log\n\n")
     (ws / ".gitignore").write_text("runs/\n.lab/\n__pycache__/\n")
@@ -126,6 +130,22 @@ def setup_workspace(ws: Path, hours: float, usage_cap: float, model_usd: float, 
         subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
         subprocess.run(["git", "add", "-A"], cwd=ws, check=True)
         subprocess.run(["git", "-c", "user.name=lab", "-c", "user.email=lab@localhost", "commit", "-q", "-m", "workspace"], cwd=ws, check=True)
+
+
+def hide_prefix(hide: list[str], workspace: Path) -> list[str]:
+    """bubblewrap around Codex (no root needed): the whole filesystem read-only, `hide` paths empty, the workspace and
+    Codex's own home writable. For a lab where the researcher runs as the same user as the lab (no separate account)."""
+    args = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--die-with-parent"]
+    for h in hide:
+        p = Path(h)
+        if p.is_dir():
+            args += ["--tmpfs", str(p)]
+        elif p.exists():
+            args += ["--ro-bind", "/dev/null", str(p)]
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    for w in (workspace, codex_home, Path(tempfile.gettempdir())):
+        args += ["--bind", str(w.resolve()), str(w.resolve())]
+    return args + ["--"]
 
 
 def codex_cmd(model: str, effort: str, sandbox: str, resume: str | None, prompt: str, search: bool = False) -> list[str]:
@@ -157,12 +177,15 @@ def main() -> int:
     ap.add_argument("--robot", default=os.environ.get("FRIDGE_ROBOT", "panda"), choices=sorted(ROBOT_TEXT),
                     help="the lab's robot (set FRIDGE_ROBOT to the same on the lab's side), for the brief")
     ap.add_argument("--prior", type=Path, default=None, help="a finished workspace to give the researcher as prior work")
+    ap.add_argument("--hide", default=os.environ.get("FRIDGE_HIDE", ""), help="colon list of paths Codex must not see "
+                    "(run in bubblewrap; for a lab without a separate researcher account)")
     ap.add_argument("--web-search", action="store_true", help="give Codex its web search tool (each query is logged); commands stay offline")
     ap.add_argument("--prior-robot", default="panda", choices=sorted(ROBOT_TEXT), help="the robot the prior work was done on")
     args = ap.parse_args()
     load_env(REPO / ".env")
     ws, private = args.root / "workspace", args.root / "private"
-    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None, args.robot, args.prior, args.prior_robot, args.web_search)
+    setup_workspace(ws, args.hours, args.usage_cap, args.model_usd, args.remote_sandbox if args.remote else None, args.robot, args.prior, args.prior_robot, args.web_search,
+                    os.environ.get("FRIDGE_MODELS") == "astra")
     codex_home = Path.home()
     if args.codex_user:
         import pwd
@@ -228,6 +251,8 @@ def main() -> int:
                 prompt = (f"Your turn ended, but the research session continues: {left_min / 60:.1f} hours left. Keep going with the "
                           "next experiment from your research log. (./lab budget for budgets.)")  # fmt: skip
             cmd = codex_cmd(args.model, args.effort, args.codex_sandbox, thread_id, prompt, args.web_search)
+            if args.hide:
+                cmd = hide_prefix([h for h in args.hide.split(":") if h], ws) + cmd
             env = None
             if args.codex_user:  # the pod: Codex runs as an unprivileged user (no access to the lab's private files)
                 cmd = ["setpriv", f"--reuid={args.codex_user}", f"--regid={args.codex_user}", "--init-groups", "--"] + cmd

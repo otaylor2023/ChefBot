@@ -41,7 +41,7 @@ def _worker_init(env: dict) -> None:
 
 
 def _worker_run(scene: dict, seed: int, skill_dir: str, out: str, ledger: tuple, vision_url: str | None, record: bool, tag: str,
-                limits: dict | None) -> dict:  # fmt: skip
+                limits: dict | None, astra_replay: list | None = None) -> dict:  # fmt: skip
     global _host
     from experiments.fridge_lab import models as M
     from experiments.fridge_lab.episode import run_skill_episode
@@ -54,7 +54,7 @@ def _worker_run(scene: dict, seed: int, skill_dir: str, out: str, ledger: tuple,
                 _host[1].close()
             _host = (key, LabHost(scene["layout"], scene["style"], Path(out), record=record))
         r = run_skill_episode(_host[1], scene, seed, Path(skill_dir), Path(out), M.Ledger(Path(ledger[0]), ledger[1]), M.Vision(vision_url),
-                              limits=limits, record=record, tag=tag)  # fmt: skip
+                              limits=limits, record=record, tag=tag, astra_replay=astra_replay)  # fmt: skip
         return r
     except Exception:  # noqa: BLE001
         err = traceback.format_exc()[-1500:]
@@ -94,6 +94,8 @@ def summarize(results: list[dict]) -> dict:
             "success85": round(sum(r["success85"] for r in results) / max(n, 1), 3), "mean_final_deg": mean("final_deg"),
             "mean_robot_time_s": mean("robot_time_s"), "mean_sim_s": mean("sim_s"), "mean_think_s": mean("think_s"),
             "mean_model_s": mean("model_s"), "mean_model_usd": mean("model_usd"), "mean_wall_s": mean("wall_s"),
+            **({"mean_astra_calls": mean("n_astra"), "mean_astra_s": mean("astra_s"), "mean_astra_in_tokens": mean("astra_in_tokens")}
+               if any("n_astra" in r for r in ok) else {}),
             "sandbox_blocked_total": sum(r.get("sandbox_blocked", 0) for r in ok)}  # fmt: skip
 
 
@@ -216,6 +218,8 @@ class Lab:
         if cmd == "jobs":
             return {"jobs": [{"job": k, "kind": j["kind"], "skill": j["skill"], "done": sum(f.done() for f in j["futures"]),
                               "total": len(j["futures"])} for k, j in self.jobs.items()]}  # fmt: skip
+        if cmd == "profile":
+            return self.profile(req)
         if cmd == "budget":
             from experiments.fridge_lab.models import Ledger
 
@@ -229,6 +233,27 @@ class Lab:
                 out["codex_weekly_used_percent"] = usage
             return out
         return {"error": f"unknown command {cmd!r}"}
+
+    def profile(self, req: dict) -> dict:
+        """Time Astra calls with no robot (the researcher's latency measurements). Images must be in the workspace."""
+        import imageio.v3 as iio
+
+        from experiments.fridge_lab import astra as A
+
+        if os.environ.get("FRIDGE_MODELS", "gemini") != "astra":
+            return {"error": "profile is for the Astra lab"}
+        ws = self.ws.resolve()
+        paths = [Path(p).resolve() for p in req.get("images") or []]
+        if any(ws not in p.parents for p in paths):
+            return {"error": "images must be files in the workspace"}
+        a = A.check({**req, "images": [str(p) for p in paths]})
+        imgs = [iio.imread(p)[..., :3] for p in paths]
+        out = []
+        for _ in range(max(1, min(int(req.get("reps") or 3), 8))):
+            r = A.Call(a, imgs, {}, A.codex_env()).wait()
+            out.append({k: r.get(k) for k in ("ok", "latency_s", "text", "error", "usage")})
+        lat = sorted(r["latency_s"] for r in out)
+        return {"calls": out, "latency_s": {"min": lat[0], "median": lat[len(lat) // 2], "max": lat[-1]}}
 
     def serve_forever(self, stop: threading.Event | None = None) -> None:
         stop = stop or threading.Event()

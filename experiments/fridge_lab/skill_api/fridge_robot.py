@@ -16,7 +16,9 @@ be (x, y, yaw in odom). Each step the base drives toward its target (at most 0.5
 Time: the world does not wait for you. While your process computes, or waits on an
 llm/detect/segment call, the simulation keeps running for that long, the robot holding
 its last command (the base still driving to its last target, the gripper as it was),
-before your next request is served. An episode is 90 s of world time (1350 steps of
+before your next request is served. An Astra answer (astra_start) arrives its real
+latency after the request, in world time; until then the robot keeps doing whatever you
+command (astra_poll between act() calls), and astra_wait lets the world run on until it arrives. An episode is 90 s of world time (1350 steps of
 15 Hz), thinking included, and is scored on that time (`robot_time_s`). You may compute
 in a thread while `act()` executes motion: that overlap is free, as on a real robot.
 Calls to the robot are served one at a time. Budgets (see `robot.budget()`): control
@@ -127,6 +129,34 @@ class Robot:
         r = self._call("segment", image=self._put(np.asarray(image, dtype=np.uint8)), boxes=boxes, points=points,
                        point_labels=point_labels, model=model)  # fmt: skip
         return self._get(r["masks"]).astype(bool)
+
+    # -- GPT-6 Astra (the Astra lab: the robot's only model) ----------------------------------
+
+    def astra(self, prompt: str, images: list[np.ndarray] | None = None, schema: dict | None = None, effort: str = "low",
+              tier: str = "default", n: int = 1, instructions: str | None = None, session: str | None = None) -> dict:
+        """Ask GPT-6 Astra and wait for the answer: astra_start(...) then astra_wait(ticket)."""
+        return self.astra_wait(self.astra_start(prompt, images, schema, effort, tier, n, instructions, session))
+
+    def astra_start(self, prompt: str, images: list[np.ndarray] | None = None, schema: dict | None = None, effort: str = "low",
+                    tier: str = "default", n: int = 1, instructions: str | None = None, session: str | None = None) -> int:
+        """Send a request to GPT-6 Astra (through Codex, with no tools: it can only look and answer) and return a
+        ticket at once; the robot keeps going meanwhile. images: RGB uint8 arrays (at most 6). schema: a JSON schema
+        the answer must follow. effort: low | medium | high | xhigh. tier: default | fast | priority. n: send that many
+        identical requests at once and take the first answer (1..4). instructions: replaces the model's system
+        instructions. session: a name; calls with the same name continue one conversation (n=1)."""
+        names = [self._put(np.asarray(im, dtype=np.uint8)) for im in images or []]
+        return self._call("astra_start", prompt=prompt, images=names, schema=schema, effort=effort, tier=tier, n=n,
+                          instructions=instructions, session=session)["ticket"]  # fmt: skip
+
+    def astra_poll(self, ticket: int) -> dict | None:
+        """The answer if it has arrived (in world time), else None. Doesn't wait."""
+        r = self._call("astra_poll", ticket=ticket)
+        return r if r.get("ready") else None
+
+    def astra_wait(self, ticket: int) -> dict:
+        """Wait for the answer (the world runs on meanwhile, the robot holding its last command). Returns {"ok", "text",
+        "json" (parsed when a schema was given), "failure" (why, when not ok), "latency_s", "usage"}."""
+        return self._call("astra_wait", ticket=ticket)
 
     def models(self) -> dict:
         """{"llm": {name: {"input_per_mtok", "output_per_mtok"}}, "vision": [names]}"""

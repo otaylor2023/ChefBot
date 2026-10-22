@@ -54,6 +54,8 @@ def main() -> int:
     ap.add_argument("--name", default=None)
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--scenes", default=None, help="comma list of scene ids (default: the whole split)")
+    ap.add_argument("--swap-from", default=None, help="Astra lab: an earlier eval of this skill on this split; each episode gets the "
+                    "Astra answers recorded on a different fridge model (same seed), in order, with their recorded latency")
     args = ap.parse_args()
     if not args.oracle and not args.skill:
         ap.error("--skill or --oracle")
@@ -66,6 +68,14 @@ def main() -> int:
     root = LAB_ROOT / "eval" / name
     root.mkdir(parents=True, exist_ok=True)
     episodes = [(s, sd) for s in scenes for sd in seeds]
+    replays = {}
+    if args.swap_from:
+        # the answer-swap check: scene i gets the answers recorded on the next scene with a different fridge model
+        for i, s in enumerate(scenes):
+            other = next(o for o in scenes[i + 1:] + scenes[:i] if o["model"] != s["model"])
+            for sd in seeds:
+                f = LAB_ROOT / "eval" / args.swap_from / f"{other['id']}_s{sd}" / "astra.jsonl"
+                replays[(s["id"], sd)] = [json.loads(l)["result"] for l in f.read_text().splitlines()] if f.exists() else []
     results = []
     ctx = mp.get_context("spawn")
     env = {k: v for k, v in os.environ.items() if k.startswith(("MUJOCO", "PYOPENGL", "GEMINI", "FRIDGE", "EGL", "CUDA"))}
@@ -91,7 +101,8 @@ def main() -> int:
                 futs = {ex.submit(_oracle_run, s, sd, str(root / f"{s['id']}_s{sd}")): (s, sd) for s, sd in todo}
             else:
                 futs = {ex.submit(_worker_run, s, sd, str(skill), str(root / f"{s['id']}_s{sd}"), ledger, args.vision_url, not args.no_video,
-                                  f"eval/{name}/{s['id']}_s{sd}", None): (s, sd) for s, sd in todo}  # fmt: skip
+                                  f"eval/{name}/{s['id']}_s{sd}", None, replays.get((s["id"], sd)) if args.swap_from else None): (s, sd)
+                        for s, sd in todo}  # fmt: skip
             todo = []
             for f in as_completed(futs):
                 s, sd = futs[f]
