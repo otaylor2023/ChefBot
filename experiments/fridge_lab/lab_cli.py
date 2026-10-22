@@ -16,6 +16,8 @@
 SKILL is a directory under skills/ with a main.py, e.g. skills/v3.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
