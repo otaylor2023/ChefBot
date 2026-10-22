@@ -73,7 +73,7 @@ Sandbox here: {SANDBOX}. Blocked attempts are logged and counted in every result
 
 `./lab` (run `./lab -h`):
 
-- `./lab scenes`: the **dev** scenes (31 fridge doors, 24 fridge models).
+- `./lab scenes`: the **dev** scenes (fridge doors, their type and model).
 - `./lab run skills/X --scene dev05 --seed 0`: one episode.
   - Results go to `runs/<job>/<scene>_s<seed>/`:
     - `result.json`;
@@ -103,9 +103,9 @@ to these, and if something is ambiguous, write it down in `research_log.md` and 
 the conservative choice.
 
 1. **Don't look for the val or test sets.**
-   - Don't open or search for the RoboCasa test split (styles and layouts 1–10, or
-     its fridge models), the lab's private directory, `scenes.json`, or any val or
-     test results beyond what `./lab val` prints.
+   - Don't open or search for RoboCasa's kitchens, layouts, styles or fridge models, the
+     lab's private directory, the scene files (`scenes*.json`), or any val or test
+     results beyond what `./lab val` prints.
    - Don't build simulator environments yourself. Use `./lab` only.
 {WEB}2. **The skill uses the robot API only.**
    - No simulator state, no files from runs, no hidden channels.
