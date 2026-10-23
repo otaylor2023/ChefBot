@@ -73,9 +73,8 @@ class RobotFault(RuntimeError):
 class RealHost:
     realtime = True
 
-    def __init__(self, cfg: dict, out_dir: Path, record: bool = True, door_angle=None, log=print):
+    def __init__(self, cfg: dict, out_dir: Path, record: bool = True, log=print):
         self.cfg, self.out, self.record, self.log = cfg, Path(out_dir), record, log
-        self.door_angle = door_angle  # () -> the door's final angle as measured by the operator (deg), or None
         s = cfg["safety"]
         self.speed, self.z_min = float(s["speed"]), float(s["flange_z_min"])
         self.geofence, self.yaw_limit = float(cfg["base"]["geofence_m"]), math.radians(float(cfg["base"]["yaw_limit_deg"]))
@@ -289,8 +288,8 @@ class RealHost:
     def debug(self) -> dict:
         return {"doors": [], "robot_touching": []}  # no ground truth on a real robot
 
-    def door_deg(self) -> float | None:
-        return self.door_angle() if self.door_angle else None
+    def door_deg(self) -> None:
+        return None  # nothing measures the door on the real robot
 
     # -- recording -------------------------------------------------------------------
 

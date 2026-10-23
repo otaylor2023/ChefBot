@@ -389,7 +389,7 @@ def run_skill_episode(host, scene: dict, seed: int, skill_dir: Path, out: Path, 
                 t["call"].thread.join(timeout=0)
         log.close()
         shutil.rmtree(xchg, ignore_errors=True)
-    final = host.door_deg()  # a real robot: what the operator measured, or None
+    final = host.door_deg()  # None on a real robot: nothing measures the door
     max_deg = max(max_deg, final) if final is not None else None
     sim_s = host.step_count / 15.0
     blocked = (out / "skill_log.txt").read_text(errors="replace").count("[skill sandbox] blocked")

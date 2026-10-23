@@ -8,8 +8,8 @@
 
 On the NUC first: tidybot2-arx's base_server.py, and real/nuc/arx_arm_server.py (in place of
 arm_server.py). Results go to --out (default ~/fridge_lab/real_runs/<time>): result.json, video.mp4,
-keyframes.jpg, skill_log.txt, images/, calls.jsonl, trace.jsonl, astra.jsonl; the door angle comes
-from the operator at the end. Ctrl-C stops the robot where it is.
+keyframes.jpg, skill_log.txt, images/, calls.jsonl, trace.jsonl, astra.jsonl. Ctrl-C stops the robot
+where it is.
 """
 
 from __future__ import annotations
@@ -36,17 +36,6 @@ def load_config(path: Path, args) -> dict:
     if getattr(args, "speed", None) is not None:
         cfg["safety"]["speed"] = float(args.speed)
     return cfg
-
-
-def ask_angle() -> float | None:
-    while True:
-        a = input("Door angle at the end, in degrees (blank: not measured): ").strip()
-        if not a:
-            return None
-        try:
-            return float(a)
-        except ValueError:
-            print("a number, please")
 
 
 def check(args) -> None:
@@ -79,7 +68,7 @@ def run(args) -> None:
     cfg = load_config(args.config, args)
     out = Path(args.out or Path.home() / "fridge_lab" / "real_runs" / time.strftime("%Y%m%d_%H%M%S"))
     out.mkdir(parents=True, exist_ok=True)
-    host = RealHost(cfg, out, record=not args.no_video, door_angle=None if args.dry_run else ask_angle)
+    host = RealHost(cfg, out, record=not args.no_video)
     try:
         missing = host.uncalibrated()
         if missing and not (args.dry_run or args.uncalibrated_ok):
@@ -102,7 +91,7 @@ def run(args) -> None:
             raise
         result["real"] = {"config": {k: cfg[k] for k in ("arm", "base", "safety")}, "uncalibrated": missing, "fault": repr(host.fault) if host.fault else None}
         (out / "result.json").write_text(json.dumps(result, indent=1))
-        print(json.dumps({k: result.get(k) for k in ("final_deg", "success60", "success85", "end", "robot_time_s", "n_llm", "n_astra")}))
+        print(json.dumps({k: result.get(k) for k in ("end", "robot_time_s", "n_llm", "n_astra", "model_usd")}))
         print("results in", out)
     finally:
         host.close()
