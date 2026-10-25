@@ -5,6 +5,10 @@ mobile manipulator around a kitchen and to pick things up, put them down and
 open fixtures. See [NAV_SPEC.md](NAV_SPEC.md) and [MANIP_SPEC.md](MANIP_SPEC.md)
 for the design.
 
+The fridge lab, Astranomy and ortho-grasp experiments and the YAM TidyBot moved
+to the IPRL repo, agentic-skills-exploration. The last ChefBot commit with them
+is tagged `archive/agentic-experiments`.
+
 ```
 agent  (chefbot/agent)   tools, semantic map, detections, nearby view, held object     env-agnostic
   |  RobotAPI + Detector  (in-process, or RemoteRobot over a websocket)

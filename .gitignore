@@ -8,6 +8,4 @@ dist/
 rollouts/
 .env
 runs/
-experiments/ortho_grasp/results/
-experiments/astranomy/results/
-experiments/fridge_lab/results/
+experiments/

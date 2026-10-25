@@ -1,4 +1,0 @@
-# S6: the best S1-S5 config (v1_partial, highest e2_valid) on Gemini Robotics-ER
-name: gemini_er
-geometry: partial
-model: gemini_er
