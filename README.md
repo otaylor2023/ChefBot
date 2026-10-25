@@ -144,6 +144,23 @@ a task can override it under `symbolic: {timing: ...}`): the robot drives at
 ~2.5. Tool results say how long each call took. Long tasks raise their own run
 limits (`limits: {max_turns: 250}` in the task file).
 
+## Exploring, then moving things
+
+`chefbot.scripts.explore` builds the map from the fixtures alone
+(runs/<run>/explored_map.yaml). The agent can start a task from it instead of
+the true map, and `chefbot.scripts.rearrange` checks that the map keeps up
+when things move: a scripted policy (no LLM) picks objects up, drives
+elsewhere and puts them down on other surfaces, and only after the run is the
+agent's map scored against the true one (pick and place success, each move,
+the map after the moves and the map had it never followed them).
+
+```sh
+python -m chefbot.scripts.run_agent --task chefbot/tasks/fried_egg.yaml --map runs/<explore run>/explored_map.yaml
+python -m chefbot.scripts.rearrange                                   # symbolic: explore, then 6 moves
+python -m chefbot.scripts.rearrange --env robocasa --moves 8          # RoboCasa layout 1, ground-truth detect
+python -m chefbot.scripts.rearrange --env robocasa --layout 7 --task chefbot/tasks/explore_kitchen_hard.yaml
+```
+
 ## Tests
 
 ```sh

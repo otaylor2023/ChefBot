@@ -47,11 +47,12 @@ def run(
     env: str = "symbolic",
     video: bool = False,
     video_speed: int = 2,
+    start_map: Path | None = None,
 ) -> dict:
     from chefbot.scripts.envs import ENVS
 
     config = config or LoopConfig.load()
-    world = ENVS[env](task_path, seed, noise)
+    world = ENVS[env](task_path, seed, noise, start_map)
     # A long task can raise its own run limits: `limits: {max_turns: 250}` in the task file.
     limits = {k: v for k, v in (world.task.get("limits") or {}).items() if hasattr(config, k)}
     if limits:
@@ -162,6 +163,8 @@ def main() -> int:
     parser.add_argument("--env", choices=["symbolic", "robocasa"], default="symbolic")
     parser.add_argument("--video", action="store_true", help="record the run (robocasa): runs/<run>/video.mp4")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--map", type=Path, dest="start_map",
+                        help="start from this map (an explored_map.yaml) instead of the true one")  # fmt: skip
     parser.add_argument("--out", type=Path, default=REPO / "runs")
     parser.add_argument("--model")
     parser.add_argument("--judge-model")
@@ -177,7 +180,7 @@ def main() -> int:
                              max_llm_cost_usd=args.max_llm_cost_usd)  # fmt: skip
     operator = terminal_operator if args.operator == "terminal" else (lambda reason, a=args.operator: a)
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
-                 env=args.env, video=args.video)  # fmt: skip
+                 env=args.env, video=args.video, start_map=args.start_map)  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
     return 0 if result["success"] else 1

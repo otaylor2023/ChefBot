@@ -65,10 +65,10 @@ def strip_objects(semantic: dict) -> dict:
     return {"frame": semantic.get("frame", "world"), "fixtures": semantic.get("fixtures") or {}, "objects": {}}
 
 
-def symbolic_world(task: Path, seed: int) -> World:
+def symbolic_world(task: Path, seed: int, noise: str = "off") -> World:
     from chefbot.envs.symbolic.scenario import Scenario
 
-    sc = Scenario.load(task, seed, noise="off")
+    sc = Scenario.load(task, seed, noise)
     start = strip_objects(sc.world.map_dict())
     for name, f in sc.world.fixtures.items():
         start["fixtures"][name]["size"] = [round(f.width, 3), 0.6]

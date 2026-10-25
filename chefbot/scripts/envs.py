@@ -3,6 +3,11 @@
   symbolic   the symbolic kitchen (task file `symbolic:` section)
   robocasa   a RoboCasa kitchen (task file `robocasa:` section: layout, style,
              objects to spawn, success rules, timing)
+
+`start_map`: the map the agent starts from, in place of the true one (an
+explored_map.yaml from chefbot.scripts.explore). Its fixtures get their
+footprints from the kitchen's start map when there is one. With it, a
+RoboCasa run writes only the occupancy grid: no true map is made.
 """
 
 from __future__ import annotations
@@ -37,7 +42,17 @@ class EnvRun:
     close: Callable[[], None] = lambda: None
 
 
-def symbolic(task_path: Path, seed: int, noise: str) -> EnvRun:
+def _given_map(path: Path, fixtures: dict | None = None) -> WorldMap:
+    """The map in `path`; `fixtures` (a start map: fixtures with footprints) fills in what it leaves out."""
+    import yaml
+
+    from chefbot.explore.rearrange import initial_map
+
+    given = yaml.safe_load(Path(path).read_text())
+    return WorldMap.from_dict(initial_map(fixtures, given) if fixtures else given)
+
+
+def symbolic(task_path: Path, seed: int, noise: str, start_map: Path | None = None) -> EnvRun:
     from chefbot.envs.symbolic.scenario import Scenario
 
     sc = Scenario.load(task_path, seed, noise)
@@ -47,15 +62,15 @@ def symbolic(task_path: Path, seed: int, noise: str) -> EnvRun:
             sc.world.set_power(burner.name, False)
 
     return EnvRun(
-        sc.name, sc.task, sc.robot, sc.detector, WorldMap.from_dict(sc.map), sc.clock, sc.observer, sc.safety,
+        sc.name, sc.task, sc.robot, sc.detector, _given_map(start_map) if start_map else WorldMap.from_dict(sc.map), sc.clock, sc.observer, sc.safety,
         sc.success, on_limit, sc.on_plan, sc.on_tool, sc.applied,
         info={"env": "symbolic", "disturbances": [d.spec for d in sc.disturbances],
               "failures": sc.robot.rates.__dict__, "noise": noise},
     )  # fmt: skip
 
 
-def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
-    from chefbot.envs.robocasa.build_map import GRID_FILE, SEMANTIC_MAP_FILE, build_map
+def robocasa(task_path: Path, seed: int, noise: str, start_map: Path | None = None) -> EnvRun:
+    from chefbot.envs.robocasa.build_map import GRID_FILE, SEMANTIC_MAP_FILE, START_MAP_FILE, build_map, write_grid
     from chefbot.envs.robocasa.config import RoboCasaConfig
     from chefbot.envs.robocasa.env import RoboCasaEnv
     from chefbot.envs.robocasa.kitchen_state import RoboCasaClock, RoboCasaKitchen, RoboCasaObserver
@@ -77,7 +92,13 @@ def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
     name = task.get("name", task_path.stem)
     # The map depends on the spawned objects: one per task and kitchen, built once.
     map_dir = REPO / "runs" / "maps" / f"{name}_layout{layout:03d}_style{style:03d}"
-    if not (map_dir / GRID_FILE).exists():
+    if start_map is not None:  # the agent's own map: the grid alone, no true map
+        map_dir = map_dir.with_name(map_dir.name + "_grid")
+        if not (map_dir / GRID_FILE).exists():
+            write_grid(env, map_dir)
+        fixtures = config.map_dir / START_MAP_FILE
+        world_map = _given_map(start_map, load_yaml(fixtures) if fixtures.exists() else None)
+    elif not (map_dir / GRID_FILE).exists():
         build_map(env, map_dir)
     stack: RoboCasaStack = wire_stack(env, map_dir, RobotConfig.load())
     kitchen = RoboCasaKitchen(env, stack.robot._fixture_actuator, Timing.load(spec.get("timing")))
@@ -94,10 +115,13 @@ def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
             for burner in burners(env):
                 set_burner(env, burner, False, np.random.RandomState(0))
 
+    if start_map is None:
+        world_map = WorldMap.load(map_dir / SEMANTIC_MAP_FILE)
     return EnvRun(
-        name, task, stack.robot, stack.detector, WorldMap.load(map_dir / SEMANTIC_MAP_FILE), RoboCasaClock(kitchen),
+        name, task, stack.robot, stack.detector, world_map, RoboCasaClock(kitchen),
         RoboCasaObserver(kitchen), kitchen.safety, success, on_limit,
-        info={"env": "robocasa", "layout": layout, "style": style}, stack=stack, close=env.close,
+        info={"env": "robocasa", "layout": layout, "style": style, "start_map": str(start_map) if start_map else None},
+        stack=stack, close=env.close,
     )  # fmt: skip
 
 
