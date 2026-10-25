@@ -54,8 +54,9 @@ SKIP_IN = ("fridge", "microwave", "dishwasher", "oven", "cabinet", "drawer", "to
 def run(env: str = "symbolic", moves: int = 6, seed: int = 0, explored: Path | None = None,
         detector: str = "groundtruth", task: Path = explore.TASK, out: Path = REPO / "runs", noise: str = "off",
         quiet: bool = False, layout: int | None = None, style: int | None = None, detour: bool = True,
-        look_after_place: bool = True, llm=None) -> dict:  # fmt: skip
-    """`llm`: a policy in place of ScriptedRearranger (tests); it must have `.moves`."""
+        look_after_place: bool = True, llm=None, video_speed: int = 0) -> dict:  # fmt: skip
+    """`llm`: a policy in place of ScriptedRearranger (tests); it must have `.moves`.
+    video_speed > 0 (robocasa): record runs/<run>/rearrange.mp4, keeping every Nth sim tick."""
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     run_dir = out / (f"{stamp}_rearrange_{env}_s{seed}" + (f"_layout{layout:03d}" if layout else ""))
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -88,27 +89,67 @@ def run(env: str = "symbolic", moves: int = 6, seed: int = 0, explored: Path | N
                       models={"agent": "scripted"}, tools=[s["function"]["name"] for s in session.registry.schemas],
                       **world.info)  # fmt: skip
 
+    recorder = None
+    if video_speed > 0:
+        if world.stack is None:
+            raise SystemExit("--video needs --env robocasa")
+        from chefbot.scripts.record_rollout import Recorder
+
+        # Renders the sim for the video only; the map panels draw the agent's own map as it changes.
+        recorder = Recorder(world.stack, session.registry, WorldMap.from_dict(world.start), run_dir / "rearrange.mp4",
+                            video_speed, semantic=lambda: explored_map(world.start, world_map)["objects"])  # fmt: skip
+
+    def call_text(tool: str, args: dict) -> str:
+        return f"{tool}({', '.join(f'{k}={json.dumps(v)}' for k, v in args.items())})"
+
+    def before_action(s: AgentSession, tool: str, args: dict, reasoning) -> None:
+        move = policy.moves[-1] if policy.moves else None
+        what = f"move {len(policy.moves)}: {move.object} from {move.source} to {move.target}" if move else ""
+        recorder.caption = (f"> {call_text(tool, args)}", what)
+
     def after_action(s: AgentSession, tool: str, args: dict, result, reasoning) -> None:
+        if recorder is not None:
+            summary = f"{'ok' if result.success else 'FAILED: ' + str(result.error)}  {result.message}".strip()
+            recorder.caption = (recorder.caption[0], summary if len(summary) <= 150 else summary[:147] + "...")
+            if (result.data or {}).get("status") != "moving":
+                recorder.hold(1.5 if tool in ("pick", "place") else 0.8)
         if not quiet:
             mark = "ok " if result.success else f"ERR {result.error}"
-            call = f"{tool}({', '.join(f'{k}={json.dumps(v)}' for k, v in args.items())})"
+            call = call_text(tool, args)
             print(f"{s.turn:>4} {s.clock.now():>6.0f}s  {call:<48} {mark}  {result.message[:90]}", flush=True)
 
     try:
-        outcome = AgentRunner(session, policy, after_action=after_action).run()
+        if recorder is not None:
+            recorder.caption = (f"moving things around {world.name}, starting from the map explored with "
+                                f"{explored_by(explored)}", "")
+            recorder.hold(1.0)
+        outcome = AgentRunner(session, policy, after_action=after_action,
+                              before_action=before_action if recorder is not None else None).run()  # fmt: skip
         final = explored_map(world.start, world_map)
         save(final, run_dir / "final_map.yaml")
         # The run is over: only now is the truth made, and only the scorer reads it.
         truth = world.truth()
     finally:
+        if recorder is not None:
+            world.robot.stop()
+            recorder.close()
         world.close()
     save(truth, run_dir / "true_map.yaml")
     result = summarize(policy.moves, final, explored_dict, truth)
-    result.update(outcome=list(outcome), run_dir=str(run_dir), explored_map=str(explored))
+    result.update(outcome=list(outcome), run_dir=str(run_dir), explored_map=str(explored), explored_by=explored_by(explored))
     (run_dir / "score.json").write_text(json.dumps(result, indent=2))
     if not quiet:
         print("\n" + report(result) + f"\nrun: {run_dir}")
     return result
+
+
+def explored_by(explored: Path) -> str:
+    """Which detector built the explored map, from its run's start.json (when there is one)."""
+    start = Path(explored).parent / "start.json"
+    try:
+        return json.loads(start.read_text()).get("detector") or "?"
+    except (OSError, ValueError):
+        return "?"
 
 
 def summarize(moves, final: dict, explored: dict, truth: dict) -> dict:
@@ -176,9 +217,12 @@ def main() -> int:
     parser.add_argument("--no-look", action="store_true", help="no detect after a place")
     parser.add_argument("--out", type=Path, default=REPO / "runs")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--video", action="store_true", help="robocasa: record runs/<run>/rearrange.mp4")
+    parser.add_argument("--video-speed", type=int, default=2, help="keep every Nth sim tick (N x playback speed)")
     args = parser.parse_args()
     result = run(args.env, args.moves, args.seed, args.map, args.detector, args.task, args.out, args.noise,
-                 args.quiet, args.layout, args.style, not args.no_detour, not args.no_look)  # fmt: skip
+                 args.quiet, args.layout, args.style, not args.no_detour, not args.no_look,
+                 video_speed=args.video_speed if args.video else 0)  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k not in ("map_after", "map_stale")}, default=str))
     return 0 if result["map_after"]["perfect"] else 1
