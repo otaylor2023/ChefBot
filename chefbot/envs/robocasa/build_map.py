@@ -155,6 +155,29 @@ def build_semantic_map(env: RoboCasaEnv, occupied: np.ndarray, meta: dict, stora
     return out
 
 
+def object_positions(env: RoboCasaEnv) -> dict:
+    """{true map name: {"origin": [x, y, z], "center": [x, y, z]}} for every loose object, named as
+    build_semantic_map names them. The true map stores the body origin; a detector sees the middle
+    of the object's geometry (`center`), which can sit off it (a pan's origin is near its handle)."""
+    from chefbot.envs.robocasa.objects import object_points
+
+    with env.lock:
+        fixture_names = {f.name for f in named_fixtures(env)} | {f.name for f in storage_fixtures(env)}
+        objects = []
+        for _, label, body in scene_objects(env):
+            points = object_points(env, body)
+            center = (points.min(axis=0) + points.max(axis=0)) / 2.0 if len(points) else env.data.xpos[body]
+            objects.append((label, env.data.xpos[body].copy(), np.asarray(center, dtype=float)))
+    objects.sort(key=lambda o: (o[0], round(float(o[1][0]), 2), round(float(o[1][1]), 2)))
+    taken, out = set(fixture_names), {}
+    for name, (_, origin, center) in zip(numbered([label for label, _, _ in objects]), objects):
+        while name in taken:
+            name += "_object"
+        taken.add(name)
+        out[name] = {"origin": [round(float(v), 4) for v in origin], "center": [round(float(v), 4) for v in center]}
+    return out
+
+
 def _footprint(box: FixtureBox, facing: list[float]) -> list[float]:
     """[width across `facing`, depth along it] of the box's footprint."""
     f = np.array(facing, dtype=float)

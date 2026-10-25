@@ -59,6 +59,7 @@ class World:
     close: Callable[[], None] = lambda: None
     info: dict = dataclasses.field(default_factory=dict)
     stack: Any = None  # robocasa: the sim stack, for the video recorder only
+    positions: Callable[[], dict] | None = None  # true 3D object positions; call only after the run
 
 
 def strip_objects(semantic: dict) -> dict:
@@ -78,7 +79,7 @@ def symbolic_world(task: Path, seed: int, noise: str = "off") -> World:
 def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str, layout: int | None = None,
                    style: int | None = None) -> World:  # fmt: skip
     from chefbot.envs.robocasa.build_map import (GRID_FILE, GRID_META_FILE, START_MAP_FILE, STORAGE_START_MAP_FILE,
-                                                 build_semantic_map, write_grid)  # fmt: skip
+                                                 build_semantic_map, object_positions, write_grid)  # fmt: skip
     from chefbot.envs.robocasa.config import RoboCasaConfig
     from chefbot.envs.robocasa.env import RoboCasaEnv
     from chefbot.envs.robocasa.kitchen_state import RoboCasaClock, RoboCasaKitchen
@@ -125,7 +126,7 @@ def robocasa_world(task: Path, seed: int, run_dir: Path, detector: str, layout: 
     return World(task.stem, stack.robot, agent_detector, RoboCasaClock(kitchen), start,
                  truth, env.close, info={"env": "robocasa", "layout": layout, "style": style, "detector": detector,
                                          "committed_map": str(config.map_dir / "semantic_map.yaml")},
-                 stack=stack)  # fmt: skip
+                 stack=stack, positions=lambda: object_positions(env))  # fmt: skip
 
 
 def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth", seed: int = 0,
@@ -201,6 +202,8 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
     def before_action(s: AgentSession, tool: str, args: dict, reasoning) -> None:
         recorder.caption = (f"> {call_text(tool, args)}", "...")
 
+    seen_3d: dict[str, list[float]] = {}  # the agent's map name -> where it last saw it
+
     def after_action(s: AgentSession, tool: str, args: dict, result, reasoning) -> None:
         if recorder is not None:
             summary = f"{'ok' if result.success else 'FAILED: ' + str(result.error)}  {result.message}".strip()
@@ -208,6 +211,9 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
             if (result.data or {}).get("status") != "moving":
                 recorder.hold(1.5 if tool in ("detect", "nearby") else 0.8)
         if tool == "detect" and result.success:
+            for e in s.registry.tools.detections.all():  # where the agent saw each mapped object, in 3D
+                if e.map_name is not None:
+                    seen_3d[e.map_name] = [round(float(v), 4) for v in e.position_world]
             coverage.record_detect(s.robot.get_base_pose(), states())
         if not quiet:
             mark = "ok " if result.success else f"ERR {result.error}"
@@ -224,16 +230,22 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
             for e in world_map.list():  # a far-off misnaming that a closer look corrected
                 if e.kind == "object" and label_of(e.name) == label and math.dist(e.location, where[:2]) <= 0.1:
                     world_map.remove(e.name)
-        explored = explored_map(world.start, world_map)
+        sources: dict = {}
+        explored = explored_map(world.start, world_map, sources)
         save(explored, run_dir / "explored_map.yaml")
         # The run is over: only now is the truth made, and only the scorer reads it.
         truth = world.truth()
+        true_positions = world.positions() if world.positions else None
     finally:
         if recorder is not None:
             world.robot.stop()
             recorder.close()
         world.close()
     save(truth, run_dir / "true_map.yaml")
+    # For the position accuracy report (explore/accuracy.py): 3D, explored and true.
+    save({n: seen_3d[m] for n, m in sources.items() if m in seen_3d}, run_dir / "explored_positions.yaml")
+    if true_positions is not None:
+        save(true_positions, run_dir / "true_positions.yaml")
     result = score(explored, truth)
     result["outcome"] = list(outcome)
     result["run_dir"] = str(run_dir)

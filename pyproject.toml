@@ -34,4 +34,5 @@ chefbot = ["config/**/*.yaml", "robot/kinematics/assets/**/*", "envs/robocasa/as
 testpaths = ["chefbot/tests"]
 markers = [
     "robocasa: integration tests that need robosuite + robocasa installed",
+    "slow: long simulator runs, skipped unless CHEFBOT_SLOW=1",
 ]

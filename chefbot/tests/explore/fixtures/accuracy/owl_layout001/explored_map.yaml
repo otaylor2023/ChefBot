@@ -1,0 +1,31 @@
+objects:
+  bar soap:
+    location: [0.597, -0.256]
+    in: coffee machine
+  blender jug:
+    location: [2.011, -0.204]
+    in: counter_1
+  bottled water:
+    location: [0.751, -0.485]
+    in: counter_1
+  bowl:
+    location: [1.883, -0.391]
+    in: counter_1
+  cheese grater:
+    location: [3.626, -0.249]
+    in: counter_2
+  cup:
+    location: [0.358, -0.512]
+    in: counter_1
+  cutting board:
+    location: [2.647, -0.512]
+    in: counter_1
+  knife:
+    location: [3.667, -0.273]
+    in: counter_2
+  pan:
+    location: [2.248, -0.556]
+    in: dishwasher
+  soap dispenser:
+    location: [1.992, -0.21]
+    in: counter_1

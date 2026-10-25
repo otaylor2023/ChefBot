@@ -1,0 +1,25 @@
+objects:
+  bottled water:
+    location: [0.75, -0.485]
+    in: counter_1
+  bowl:
+    location: [1.835, -0.559]
+    in: counter_1
+  cutting board:
+    location: [2.606, -0.51]
+    in: counter_1
+  egg:
+    location: [4.576, -0.673]
+    in: fridge
+  knife_1:
+    location: [3.604, -0.279]
+    in: counter_2
+  knife_2:
+    location: [3.653, -0.26]
+    in: counter_2
+  mug:
+    location: [0.338, -0.518]
+    in: counter_1
+  pan:
+    location: [2.233, -0.588]
+    in: counter_1

@@ -26,20 +26,23 @@ def numbered(labels: list[str]) -> list[str]:
     return names
 
 
-def explored_map(start: dict, world_map: WorldMap) -> dict:
+def explored_map(start: dict, world_map: WorldMap, sources: dict | None = None) -> dict:
+    """`sources`, if given, is filled with {explored name: the agent's map name} for each object."""
     fixtures = copy.deepcopy(start.get("fixtures") or {})
     for spec in fixtures.values():
         spec.pop("size", None)
     found = [
-        (label_of(e.name), e.location, e.inside)
+        (label_of(e.name), e.location, e.inside, e.name)
         for e in world_map.list()
         if e.kind == "object" and e.inside is not None
     ]
     found.sort(key=lambda o: (o[0], round(o[1][0], 2), round(o[1][1], 2)))
     objects = {}
-    for name, (_, location, inside) in zip(numbered([o[0] for o in found]), found):
+    for name, (_, location, inside, source) in zip(numbered([o[0] for o in found]), found):
         while name in fixtures or name in objects:
             name += "_object"
+        if sources is not None:
+            sources[name] = source
         objects[name] = {"location": [round(float(location[0]), 3), round(float(location[1]), 3)], "in": inside}
     return {"frame": start.get("frame", "world"), "fixtures": fixtures, "objects": objects}
 

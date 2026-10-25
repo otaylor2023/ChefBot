@@ -1,0 +1,43 @@
+objects:
+  apple:
+    location: [2.767, -5.836]
+    in: counter_1
+  banana:
+    location: [2.339, -5.84]
+    in: counter_1
+  bowl:
+    location: [3.763, -5.779]
+    in: microwave
+  cheese grater:
+    location: [2.66, -0.246]
+    in: counter_2
+  condiment bottle:
+    location: [1.985, -5.871]
+    in: counter_1
+  cup:
+    location: [3.172, -5.833]
+    in: counter_1
+  cutting board:
+    location: [1.346, -5.842]
+    in: counter_1
+  knife_1:
+    location: [2.154, -5.885]
+    in: counter_1
+  knife_2:
+    location: [2.662, -0.26]
+    in: counter_2
+  lime:
+    location: [2.538, -5.84]
+    in: counter_1
+  mug:
+    location: [3.128, -5.837]
+    in: counter_1
+  pear:
+    location: [2.56, -5.84]
+    in: counter_1
+  spatula:
+    location: [2.622, -0.247]
+    in: counter_2
+  spray:
+    location: [6.324, -0.613]
+    in: fridge

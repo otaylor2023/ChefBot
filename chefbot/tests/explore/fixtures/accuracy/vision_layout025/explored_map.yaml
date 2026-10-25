@@ -1,0 +1,31 @@
+objects:
+  avocado:
+    location: [0.485, -4.282]
+    in: counter_1
+  banana:
+    location: [0.513, -4.029]
+    in: counter_1
+  bottled water_1:
+    location: [0.478, -3.665]
+    in: counter_1
+  bottled water_2:
+    location: [4.59, -1.87]
+    in: fridge
+  cutting board:
+    location: [0.508, -3.072]
+    in: counter_1
+  lemon:
+    location: [0.48, -4.257]
+    in: counter_1
+  mug:
+    location: [0.509, -4.801]
+    in: counter_1
+  pan:
+    location: [0.589, -3.372]
+    in: counter_1
+  spoon:
+    location: [0.465, -3.846]
+    in: counter_1
+  tomato:
+    location: [0.478, -4.466]
+    in: counter_1
