@@ -209,3 +209,9 @@ def test_with_approach_small_an_object_seen_only_small_is_reported_unsure():
                                                          "approach_small_px": 1000, "conflict_radius": 0.0})  # fmt: skip
     found = {d.label: d.confidence for d in det.detect(["mug"])}
     assert found["egg"] < 0.5 and found["mug"] > 0.5  # 20x20 px against 40x60 px
+
+
+def test_with_use_aliases_the_detector_reports_the_group_name():
+    vlm = ScriptedVLM([[{"label": "coffee cup", "box": [300, 200, 340, 260]}]])
+    det = VisionDetector(scene, Fixtures(), set(), vlm, {"height_range": (0, 5), "use_aliases": True, "synonyms": {}})
+    assert [d.label for d in det.detect(["mug"])] == ["mug"]

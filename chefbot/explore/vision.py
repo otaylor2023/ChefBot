@@ -174,6 +174,7 @@ class VisionDetector(Detector):
         self._conflict = float(cfg.get("conflict_radius", 0.08))
         self._closer = float(cfg.get("closer_by", 0.5))
         self._vote = bool(cfg.get("label_vote", False))
+        self._aliases = bool(cfg.get("use_aliases", False))
         self._refine = bool(cfg.get("refine_small", False))
         self._refine_px = float(cfg.get("refine_small_px", 1000))
         self._refine_context = float(cfg.get("refine_context", 3.0))
@@ -232,6 +233,10 @@ class VisionDetector(Detector):
         seen = []
         for item in named:
             label = normalize(item["label"], self._synonyms, self._vocab)
+            if self._aliases:
+                from chefbot.explore.aliases import canonical
+
+                label = canonical(label)  # near-synonyms (cup, mug) as one name
             if label in self._fixture_labels:
                 continue
             x0, y0, x1, y1 = item["box"]

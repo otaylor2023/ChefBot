@@ -29,6 +29,8 @@ from pathlib import Path
 
 import numpy as np
 
+from chefbot.explore.aliases import canonical
+
 PX_BINS = (0, 100, 300, 1000, 3000, 10**9)
 _ON = 0.3  # a box covering this share of an object's visible box is on it
 
@@ -59,49 +61,6 @@ def _normalize(label: str) -> str:
 
 
 # -- models ----------------------------------------------------------------------------------
-
-
-class Siglip:
-    """Names an image crop: the catalogue word whose text best matches it."""
-
-    def __init__(self, model_id: str = "google/siglip2-so400m-patch14-384"):
-        import torch
-        from transformers import AutoModel, AutoProcessor
-
-        self.torch = torch
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
-        self.proc = AutoProcessor.from_pretrained(model_id)
-        self.model = AutoModel.from_pretrained(model_id).to(self.device).eval()
-        objects, fixtures, _ = _labels()
-        self.labels = objects + [f for f in fixtures if f not in objects]
-        self.n_objects = len(objects)
-        with torch.no_grad():
-            feats = []
-            for i in range(0, len(self.labels), 64):
-                t = self.proc(text=[f"a photo of a {w}." for w in self.labels[i:i + 64]], padding="max_length",
-                              max_length=64, return_tensors="pt").to(self.device)  # fmt: skip
-                f = self.model.get_text_features(**t)
-                feats.append(getattr(f, "pooler_output", f))
-            self.text = torch.cat(feats)
-            self.text = self.text / self.text.norm(dim=-1, keepdim=True)
-
-    def name(self, rgb: np.ndarray, box, context: float = 1.3) -> tuple[str, float]:
-        from PIL import Image
-
-        h, w = rgb.shape[:2]
-        cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
-        half = max(16.0, max(box[2] - box[0], box[3] - box[1]) * context / 2)
-        crop = rgb[int(max(0, cy - half)):int(min(h, cy + half)), int(max(0, cx - half)):int(min(w, cx + half))]
-        if crop.size == 0:
-            return "", 0.0
-        with self.torch.no_grad():
-            x = self.proc(images=Image.fromarray(crop), return_tensors="pt").to(self.device)
-            f = self.model.get_image_features(**x)
-            f = getattr(f, "pooler_output", f)
-            f = f / f.norm(dim=-1, keepdim=True)
-            sims = (f @ self.text.T)[0]
-        i = int(sims.argmax())
-        return self.labels[i], float(sims[i])
 
 
 class GroundingDino:
@@ -146,7 +105,7 @@ class GroundingDino:
 # -- evaluation -------------------------------------------------------------------------------
 
 
-def evaluate(name: str, frames: dict, sightings: dict, items_of, fixture_words: set) -> dict:
+def evaluate(name: str, frames: dict, sightings: dict, items_of, fixture_words: set, aliases: bool = False) -> dict:
     """items_of(frame_key) -> [{"label", "box"}]; frames: key -> rgb path; sightings: key -> rows."""
     rows, false_finds, times = [], [], []
     for key in frames:
@@ -159,10 +118,11 @@ def evaluate(name: str, frames: dict, sightings: dict, items_of, fixture_words: 
         boxes = [[float(r[k]) for k in ("bx0", "by0", "bx1", "by1")] for r in truth]
         for r, bbox in zip(truth, boxes):
             on = [i for i in items if _overlap(i["box"], bbox) >= _ON]
-            right = any(i["label"] == r["label"] for i in on)
+            same = (lambda a, b: canonical(a) == canonical(b)) if aliases else (lambda a, b: a == b)
+            right = any(same(i["label"], r["label"]) for i in on)
             outcome = "right" if right else ("wrong" if on else "missed")
             rows.append({"px": int(r["visible_px"]), "outcome": outcome, "label": r["label"],
-                         "as": next((i["label"] for i in on if i["label"] != r["label"]), "")})  # fmt: skip
+                         "as": next((i["label"] for i in on if not same(i["label"], r["label"])), "")})  # fmt: skip
         false_finds.append(sum(1 for i in items if all(_overlap(i["box"], b) < _ON and _overlap(b, i["box"]) < _ON for b in boxes)))
     return {"name": name, "rows": rows, "false_per_frame": float(np.mean(false_finds)) if false_finds else 0.0,
             "sec_per_frame": float(np.mean(times)) if times else 0.0, "frames": len(frames)}  # fmt: skip
@@ -202,6 +162,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--models", default="owl,gdino,siglip,owl+siglip,vlm")
     parser.add_argument("--gdino", default="iSEE-Laboratory/llmdet_tiny")
+    parser.add_argument("--aliases", action="store_true", help="also score with near-synonyms as one name")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     _, fixtures, _ = _labels()
@@ -228,10 +189,11 @@ def main() -> int:
     if "vlm" in wanted:
         vlm_runs = {n for n, d in dirs.items() if json.loads((d / "start.json").read_text()).get("detector") == "vision"}
         vlm_frames = {k: v for k, v in frames.items() if k[0] in vlm_runs}
-        results.append(evaluate("vlm (saved answers; its frames only)", vlm_frames, sightings,
-                                lambda k: json.loads(frames[k].with_suffix(".json").read_text())["vlm"], fixture_words))  # fmt: skip
+        for al in ([False, True] if args.aliases else [False]):
+            results.append(evaluate("vlm (saved answers; its frames only)" + (", aliases" if al else ""), vlm_frames, sightings,
+                                    lambda k: json.loads(frames[k].with_suffix(".json").read_text())["vlm"], fixture_words, al))  # fmt: skip
     owl = None
-    if "owl" in wanted or "owl+siglip" in wanted:
+    if "owl" in wanted or "owl+siglip" in wanted or "hybrid" in wanted:
         from chefbot.explore.owl import OwlV2Model
 
         owl = OwlV2Model()
@@ -243,9 +205,34 @@ def main() -> int:
             return owl_items[k]
 
         if "owl" in wanted:
-            results.append(evaluate("owl (as the explorer uses it)", frames, sightings, owl_of, fixture_words))
+            for al in ([False, True] if args.aliases else [False]):
+                results.append(evaluate("owl (as the explorer uses it)" + (", aliases" if al else ""), frames, sightings,
+                                        owl_of, fixture_words, al))  # fmt: skip
+                print(table(results[-1:]), flush=True)
+    from chefbot.explore.siglip import Siglip
+
+    siglip = Siglip() if ("siglip" in wanted or "owl+siglip" in wanted or "hybrid" in wanted) else None
+    if "hybrid" in wanted:
+        hybrid_items = {}
+
+        def hybrid_of(k):  # OWLv2's names for boxes of 1000 px and more, SigLIP 2's under
+            if k not in hybrid_items:
+                out = []
+                for i in owl_of(k):
+                    x0, y0, x1, y1 = i["box"]
+                    if (x1 - x0) * (y1 - y0) < 1000:
+                        name = siglip.name(rgb(k), i["box"])[0]
+                        if name not in siglip.labels[: siglip.n_objects]:
+                            continue
+                        i = dict(i, label=name)
+                    out.append(i)
+                hybrid_items[k] = out
+            return hybrid_items[k]
+
+        for al in ([False, True] if args.aliases else [False]):
+            results.append(evaluate("hybrid: owl, siglip under 1000 px" + (", aliases" if al else ""), frames, sightings,
+                                    hybrid_of, fixture_words, al))  # fmt: skip
             print(table(results[-1:]), flush=True)
-    siglip = Siglip() if ("siglip" in wanted or "owl+siglip" in wanted) else None
     if "owl+siglip" in wanted:
         results.append(evaluate("owl boxes + siglip names", frames, sightings,
                                 lambda k: [dict(i, label=siglip.name(rgb(k), i["box"])[0]) for i in owl_of(k)], fixture_words))  # fmt: skip

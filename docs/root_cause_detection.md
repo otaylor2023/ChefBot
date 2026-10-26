@@ -268,3 +268,57 @@ object's middle. SAM 2.1 takes about 1 s per box on the Mac.
 4. **SAM 2.1 masks for depth:** a modest gain (about 0.7 cm median); worth it only if position
    matters more than run time.
 5. **SAM 3** stays to be tried once a Hugging Face login with Meta's license is available.
+
+## 8. Hybrid naming and near-synonyms as one name (free)
+
+- **Hybrid** (`owl.hybrid_siglip` in `chefbot/explore/config.yaml`, off by default): OWLv2 names
+  boxes of 1000 px and more, and SigLIP 2 names smaller ones. A SigLIP 2 name that is a kitchen part
+  drops the box.
+- **Aliases** (the `aliases` table in `chefbot/explore/config.yaml`; `vision.use_aliases`, off by
+  default): a static list of near-synonym groups in the word list:
+  - mug: cup, coffee cup, glass cup
+  - pan: saucepan, frying pan, skillet
+  - lemon: lime, lemon wedge
+  - bottled water: water bottle, bottled drink
+
+  The detector reports the group's name. The scorer and the accuracy report always compare names
+  by group, so earlier runs are scored the same way here.
+
+### Offline, the 758 sightings of real objects
+
+Full table in `docs/root_cause/naming_bench_aliases.md`.
+
+| model | named right | wrong name | not named | false finds per picture |
+|---|---|---|---|---|
+| OWLv2 | 43% | 36% | 21% | 1.6 |
+| OWLv2, aliases | 50% | 30% | 21% | 1.6 |
+| hybrid (OWLv2, SigLIP 2 under 1000 px) | 54% | 24% | 23% | 1.5 |
+| **hybrid, aliases** | **63%** | **15%** | 23% | 1.5 |
+| VLM (its 127 sightings) | 78% | 17% | 5% | 0.6 |
+| VLM, aliases | 86% | 9% | 5% | 0.6 |
+
+With aliases, the hybrid names 74% right at 300 to 1000 px (OWLv2: 45%) and 62% at 100 to 300 px
+(OWLv2: 39%).
+
+### Layout 7, OWLv2, current route (14 objects, scored with aliases)
+
+| setup | found | missed | wrong names on real objects | false finds | xy median / p90 (cm) | run time |
+|---|---|---|---|---|---|---|
+| baseline | 9/14 | egg, fork, lemon, milk, plate | egg as bar soap, lemon as pear or pickle, milk as bottled water | 22 | 3.0 / 9.8 | 12.8 min (shared machine) |
+| vote | 8/14 | mug, egg, fork, lemon, milk, plate | egg as bar soap, milk as bottled water | 9 | 2.8 / 9.9 | 5.8 min |
+| vote + zoom | 9/14 | mug, fork, milk, plate, spoon | milk as bottled water, mug as jello cup, spoon as spatula | 9 | 2.2 / 9.8 | 16.6 min |
+| **vote + hybrid + aliases** | **9/14** | mug, fork, milk, plate, spoon | milk as bottled water | **8** | 2.3 / 9.8 | 11.7 min |
+| exact detector (reference) | 13/14 | fork | none | 0 | 0.1 / 0.1 | 9.2 min |
+
+- **The hybrid finds the small things** (the egg and the lemon), cuts wrong names to one (milk as
+  bottled water), and gives the fewest false finds so far. Positions are as good as with the zoom.
+- **The count stays at 9/14 for two reasons:**
+  - The spoon is not found by any OWLv2 setup.
+  - With aliases, the cup and the mug (21 cm apart on counter_1) both read as "mug", and the
+    tracker merges same-named sightings within 30 cm into one object. One of them is lost.
+
+  Aliases should come with a smaller merge radius for same-name sightings (for example 0.1 m), or
+  keep the two names apart in the tracker and merge them only for scoring.
+- The milk (always "bottled water") and the plate and fork (a cabinet and drawer the robot cannot
+  open or reach) are not perception problems this can fix.
+- **SAM 3 is still to be tried:** no Hugging Face login was found on the Mac.

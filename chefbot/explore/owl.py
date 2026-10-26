@@ -38,6 +38,13 @@ class OwlV2Model:
         self._n_objects = len(objects)  # queries past this are fixture words
         self._queries = self._embed([cfg["prompt"].format(name=n) for n in self._labels])
         self.cost_usd = 0.0  # local: no API cost
+        # Hybrid: SigLIP 2 names the small boxes (it names small things better; OWLv2 the big ones).
+        self._siglip = None
+        self._hybrid_px = float(cfg.get("hybrid_px", 1000))
+        if cfg.get("hybrid_siglip"):
+            from chefbot.explore.siglip import Siglip
+
+            self._siglip = Siglip(cfg.get("siglip_model", "google/siglip2-so400m-patch14-384"))
 
     def _embed(self, prompts: list[str]):
         torch = self._torch
@@ -51,6 +58,21 @@ class OwlV2Model:
         return torch.cat(out)[None]  # (1, queries, dim)
 
     def objects(self, rgb: np.ndarray) -> list[dict]:
+        found = self._owl_objects(rgb)
+        if self._siglip is None:
+            return found
+        out = []
+        for f in found:
+            x0, y0, x1, y1 = f["box"]
+            if (x1 - x0) * (y1 - y0) < self._hybrid_px:
+                name, _ = self._siglip.name(rgb, f["box"])
+                if name not in self._siglip.labels[: self._siglip.n_objects]:
+                    continue  # SigLIP 2 sees a kitchen part there, not an object
+                f = {**f, "label": name, "named_by": "siglip", "owl_label": f["label"]}
+            out.append(f)
+        return out
+
+    def _owl_objects(self, rgb: np.ndarray) -> list[dict]:
         torch = self._torch
         from PIL import Image
 

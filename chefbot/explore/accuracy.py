@@ -43,7 +43,9 @@ _SAME_TRUTH = 0.01  # m: a rebuilt object this close (xy) to the true map's is t
 
 
 def _label(name: str) -> str:
-    return label_of(name).replace("_", " ")
+    from chefbot.explore.aliases import canonical
+
+    return canonical(label_of(name))  # near-synonyms (cup, mug) compare as one name
 
 
 @dataclass

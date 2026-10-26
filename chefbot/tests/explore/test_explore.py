@@ -173,3 +173,13 @@ def test_scripted_explorer_looks_closer_at_objects_seen_only_small():
     assert next(r) == ("go_to", {"place": "egg", "distance": 0.7})
     assert r.send({"success": False}) == ("go_to", {"place": "spoon", "distance": 0.7})  # the egg's spot: unreachable
     assert explorer3.approaches["unreachable"] == 1
+
+
+def test_near_synonyms_are_one_name_to_the_scorer():
+    from chefbot.explore.aliases import canonical
+
+    assert canonical("cup") == canonical("coffee cup") == "mug" and canonical("lime") == "lemon"
+    assert canonical("apple") == "apple" and canonical("bottled_water") == "bottled water"
+    truth = {"frame": "world", "fixtures": TRUTH["fixtures"], "objects": {"cup": {"location": [0.5, 0.0], "in": "counter_1"}}}
+    explored = {"frame": "world", "fixtures": TRUTH["fixtures"], "objects": {"mug": {"location": [0.52, 0.0], "in": "counter_1"}}}
+    assert score(explored, truth)["perfect"]

@@ -19,6 +19,7 @@ from pathlib import Path
 import yaml
 
 from chefbot.agent.world.map import label_of
+from chefbot.explore.aliases import canonical
 
 CONFIG = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
 
@@ -38,7 +39,7 @@ def score(explored: dict, truth: dict, tolerance: float | None = None) -> dict:
     # Pair each true object with the nearest unpaired explored object of its label.
     pairs = sorted(
         (_xy_dist(g["location"], w["location"]), wn, gn)
-        for wn, w in want.items() for gn, g in got.items() if label_of(gn).replace("_", " ") == label_of(wn).replace("_", " ")
+        for wn, w in want.items() for gn, g in got.items() if canonical(label_of(gn)) == canonical(label_of(wn))
     )  # fmt: skip
     match: dict[str, str] = {}
     for _, wn, gn in pairs:

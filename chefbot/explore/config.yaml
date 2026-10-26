@@ -41,6 +41,7 @@ vision:
   refine_side: 384       # px: the crop is enlarged to this side
   same_view_diff: 1.0    # a view this close to the last one (mean abs pixel difference) reuses its answer
   max_cost_usd: 0.60     # the VLM stops being called once a run has spent this much (OpenRouter cost)
+  use_aliases: false      # report a near-synonym group's name (aliases above)
   approach_small: false  # go closer: objects only seen small are flagged in detect, and the route approaches them
   approach_small_px: 1000  # px: a box this small (area) is "seen small"
   approach_distance: 0.7   # m: stand this far from it to look again
@@ -55,6 +56,14 @@ vision:
     cup of coffee: mug
     eggs: egg
 
+# Near-synonyms in the word list, as one name (explore/aliases.py): the detector reports the group's
+# name (vision.use_aliases), and the scorer and accuracy report compare names by group.
+aliases:
+  mug: [cup, coffee cup, glass cup]
+  pan: [saucepan, frying pan, skillet]
+  lemon: [lime, lemon wedge]
+  bottled water: [water bottle, bottled drink]
+
 # The OWLv2 detector (explore/owl.py, --detector owl): the vision pipeline above with an
 # off-the-shelf open-vocabulary detector naming and boxing objects instead of the VLM.
 owl:
@@ -62,4 +71,7 @@ owl:
   threshold: 0.2        # min score of a box's best-matching name
   nms_iou: 0.3          # boxes overlapping a better one this much are the same object
   prompt: "a photo of a {name}"
+  hybrid_siglip: false  # name boxes under hybrid_px with SigLIP 2 (better on small things), the rest with OWLv2
+  hybrid_px: 1000       # px (area)
+  siglip_model: google/siglip2-so400m-patch14-384
   fixture_queries: true # also query fixture words; a box they win is a kitchen part, not an object

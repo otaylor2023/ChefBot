@@ -22,3 +22,22 @@ def test_pick_boxes_keeps_objects_above_threshold_one_box_each_and_drops_fixture
     assert [(f["label"], f["score"]) for f in found] == [("mug", 0.9), ("pan", 0.6)]
     assert found[0]["box"] == [128.0, 128.0, 192.0, 192.0]  # fractions of the 640 x 640 padded square
     assert found[1]["box"][3] == 416.0
+
+
+def test_hybrid_names_small_boxes_with_siglip_and_drops_kitchen_parts():
+    from chefbot.explore.owl import OwlV2Model
+
+    class FakeSiglip:
+        labels = ["lemon", "pear", "knob"]
+        n_objects = 2
+
+        def name(self, rgb, box):
+            return ("lemon", 0.2) if box[0] < 100 else ("knob", 0.2)
+
+    model = OwlV2Model.__new__(OwlV2Model)
+    model._siglip, model._hybrid_px = FakeSiglip(), 1000
+    model._owl_objects = lambda rgb: [{"label": "pear", "box": [10, 10, 30, 30], "score": 0.3},     # small: renamed
+                                      {"label": "pear", "box": [200, 10, 220, 30], "score": 0.3},   # small: a knob, dropped
+                                      {"label": "cutting board", "box": [0, 100, 200, 200], "score": 0.6}]  # big: kept as is
+    found = model.objects(np.zeros((480, 640, 3), dtype=np.uint8))
+    assert [(f["label"], f.get("owl_label")) for f in found] == [("lemon", "pear"), ("cutting board", None)]
