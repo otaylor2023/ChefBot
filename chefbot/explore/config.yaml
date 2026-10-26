@@ -77,6 +77,8 @@ owl:
   hybrid_siglip: false  # name boxes under hybrid_px with SigLIP 2 (better on small things), the rest with OWLv2
   hybrid_px: 1000       # px (area)
   siglip_model: google/siglip2-so400m-patch14-384
-  sam3_check: false     # SAM 3 checks small or low-score boxes: SigLIP 2's top 3 names, the best mask fit wins, no fit drops the box
+  sam3_check: false     # SAM 3 checks small or low-score boxes: SigLIP 2's top 3 names, a clearly better mask fit renames the box
   sam3_model: facebook/sam3   # gated: a Hugging Face login with Meta's license accepted
+  sam3_margin: 0.15     # SAM 3 renames a box only when the new name's mask fits this much better than its own
+  sam3_drop: false      # a box no candidate's mask fits: false keeps it with its name, true drops it
   fixture_queries: true # also query fixture words; a box they win is a kitchen part, not an object

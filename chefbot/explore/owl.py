@@ -51,6 +51,8 @@ class OwlV2Model:
             from chefbot.explore.sam3 import Sam3
 
             self._sam3 = Sam3(cfg.get("sam3_model", "facebook/sam3"))
+        self._sam3_margin = float(cfg.get("sam3_margin", 0.15))  # a new name must fit this much better
+        self._sam3_drop = bool(cfg.get("sam3_drop", False))  # drop a box no candidate's mask fits (else keep it)
         self.sam3_checks = 0  # pictures SAM 3 looked at
 
     def _embed(self, prompts: list[str]):
@@ -81,8 +83,9 @@ class OwlV2Model:
 
     def check_many(self, rgb: np.ndarray, items: list[dict]) -> list[dict | None]:
         """SAM 3 as a checker (sam3_check): for each box, SigLIP 2's 3 best names and its own name are
-        the candidates; SAM 3, prompted with all of them once for the picture, gives each box the name
-        whose mask fits it best, or None (drop) when no mask of a candidate covers it."""
+        the candidates; SAM 3 is prompted with all of them once for the picture. A box takes another
+        name only when that name's mask fits it better than its own name's by sam3_margin; a box no
+        candidate's mask covers keeps its name (or is dropped, with sam3_drop)."""
         if self._sam3 is None or not items:
             return list(items)
         candidates = [sorted({it["label"], *self._siglip.top(rgb, it["box"], 3)}) for it in items]
@@ -92,9 +95,13 @@ class OwlV2Model:
         for it, names in zip(items, candidates):
             on = [m for m in masks if m["label"] in names and _iou(m["box"], it["box"]) >= _CHECK_IOU]
             if not on:
-                out.append(None)
+                out.append(None if self._sam3_drop else it)
                 continue
             best = max(on, key=lambda m: m["score"])
+            own = max((m["score"] for m in on if m["label"] == it["label"]), default=0.0)
+            if best["label"] != it["label"] and best["score"] - own < self._sam3_margin:
+                out.append(it)  # not clearly better than its own name
+                continue
             out.append({**it, "label": best["label"], "box": best["box"], "score": best["score"], "checked_from": it["label"]})
         return out
 

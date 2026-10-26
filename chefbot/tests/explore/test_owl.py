@@ -58,5 +58,28 @@ def test_the_sam3_checker_renames_by_mask_fit_and_drops_unsupported_boxes():
     model = OwlV2Model.__new__(OwlV2Model)
     model._siglip, model._sam3, model.sam3_checks = FakeSiglip(), FakeSam3(), 0
     items = [{"label": "pear", "box": [10, 10, 30, 30], "score": 0.25}, {"label": "sponge", "box": [200, 10, 220, 30], "score": 0.22}]
+    model._sam3_margin, model._sam3_drop = 0.15, True
     out = model.check_many(np.zeros((480, 640, 3), dtype=np.uint8), items)
     assert out[0]["label"] == "lemon" and out[0]["checked_from"] == "pear" and out[1] is None and model.sam3_checks == 1
+    model._sam3_drop = False
+    assert model.check_many(np.zeros((480, 640, 3), dtype=np.uint8), items)[1] == items[1]  # kept as it was
+
+
+def test_the_sam3_checker_renames_only_on_a_clear_margin():
+    from chefbot.explore.owl import OwlV2Model
+
+    class FakeSiglip:
+        def top(self, rgb, box, k):
+            return ["apple", "cherry"]
+
+    class FakeSam3:
+        def objects(self, rgb, prompts):
+            return [{"label": "cherry", "box": [10, 10, 30, 30], "score": 0.6}, {"label": "apple", "box": [10, 10, 30, 30], "score": 0.5}]
+
+    model = OwlV2Model.__new__(OwlV2Model)
+    model._siglip, model._sam3, model.sam3_checks, model._sam3_drop = FakeSiglip(), FakeSam3(), 0, False
+    item = {"label": "apple", "box": [10, 10, 30, 30], "score": 0.3}
+    model._sam3_margin = 0.15
+    assert model.check_many(np.zeros((480, 640, 3), dtype=np.uint8), [item])[0]["label"] == "apple"  # 0.6 vs 0.5: not clear
+    model._sam3_margin = 0.05
+    assert model.check_many(np.zeros((480, 640, 3), dtype=np.uint8), [item])[0]["label"] == "cherry"

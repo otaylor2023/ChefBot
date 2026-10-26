@@ -406,3 +406,20 @@ whose mask fits it best. A box no candidate's mask covers is dropped. Each spot 
   (71% against 65% on the sample), so the difference here is two objects on one kitchen. It is not
   a reason to switch it on by default yet. A softer rule (keep the box with its first name when no
   mask fits, instead of dropping it) would avoid losing the lemon.
+
+Gentler checker (`owl.sam3_drop: false`, `owl.sam3_margin: 0.15`): a box no candidate's mask fits
+keeps its name, and SAM 3 changes a name only when the new name's mask fits better by 0.15.
+
+| setup | found | missed | wrong names on real objects | false finds | xy median / p90 (cm) | SAM 3 checks | run time |
+|---|---|---|---|---|---|---|---|
+| vote + hybrid + aliases | 10/14 | fork, milk, plate, spoon | milk as bottled water, spoon as banana | 12 | 2.9 / 11.1 | 0 | 15.3 min |
+| + SAM 3 checker, strict | 9/14 | apple, fork, lemon, milk, plate | apple as cherry, milk as bottled water | 8 | 3.4 / 11.3 | 20 | 14.6 min |
+| + SAM 3 checker, gentle | 10/14 | apple, fork, milk, plate | apple as cherry, milk as bottled water | 13 | 2.7 / 11.1 | 20 | 18.6 min |
+
+- **The gentle checker keeps the lemon** and still finds the spoon. The count is back to 10/14,
+  with a different set: the spoon in, the apple out.
+- **The apple stays "cherry"** because the hybrid step already names it so (SigLIP 2 on its small
+  box). SAM 3 then has no clearly better name to offer, so it keeps it.
+- **On this kitchen the checker neither helps nor hurts the count.** It is left off by default. The
+  remaining misses are the milk (always "bottled water"), one small fruit or utensil, and the plate
+  and fork the robot cannot reach.
