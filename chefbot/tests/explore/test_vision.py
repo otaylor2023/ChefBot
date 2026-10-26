@@ -237,3 +237,26 @@ def test_with_aliases_two_things_of_one_group_side_by_side_stay_two():
     second = det.detect(["mug"])
     assert len(det._tracks) == 2 and [d.label for d in second] == ["mug"]  # one group name, two things
     assert np.linalg.norm(det._tracks[0]["sum"] - det._tracks[1]["sum"]) > 0.12
+
+
+def test_small_boxes_go_to_the_detector_checker_once_per_spot():
+    class CheckingVLM(ScriptedVLM):
+        _sam3 = object()
+
+        def __init__(self, replies):
+            super().__init__(replies)
+            self.checked = []
+
+        def check_many(self, rgb, items):
+            self.checked.append([i["label"] for i in items])
+            return [{**i, "label": "lemon"} if i["label"] == "pear" else None for i in items]
+
+    shots = [scene(), scene()]
+    shots[1].rgb[0, 0, 0] = 9
+    it = iter(shots)
+    reply = [{"label": "pear", "box": [310, 220, 330, 240], "score": 0.25}, {"label": "cutting board", "box": [100, 100, 200, 160], "score": 0.6}]
+    vlm = CheckingVLM([reply, reply])
+    det = VisionDetector(lambda: next(it), Fixtures(), set(), vlm, {"height_range": (0, 5), "same_view_diff": 0, "check_px": 1000})
+    first = det.detect(["mug"])
+    det.detect(["mug"])
+    assert "lemon" in [d.label for d in first] and vlm.checked == [["pear"]]  # checked once; the big box never

@@ -164,6 +164,9 @@ class VisionDetector(Detector):
         self._vlm = vlm or VisionLanguageModel(cfg["model"], max_cost_usd=cfg.get("max_cost_usd"))
         self._same_view = float(cfg.get("same_view_diff", 1.0))
         self._refined_spots: list[tuple[np.ndarray, dict]] = []  # where a small box was looked at again, and the answer
+        self._check_px = float(cfg.get("check_px", 1000))
+        self._check_score = float(cfg.get("check_score", 0.3))
+        self._checked_spots: list[tuple[np.ndarray, dict | None]] = []  # spots the detector's checker answered
         self._max_range = float(cfg["max_range"])
         self._synonyms = dict(cfg.get("synonyms") or {})
         self._vocab = set(_VOCAB["objects"])
@@ -231,6 +234,8 @@ class VisionDetector(Detector):
         named = self._vlm.objects(rgbd.rgb)
         if self._refine:
             named = [self._refined_once(rgbd, item) for item in named]
+        if hasattr(self._vlm, "check_many") and getattr(self._vlm, "_sam3", None) is not None:
+            named = self._checked(rgbd, named)
         origin = rgbd.cam_to_world[:3, 3]
         h, w = rgbd.depth.shape
         seen = []
@@ -254,6 +259,28 @@ class VisionDetector(Detector):
         out = [self._report(i) for i in seen]
         self._log(rgbd, named, out)
         return out
+
+    def _checked(self, rgbd: RGBD, named: list[dict]) -> list[dict]:
+        """Small or low-score boxes go through the detector's checker (check_many), once per spot:
+        a spot answered before takes that answer (a name, or dropped)."""
+        out, todo = list(named), []
+        for i, item in enumerate(named):
+            x0, y0, x1, y1 = item["box"]
+            if (x1 - x0) * (y1 - y0) >= self._check_px and float(item.get("score") or 1.0) >= self._check_score:
+                continue
+            point = box_point(rgbd, item["box"])
+            earlier = next((a for s, a in self._checked_spots if point is not None and float(np.linalg.norm(s[:2] - point[:2])) <= self._conflict), "none")
+            if earlier != "none":
+                out[i] = None if earlier is None else {**item, "label": earlier["label"], "checked_from": item["label"]}
+            else:
+                todo.append((i, point))
+        if todo:
+            answers = self._vlm.check_many(rgbd.rgb, [named[i] for i, _ in todo])
+            for (i, point), answer in zip(todo, answers):
+                out[i] = answer
+                if point is not None:
+                    self._checked_spots.append((point, answer))
+        return [o for o in out if o is not None]
 
     def _refined_once(self, rgbd: RGBD, item: dict) -> dict:
         """_refined, once per spot: a small box over a spot already looked at again takes that answer."""

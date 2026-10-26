@@ -35,9 +35,28 @@ def test_hybrid_names_small_boxes_with_siglip_and_drops_kitchen_parts():
             return ("lemon", 0.2) if box[0] < 100 else ("knob", 0.2)
 
     model = OwlV2Model.__new__(OwlV2Model)
-    model._siglip, model._hybrid_px = FakeSiglip(), 1000
+    model._siglip, model._hybrid_px, model._hybrid = FakeSiglip(), 1000, True
     model._owl_objects = lambda rgb: [{"label": "pear", "box": [10, 10, 30, 30], "score": 0.3},     # small: renamed
                                       {"label": "pear", "box": [200, 10, 220, 30], "score": 0.3},   # small: a knob, dropped
                                       {"label": "cutting board", "box": [0, 100, 200, 200], "score": 0.6}]  # big: kept as is
     found = model.objects(np.zeros((480, 640, 3), dtype=np.uint8))
     assert [(f["label"], f.get("owl_label")) for f in found] == [("lemon", "pear"), ("cutting board", None)]
+
+
+def test_the_sam3_checker_renames_by_mask_fit_and_drops_unsupported_boxes():
+    from chefbot.explore.owl import OwlV2Model
+
+    class FakeSiglip:
+        def top(self, rgb, box, k):
+            return ["lemon", "pear", "apple"]
+
+    class FakeSam3:
+        def objects(self, rgb, prompts):
+            assert prompts == sorted(set(prompts)) and "lemon" in prompts
+            return [{"label": "lemon", "box": [10, 10, 31, 31], "score": 0.8}]  # a lemon where the first box is
+
+    model = OwlV2Model.__new__(OwlV2Model)
+    model._siglip, model._sam3, model.sam3_checks = FakeSiglip(), FakeSam3(), 0
+    items = [{"label": "pear", "box": [10, 10, 30, 30], "score": 0.25}, {"label": "sponge", "box": [200, 10, 220, 30], "score": 0.22}]
+    out = model.check_many(np.zeros((480, 640, 3), dtype=np.uint8), items)
+    assert out[0]["label"] == "lemon" and out[0]["checked_from"] == "pear" and out[1] is None and model.sam3_checks == 1

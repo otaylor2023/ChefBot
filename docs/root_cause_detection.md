@@ -384,3 +384,25 @@ hybrid gets 66% and 73%, and OWLv2 48% and 57%.
    about 20 s per checked picture is acceptable.
 3. **The VLM remains the best namer** (78 to 86% over its full set). Pair it with going closer for
    the small objects.
+
+### SAM 3 as a checker in the robot run (layout 7, OWLv2, current route)
+
+`owl.sam3_check` in `chefbot/explore/config.yaml`, off by default. Boxes under 1000 px or with a
+score under 0.3 (`vision.check_px`, `vision.check_score`) get SigLIP 2's 3 best names plus OWLv2's
+own as candidates. SAM 3, prompted once per picture with all of them, gives each box the candidate
+whose mask fits it best. A box no candidate's mask covers is dropped. Each spot is checked only once.
+
+| setup | found | missed | wrong names on real objects | false finds | xy median / p90 (cm) | SAM 3 checks | run time |
+|---|---|---|---|---|---|---|---|
+| vote + hybrid + aliases (b61fddc) | 10/14 | fork, milk, plate, spoon | milk as bottled water, spoon as banana | 12 | 2.9 / 11.1 | 0 | 15.3 min |
+| + SAM 3 checker | 9/14 | apple, fork, lemon, milk, plate | apple as cherry, milk as bottled water | 8 | 3.4 / 11.3 | 20 pictures | 14.6 min |
+| exact detector | 13/14 | fork | none | 0 | 0.1 / 0.1 | | 9.2 min |
+
+- **It gains the spoon,** which no other OWLv2 setup found, and cuts false finds to 8.
+- **It loses the apple and the lemon.** The apple's candidates from SigLIP 2 led SAM 3 to "cherry",
+  and the lemon's box was dropped or renamed when no candidate's mask fit it. Over the whole run it
+  checked 20 pictures, and the run time did not grow (each spot is checked once).
+- **On this kitchen it does not beat the hybrid** (9/14 against 10/14). Offline it named more right
+  (71% against 65% on the sample), so the difference here is two objects on one kitchen. It is not
+  a reason to switch it on by default yet. A softer rule (keep the box with its first name when no
+  mask fits, instead of dropping it) would avoid losing the lemon.

@@ -41,10 +41,17 @@ class OwlV2Model:
         # Hybrid: SigLIP 2 names the small boxes (it names small things better; OWLv2 the big ones).
         self._siglip = None
         self._hybrid_px = float(cfg.get("hybrid_px", 1000))
-        if cfg.get("hybrid_siglip"):
+        if cfg.get("hybrid_siglip") or cfg.get("sam3_check"):
             from chefbot.explore.siglip import Siglip
 
             self._siglip = Siglip(cfg.get("siglip_model", "google/siglip2-so400m-patch14-384"))
+        self._hybrid = bool(cfg.get("hybrid_siglip"))
+        self._sam3 = None
+        if cfg.get("sam3_check"):
+            from chefbot.explore.sam3 import Sam3
+
+            self._sam3 = Sam3(cfg.get("sam3_model", "facebook/sam3"))
+        self.sam3_checks = 0  # pictures SAM 3 looked at
 
     def _embed(self, prompts: list[str]):
         torch = self._torch
@@ -59,7 +66,7 @@ class OwlV2Model:
 
     def objects(self, rgb: np.ndarray) -> list[dict]:
         found = self._owl_objects(rgb)
-        if self._siglip is None:
+        if self._siglip is None or not self._hybrid:
             return found
         out = []
         for f in found:
@@ -70,6 +77,25 @@ class OwlV2Model:
                     continue  # SigLIP 2 sees a kitchen part there, not an object
                 f = {**f, "label": name, "named_by": "siglip", "owl_label": f["label"]}
             out.append(f)
+        return out
+
+    def check_many(self, rgb: np.ndarray, items: list[dict]) -> list[dict | None]:
+        """SAM 3 as a checker (sam3_check): for each box, SigLIP 2's 3 best names and its own name are
+        the candidates; SAM 3, prompted with all of them once for the picture, gives each box the name
+        whose mask fits it best, or None (drop) when no mask of a candidate covers it."""
+        if self._sam3 is None or not items:
+            return list(items)
+        candidates = [sorted({it["label"], *self._siglip.top(rgb, it["box"], 3)}) for it in items]
+        masks = self._sam3.objects(rgb, sorted({n for c in candidates for n in c}))
+        self.sam3_checks += 1
+        out = []
+        for it, names in zip(items, candidates):
+            on = [m for m in masks if m["label"] in names and _iou(m["box"], it["box"]) >= _CHECK_IOU]
+            if not on:
+                out.append(None)
+                continue
+            best = max(on, key=lambda m: m["score"])
+            out.append({**it, "label": best["label"], "box": best["box"], "score": best["score"], "checked_from": it["label"]})
         return out
 
     def _owl_objects(self, rgb: np.ndarray) -> list[dict]:
@@ -106,6 +132,9 @@ def pick_boxes(scores: np.ndarray, boxes: np.ndarray, labels: list[str], n_objec
         if all(_iou(box, other["box"]) < nms_iou for other in found):  # one box per object, whatever its name
             found.append({"label": labels[best[i]], "box": [round(v, 1) for v in box], "score": round(float(best_score[i]), 3)})
     return found
+
+
+_CHECK_IOU = 0.3  # a SAM 3 mask's box this much on a candidate box is about that box
 
 
 def _iou(a, b) -> float:

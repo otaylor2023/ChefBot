@@ -253,6 +253,9 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
     result["outcome"] = list(outcome)
     if getattr(llm, "approaches", None) is not None and getattr(llm, "_approach", None) is not None:
         result["approaches"] = dict(llm.approaches)  # go closer: extra stops made, and ones it could not reach
+    checks = getattr(getattr(world.detector, "_vlm", None), "sam3_checks", None)
+    if checks:
+        result["sam3_checks"] = checks  # pictures the SAM 3 checker looked at
     result["run_dir"] = str(run_dir)
     if world.info.get("committed_map") and Path(world.info["committed_map"]).exists():
         committed = yaml.safe_load(Path(world.info["committed_map"]).read_text())
