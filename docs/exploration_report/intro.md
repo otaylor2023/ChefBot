@@ -49,6 +49,9 @@ saucepan, lemon and lime, bottled water and water bottle), as in all tables belo
 | position error, median (all found objects) | 0.1 cm (the pan's reference point aside) | about 4 cm | about 4 to 6 cm | about 3 cm |
 | naming, offline on 758 saved sightings of real objects | | 78% right (86% with aliases) | 43% | 63% (SAM 3 checker: 71% on a sample) |
 
+- **SAM 3 as a checker on layout 7** (on top of the best free setup): 9/14 with the strict version
+  (it drops boxes no mask fits) and 10/14 with the gentle one (it keeps them). Both runs have their
+  own section below.
 - **What limits each detector:**
   - **exact:** only what the route cannot reach (drawers too low for the arm, one cabinet it cannot
     open, one microwave out of reach)

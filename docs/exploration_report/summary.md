@@ -49,6 +49,9 @@ saucepan, lemon and lime, bottled water and water bottle), as in all tables belo
 | position error, median (all found objects) | 0.1 cm (the pan's reference point aside) | about 4 cm | about 4 to 6 cm | about 3 cm |
 | naming, offline on 758 saved sightings of real objects | | 78% right (86% with aliases) | 43% | 63% (SAM 3 checker: 71% on a sample) |
 
+- **SAM 3 as a checker on layout 7** (on top of the best free setup): 9/14 with the strict version
+  (it drops boxes no mask fits) and 10/14 with the gentle one (it keeps them). Both runs have their
+  own section below.
 - **What limits each detector:**
   - **exact:** only what the route cannot reach (drawers too low for the arm, one cabinet it cannot
     open, one microwave out of reach)
@@ -223,6 +226,52 @@ Run `2026-10-26_110513_explore_robocasa_scripted_s0_layout007`: 10/14 found, 10 
 | spoon | counter_1 | wrong name | banana_2 | counter_1 | 10.0 |  |
 
 False finds: bar at (0.85, -0.69) in counter_2, ladle at (0.35, -0.93) in counter_1, oven tray at (5.96, -0.91) in coffee machine, pickle at (0.48, -1.88) in counter_1, soap dispenser_1 at (1.36, -0.17) in counter_4, soap dispenser_2 at (5.59, -2.90) in fridge, spatula_1 at (6.39, -2.08) in counter_8, spatula_2 at (6.39, -1.97) in counter_8, spatula_3 at (6.39, -1.85) in counter_8, sugar cube at (6.10, -0.89) in coffee machine.
+
+### Layout 7, best free setup + SAM 3 checker, gentle (current route)
+
+Run `2026-10-26_121527_explore_robocasa_scripted_s0_layout007`: 10/14 found, 11 false finds.
+
+| true object | true fixture | found | name given | fixture given | xy error (cm) | 3D error (cm) |
+|---|---|---|---|---|---|---|
+| apple | counter_1 | wrong name | cherry | counter_1 | 2.2 |  |
+| banana | counter_1 | yes | banana | counter_1 | 1.6 | 2.1 |
+| bottled water | counter_1 | yes | bottled water_1 | counter_1 | 1.5 | 2.4 |
+| bowl | microwave | yes | bowl | microwave | 10.8 | 11.2 |
+| cup | counter_1 | yes | mug_2 | counter_1 | 3.4 | 3.8 |
+| cutting board | counter_1 | yes | cutting board | counter_1 | 6.3 | 6.5 |
+| egg | fridge | yes | egg | fridge | 1.9 | 2.1 |
+| fork | drawer_4 | no |  |  |  |  |
+| lemon | counter_1 | yes | lemon_2 | counter_1 | 1.9 | 2.6 |
+| milk | fridge | wrong name | bottled water_2 | fridge | 2.5 |  |
+| mug | counter_1 | yes | mug_1 | counter_1 | 3.4 | 4.1 |
+| pan | counter_1 | yes | pan | counter_2 | 13.1 | 13.0 |
+| plate | cabinet_3 | no |  |  |  |  |
+| spoon | counter_1 | yes | spoon_1 | counter_1 | 0.9 | 0.5 |
+
+False finds: bar at (0.85, -0.69) in counter_2, ladle at (0.35, -0.93) in counter_1, lemon_1 at (0.51, -2.01) in counter_1, oven tray at (5.96, -0.91) in coffee machine, reamer at (1.36, -0.17) in counter_4, soap dispenser at (5.59, -2.90) in fridge, spatula_1 at (6.39, -1.95) in counter_8, spatula_2 at (6.39, -1.85) in counter_8, spoon_2 at (0.47, -1.66) in counter_1, sugar cube at (6.10, -0.89) in coffee machine, wooden spoon at (6.38, -2.04) in counter_8.
+
+### Layout 7, best free setup + SAM 3 checker, strict (current route; table and map only)
+
+Run `2026-10-26_115859_explore_robocasa_scripted_s0_layout007`: 9/14 found, 6 false finds.
+
+| true object | true fixture | found | name given | fixture given | xy error (cm) | 3D error (cm) |
+|---|---|---|---|---|---|---|
+| apple | counter_1 | wrong name | cherry | counter_1 | 2.2 |  |
+| banana | counter_1 | yes | banana | counter_1 | 1.6 | 2.1 |
+| bottled water | counter_1 | yes | bottled water_1 | counter_1 | 1.5 | 2.4 |
+| bowl | microwave | yes | bowl | microwave | 10.8 | 11.2 |
+| cup | counter_1 | yes | mug_2 | counter_1 | 3.4 | 3.8 |
+| cutting board | counter_1 | yes | cutting board | counter_1 | 6.3 | 6.5 |
+| egg | fridge | yes | egg | fridge | 1.9 | 2.1 |
+| fork | drawer_4 | no |  |  |  |  |
+| lemon | counter_1 | no |  |  |  |  |
+| milk | fridge | wrong name | bottled water_2 | fridge | 2.5 |  |
+| mug | counter_1 | yes | mug_1 | counter_1 | 3.4 | 4.1 |
+| pan | counter_1 | yes | pan | counter_2 | 13.1 | 13.0 |
+| plate | cabinet_3 | no |  |  |  |  |
+| spoon | counter_1 | yes | spoon_1 | counter_1 | 0.9 | 0.5 |
+
+False finds: oven tray at (5.95, -0.92) in coffee machine, soap dispenser at (1.35, -0.17) in counter_4, spatula_1 at (6.39, -1.95) in counter_8, spatula_2 at (6.39, -1.85) in counter_8, spoon_2 at (0.47, -1.66) in counter_1, wooden spoon at (6.38, -2.04) in counter_8.
 
 ### Layout 25, exact detector (current route)
 

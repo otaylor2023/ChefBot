@@ -280,7 +280,8 @@ def main() -> int:
         body.append(f'<section><h3>{html.escape(title)}</h3><p>Run <code>{run_dir.name}</code>: <b>{t["found"]}/{len(t["rows"])}</b> found, '
                     f'{len(t["false"])} false finds.</p>{table_html(t)}<div class="media"><img class="map" src="media/{slug}_map.png">'
                     + (f'<video controls preload="metadata" src="media/{slug}.mp4"></video>' if n else
-                       "<p class='note'>No camera video: this detector reads the simulator and takes no pictures.</p>")
+                       ("<p class='note'>No camera video: this detector reads the simulator and takes no pictures.</p>"
+                        if t["detector"] == "groundtruth" else "<p class='note'>Video and gallery not rendered for this run (table and map only).</p>"))
                     + f'</div>{"<h4>Where it failed</h4><div class=gallery>" + gal_html + "</div>" if gal else ""}</section>')  # fmt: skip
     (args.out / "summary.md").write_text("\n".join(md) + "\n")
     try:
