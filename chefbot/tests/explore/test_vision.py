@@ -88,7 +88,7 @@ def views(*shifts):
 
 def test_boxes_cut_off_by_the_image_edge_are_dropped():
     vlm = ScriptedVLM([[{"label": "mug", "box": [0, 200, 30, 260]}, {"label": "bowl", "box": [300, 200, 340, 260]}]])
-    det = VisionDetector(scene, Fixtures(), set(), vlm, {"height_range": (0, 5)})
+    det = VisionDetector(scene, Fixtures(), set(), vlm, {"height_range": (0, 5), "same_view_diff": 0})
     assert [d.label for d in det.detect(["mug"])] == ["bowl"]
 
 
@@ -99,7 +99,7 @@ def test_sightings_of_one_object_are_averaged_and_off_fixture_points_dropped():
     counter = MapEntry("counter_1", (0.99, 1.95), kind="fixture", facing=(0.0, -1.0), size=(1.0, 0.6))
     vlm = ScriptedVLM([[{"label": "mug", "box": [300, 200, 340, 260]}],
                        [{"label": "mug", "box": [300, 200, 340, 240]}, {"label": "jug", "box": [600, 20, 620, 40]}]])
-    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5)}, footprints=[counter])
+    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5), "same_view_diff": 0}, footprints=[counter])
     first = det.detect(["mug"])[0].position_world
     second = det.detect(["mug"])
     assert [d.label for d in second] == ["mug"]  # the jug back-projects outside every fixture
@@ -116,7 +116,7 @@ def test_a_far_misnaming_is_superseded_by_a_closer_look():
     shots = iter([scene(), near])
     vlm = ScriptedVLM([[{"label": "cutting board", "box": [300, 200, 340, 260]}],
                        [{"label": "knife block", "box": [300, 200, 340, 260]}]])
-    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5)})
+    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5), "same_view_diff": 0})
     det.detect(["mug"])
     det.detect(["mug"])
     assert [label for label, _ in det.superseded()] == ["cutting board"]
@@ -139,7 +139,7 @@ def test_the_name_seen_most_often_on_a_spot_wins_a_closer_view():
                        [{"label": "fork", "box": [300, 200, 340, 260], "score": 0.4}],
                        [{"label": "spoon", "box": [300, 200, 340, 260], "score": 0.3}],
                        [{"label": "spoon", "box": [300, 200, 340, 260], "score": 0.3}]])  # fmt: skip
-    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5), "label_vote": True})
+    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5), "label_vote": True, "same_view_diff": 0})
     for _ in range(4):
         det.detect(["mug"])
     assert [label for label, _ in det.superseded()] == ["fork"]  # 3 spoon sightings to 1, though fork was closer
@@ -170,3 +170,34 @@ def test_a_small_box_is_looked_at_again_enlarged():
     found = det.detect(["mug"])
     assert sorted(d.label for d in found) == ["cutting board", "lemon"]  # the 20x20 box, relabeled; the big one kept
     assert det.refined == 1 and max(vlm.sizes[1]) == 384
+
+
+def test_the_vlm_stops_at_its_budget():
+    from types import SimpleNamespace
+
+    from chefbot.explore.vision import VisionLanguageModel
+
+    class Client:
+        def chat(self, messages, model=None):
+            return SimpleNamespace(text='{"objects": [{"label": "mug", "box": [1, 2, 3, 4]}]}', cost_usd=0.3)
+
+    vlm = VisionLanguageModel("m", client=Client(), max_cost_usd=0.5)
+    image = np.zeros((48, 64, 3), dtype=np.uint8)
+    assert vlm.objects(image) and vlm.objects(image) and vlm.objects(image) == []
+    assert (vlm.calls, vlm.skipped_over_budget, round(vlm.cost_usd, 2)) == (2, 1, 0.6)
+
+
+def test_a_nearly_identical_view_reuses_the_answer_and_a_small_spot_is_zoomed_once():
+    vlm = CropVLM()
+    shots = []
+    for i in range(3):
+        v = scene()
+        v.rgb[0, 0, 0] = i  # physics jitter: one pixel
+        shots.append(v)
+    shots[2].rgb[:, :320] = 200  # a different view
+    it = iter(shots)
+    det = VisionDetector(lambda: next(it), Fixtures(), set(), vlm, {"height_range": (0, 5), "refine_small": True})
+    for _ in range(3):
+        det.detect(["mug"])
+    assert len([s for s in vlm.sizes if s == (480, 640)]) == 2  # the jittered view reused the first answer
+    assert det.refined == 1  # the lemon's spot was looked at again only once

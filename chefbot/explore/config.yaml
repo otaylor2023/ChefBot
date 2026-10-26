@@ -39,6 +39,8 @@ vision:
   refine_small_px: 1000  # px: boxes smaller than this (area) are looked at again
   refine_context: 3.0    # crop side, in box sizes
   refine_side: 384       # px: the crop is enlarged to this side
+  same_view_diff: 1.0    # a view this close to the last one (mean abs pixel difference) reuses its answer
+  max_cost_usd: 0.60     # the VLM stops being called once a run has spent this much (OpenRouter cost)
   synonyms:                            # VLM word -> catalogue label
     water bottle: bottled water
     bottle of water: bottled water

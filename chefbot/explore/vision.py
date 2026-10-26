@@ -97,17 +97,25 @@ def box_point(rgbd: RGBD, box: tuple[float, float, float, float]) -> np.ndarray 
 class VisionLanguageModel:
     """Names and boxes the loose objects in an image (OpenRouter chat with an image)."""
 
-    def __init__(self, model: str, client=None):
+    def __init__(self, model: str, client=None, max_cost_usd: float | None = None):
         if client is None:
             from chefbot.agent.loop.llm import OpenRouterClient
 
             client = OpenRouterClient(model, temperature=0.0)
         self._client = client
         self._model = model
+        self._max_cost = max_cost_usd  # stop calling the model once this much is spent
         self.cost_usd = 0.0
+        self.calls = 0
+        self.skipped_over_budget = 0
 
     def objects(self, rgb: np.ndarray) -> list[dict]:
         from PIL import Image
+
+        if self._max_cost is not None and self.cost_usd >= self._max_cost:
+            self.skipped_over_budget += 1
+            return []
+        self.calls += 1
 
         buffer = io.BytesIO()
         Image.fromarray(rgb).save(buffer, format="PNG")
@@ -153,7 +161,9 @@ class VisionDetector(Detector):
         self._fixtures = fixtures  # answers fixture and part labels
         self._fixture_labels = fixture_labels
         cfg = {**_CONFIG["vision"], **(config or {})}
-        self._vlm = vlm or VisionLanguageModel(cfg["model"])
+        self._vlm = vlm or VisionLanguageModel(cfg["model"], max_cost_usd=cfg.get("max_cost_usd"))
+        self._same_view = float(cfg.get("same_view_diff", 1.0))
+        self._refined_spots: list[tuple[np.ndarray, dict]] = []  # where a small box was looked at again, and the answer
         self._max_range = float(cfg["max_range"])
         self._synonyms = dict(cfg.get("synonyms") or {})
         self._vocab = set(_VOCAB["objects"])
@@ -172,6 +182,7 @@ class VisionDetector(Detector):
         self._footprints = [f for f in (footprints or []) if f.size is not None and f.facing is not None]
         self._tracks: list[dict] = []  # one per object: label, summed position, sightings
         self._cache: tuple[str, list[int]] | None = None
+        self._last_thumb: np.ndarray | None = None
         self._log_dir = log_dir
         self._calls = 0
         self.camera_name: Callable[[], str] | None = None  # which camera the last view came from
@@ -206,11 +217,14 @@ class VisionDetector(Detector):
     def _objects(self) -> list[Detection]:
         rgbd = self._render()
         key = hashlib.sha1(rgbd.rgb[::8, ::8].tobytes()).hexdigest()  # same view: same answer
-        if self._cache is not None and self._cache[0] == key:
-            return [self._report(i) for i in self._cache[1]]
+        thumb = rgbd.rgb[::4, ::4].astype(np.int16)
+        if self._cache is not None and (self._cache[0] == key or (
+                self._last_thumb is not None and float(np.abs(thumb - self._last_thumb).mean()) < self._same_view)):  # fmt: skip
+            return [self._report(i) for i in self._cache[1]]  # the same view (give or take physics jitter)
+        self._last_thumb = thumb
         named = self._vlm.objects(rgbd.rgb)
         if self._refine:
-            named = [self._refined(rgbd.rgb, item) for item in named]
+            named = [self._refined_once(rgbd, item) for item in named]
         origin = rgbd.cam_to_world[:3, 3]
         h, w = rgbd.depth.shape
         seen = []
@@ -230,6 +244,21 @@ class VisionDetector(Detector):
         out = [self._report(i) for i in seen]
         self._log(rgbd, named, out)
         return out
+
+    def _refined_once(self, rgbd: RGBD, item: dict) -> dict:
+        """_refined, once per spot: a small box over a spot already looked at again takes that answer."""
+        x0, y0, x1, y1 = item["box"]
+        if (x1 - x0) * (y1 - y0) >= self._refine_px:
+            return item
+        point = box_point(rgbd, item["box"])
+        if point is not None:
+            for spot, answer in self._refined_spots:
+                if float(np.linalg.norm(spot[:2] - point[:2])) <= self._conflict:
+                    return {**item, "label": answer["label"], "score": answer.get("score"), "refined_from": item["label"]}
+        again = self._refined(rgbd.rgb, item)
+        if point is not None:
+            self._refined_spots.append((point, again))
+        return again
 
     def _refined(self, rgb: np.ndarray, item: dict) -> dict:
         """A small box (under refine_small_px) looked at again: the detector run on an enlarged crop
@@ -360,5 +389,8 @@ class VisionDetector(Detector):
         stem.with_suffix(".json").write_text(json.dumps({
             "vlm": named,
             "camera": self.camera_name() if self.camera_name else None,
+            "zoomed_so_far": self.refined,
+            "model_calls_so_far": getattr(self._vlm, "calls", None),
+            "cost_usd_so_far": round(float(getattr(self._vlm, "cost_usd", 0.0)), 4),
             "detections": [{"label": d.label, "position": [round(float(v), 3) for v in d.position_world]} for d in out],
         }, indent=1))  # fmt: skip
