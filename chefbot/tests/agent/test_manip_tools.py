@@ -335,3 +335,14 @@ def test_go_to_with_a_distance_stands_that_far_and_detect_flags_what_was_seen_on
     registry.tools._detector = Unsure(robot, list(OBJECTS))
     found = {d["label"]: d for d in registry.dispatch("detect", {"classes": ["mug", "egg"]}).data["detections"]}
     assert found["mug"].get("seen_small") and found["mug"]["place"] and "seen_small" not in found["egg"]
+
+
+def test_two_like_objects_side_by_side_seen_from_afar_keep_two_map_entries():
+    registry, robot, detector = make(Pose2D(0.0, 1.3, 0.0))  # beyond the map query
+    detector.objects.append(("mug", (4.4, 0.35, 0.95)))
+    registry.dispatch("detect", {"classes": ["mug"]})
+    detector.objects.append(("mug", (4.6, 0.35, 0.95)))  # a second one, 0.2 m from the first
+    registry.dispatch("detect", {"classes": ["mug"]})
+    registry.dispatch("detect", {"classes": ["mug"]})
+    mugs = sorted((e.name, e.location[0]) for e in registry.tools._map.list() if e.kind == "object" and e.label == "mug")
+    assert [x for _, x in mugs] == [3.3, 4.4, 4.6]  # the scene's own mug, and the two side by side, each kept

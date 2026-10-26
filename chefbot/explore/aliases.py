@@ -21,6 +21,11 @@ def _table() -> dict[str, str]:
     return out
 
 
+def is_group(label: str) -> bool:
+    """Whether a name stands for several word-list names (a group's name)."""
+    return sum(1 for v in _table().values() if v == label) > 1
+
+
 def canonical(label: str) -> str:
     """The group name of a label (a label in no group is its own)."""
     label = label.replace("_", " ")

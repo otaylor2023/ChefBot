@@ -175,6 +175,9 @@ class VisionDetector(Detector):
         self._closer = float(cfg.get("closer_by", 0.5))
         self._vote = bool(cfg.get("label_vote", False))
         self._aliases = bool(cfg.get("use_aliases", False))
+        # A group name (mug: cup and mug) can stand for two real things side by side: its
+        # sightings are one object only this close.
+        self._alias_merge = float(cfg.get("alias_merge_radius", 0.12))
         self._refine = bool(cfg.get("refine_small", False))
         self._refine_px = float(cfg.get("refine_small_px", 1000))
         self._refine_context = float(cfg.get("refine_context", 3.0))
@@ -317,6 +320,11 @@ class VisionDetector(Detector):
         """The object this sighting is of (the nearest of that label within merge_radius), or a new one.
         Its position is the mean of its sightings, so later full views wash out a poor first one."""
         best, best_d = None, self._merge
+        if self._aliases:
+            from chefbot.explore.aliases import is_group
+
+            if is_group(label):
+                best_d = min(best_d, self._alias_merge)
         for i, t in enumerate(self._tracks):
             if t["label"] != label or i in exclude:
                 continue

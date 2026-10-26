@@ -42,6 +42,7 @@ vision:
   same_view_diff: 1.0    # a view this close to the last one (mean abs pixel difference) reuses its answer
   max_cost_usd: 0.60     # the VLM stops being called once a run has spent this much (OpenRouter cost)
   use_aliases: false      # report a near-synonym group's name (aliases above)
+  alias_merge_radius: 0.12  # m: with aliases, a group name's sightings this close are one object (a cup and a mug can sit side by side)
   approach_small: false  # go closer: objects only seen small are flagged in detect, and the route approaches them
   approach_small_px: 1000  # px: a box this small (area) is "seen small"
   approach_distance: 0.7   # m: stand this far from it to look again

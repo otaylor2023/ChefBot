@@ -220,6 +220,7 @@ class NavTools:
                 name = e.map_name or self.fixture_of_handle(e)
                 if name is not None:
                     self.kitchen.set_state(name, e.state, SEEN, now)
+        self._match_from_afar(entries, fixture_labels)
         for e in entries:
             if e.label in fixture_labels or e.label in _PARTS or e.label.endswith(" handle"):
                 continue  # fixtures and their parts are not loose objects
@@ -238,12 +239,6 @@ class NavTools:
                 holder = self._nearest_fixture(e.position_world)
             if holder is None:
                 continue
-            if e.map_name is None:  # seen from afar (out of the map query's range): the one mapped here?
-                same = [m for m in self._map.list() if m.kind == "object" and m.label == e.label
-                        and _xy_dist(e.position_world, m.location) <= _SAME_SPOT]  # fmt: skip
-                if same:
-                    e.map_name = min(same, key=lambda m: _xy_dist(e.position_world, m.location)).name
-                    known = self._map.get(e.map_name)
             name = e.map_name or e.id
             if e.map_name is None and self._map.get(name) is not None:
                 # A new one whose detection id a mapped one (seen elsewhere, out of range) already has.
@@ -293,6 +288,26 @@ class NavTools:
         self.kitchen.put(obj, holder, YOU, self.now())
         for inner in self.held_contents(obj):  # what was in it comes back with it
             self._map.put(MapEntry(inner, (float(xy[0]), float(xy[1])), kind="object", inside=self._top(holder)))
+
+    def _match_from_afar(self, entries: list[DetectionEntry], fixture_labels: set[str]) -> None:
+        """Objects seen from beyond the map query's range: each takes the map entry of its label
+        on that spot (within _SAME_SPOT), one to one, nearest pairs first, so two like things side
+        by side keep two entries."""
+        claimed = {e.map_name for e in entries if e.map_name}
+        loose = [e for e in entries if e.map_name is None and not e.in_gripper and e.label not in fixture_labels
+                 and e.label not in _PARTS and not e.label.endswith(" handle")]  # fmt: skip
+        pairs = sorted(
+            (_xy_dist(e.position_world, m.location), i, m.name)
+            for i, e in enumerate(loose) for m in self._map.list()
+            if m.kind == "object" and m.label == e.label and m.name not in claimed
+            and _xy_dist(e.position_world, m.location) <= _SAME_SPOT
+        )  # fmt: skip
+        done = set()
+        for _, i, name in pairs:
+            if i not in done and name not in claimed:
+                loose[i].map_name = name
+                claimed.add(name)
+                done.add(i)
 
     def record_pick(self, obj: str) -> None:
         self.kitchen.forget(obj)

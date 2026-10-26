@@ -215,3 +215,25 @@ def test_with_use_aliases_the_detector_reports_the_group_name():
     vlm = ScriptedVLM([[{"label": "coffee cup", "box": [300, 200, 340, 260]}]])
     det = VisionDetector(scene, Fixtures(), set(), vlm, {"height_range": (0, 5), "use_aliases": True, "synonyms": {}})
     assert [d.label for d in det.detect(["mug"])] == ["mug"]
+
+
+def test_with_aliases_two_things_of_one_group_side_by_side_stay_two():
+    from chefbot.explore.aliases import is_group
+
+    assert is_group("mug") and not is_group("apple")
+    def two_things():
+        rgbd = scene()
+        rgbd.depth[200:260, 360:400] = 1.5  # a second thing, about 0.2 m to the side
+        return rgbd
+
+    shots = [two_things(), two_things()]
+    shots[1].rgb[0, 0, 0] = 9  # a second, different picture
+    it = iter(shots)
+    vlm = ScriptedVLM([[{"label": "cup", "box": [300, 200, 340, 260]}],
+                       [{"label": "mug", "box": [360, 200, 400, 260]}]])  # fmt: skip
+    det = VisionDetector(lambda: next(it), Fixtures(), set(), vlm,
+                         {"height_range": (0, 5), "use_aliases": True, "synonyms": {}, "same_view_diff": 0})  # fmt: skip
+    det.detect(["mug"])
+    second = det.detect(["mug"])
+    assert len(det._tracks) == 2 and [d.label for d in second] == ["mug"]  # one group name, two things
+    assert np.linalg.norm(det._tracks[0]["sum"] - det._tracks[1]["sum"]) > 0.12
