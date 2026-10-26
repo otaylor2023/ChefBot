@@ -68,6 +68,42 @@ hard 14-object task.
 | vision | 31/48 | 5.6 | 3.8 | 12.9 | 20.1 | 61%/77%/97% | 4.1 | 12.9 | 1.2 | 2.6 | 100% |
 | owl | 24/48 | 6.8 | 5.9 | 13.5 | 20.5 | 46%/79%/92% | 6.0 | 14.0 | 1.3 | 4.5 | 92% |
 
+## Current route: exact detector vs OWLv2 (layouts 7, 25, 39)
+
+The current route opens cabinets and drawers, and each view uses the camera the arm blocks least
+(the fridge is in view). Both detectors ran the same route, which makes this the fair comparison
+for OWLv2. No VLM runs were made on this route.
+
+| layout | detector | found | xy median | xy p90 | xy max | within 15 cm | 3D median | right fixture | extra finds | missed |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 7 | exact | 13/14 | 0.1 | 0.1 | 10.7 | 100% | 0.1 | 100% | 0 | fork |
+| 7 | owl | 9/14 | 3.0 | 9.8 | 10.8 | 100% | 3.6 | 89% | 22 | egg, fork, lemon, milk, plate |
+| 25 | exact | 12/14 | 0.0 | 0.3 | 10.7 | 100% | 0.1 | 100% | 0 | bowl, fork |
+| 25 | owl | 6/14 | 5.4 | 14.1 | 20.8 | 83% | 5.8 | 100% | 14 | bowl, egg, fork, lemon, milk, mug, plate, spoon |
+| 39 | exact | 12/14 | 0.0 | 0.1 | 10.7 | 100% | 0.1 | 100% | 0 | fork, plate |
+| 39 | owl | 6/14 | 4.3 | 15.3 | 21.6 | 83% | 4.2 | 100% | 26 | bowl, cup, egg, fork, lemon, milk, plate, spoon |
+
+All three layouts together:
+
+| detector | found | xy mean | xy median | xy p90 | xy max | within 5/10/15 cm | 3D median | xy vs centre median | right fixture | extra finds |
+|---|---|---|---|---|---|---|---|---|---|---|
+| exact | 37/42 | 0.9 | 0.1 | 0.2 | 10.7 | 92%/92%/100% | 0.1 | 0.0 | 100% | 0 |
+| owl | 21/42 | 6.0 | 3.6 | 10.8 | 21.6 | 57%/86%/90% | 4.0 | 3.0 | 95% | 62 |
+
+- Opening the cabinets and drawers and clearing the camera did not raise OWLv2's share much:
+  21/42 here, against 20/42 on the earlier route.
+- What OWLv2 misses that the exact detector saw: the egg and milk in the fridge (all three
+  kitchens, even with the shelves in view), the lemon (three times), the plate in its cabinet
+  (layouts 7 and 25), and the bowl, mug, spoon and cup once or twice. These are small objects, or
+  objects that score below the detector's threshold (the egg scores 0.15 against a threshold of
+  0.2).
+- Its extra finds (62 over three kitchens) are utensils, decorations and fixture parts named as
+  objects, many of them seen inside the open cabinets.
+- Placement of what it finds is as good as before: median 3.6 cm, 90% within 15 cm.
+
+Runs: exact `2026-10-25_145308`, `150237`, `151243`; OWLv2 `2026-10-25_175806`, `181121`,
+`182428` (fixtures `owl_current_layout007/025/039`).
+
 ## What it says
 
 - **The exact detector sets the floor.** Its only error is the pan's reference offset. What it
@@ -90,7 +126,7 @@ hard 14-object task.
 
 - **Unit tests** for matching (label, nearest first, the 0.5 m radius), the per-object errors
   (origin, centre, offset, fixture) and the summary statistics, on small hand-made maps.
-- **Regression tests** on copies of the twelve runs above (`chefbot/tests/explore/fixtures/accuracy/`).
+- **Regression tests** on copies of the fifteen runs above (`chefbot/tests/explore/fixtures/accuracy/`).
   They assert per-detector bounds set from these numbers with some margin: matched share, xy
   median, xy p90, 3D median, and the share within 15 cm. A further test checks that the exact
   detector's error against the geometry's middle stays within 1 cm.

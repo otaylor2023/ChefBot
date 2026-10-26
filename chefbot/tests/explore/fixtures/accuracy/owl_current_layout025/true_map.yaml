@@ -1,0 +1,43 @@
+objects:
+  apple:
+    location: [0.461, -4.476]
+    in: counter_1
+  banana:
+    location: [0.47, -4.042]
+    in: counter_1
+  bottled water:
+    location: [0.464, -3.677]
+    in: counter_1
+  bowl:
+    location: [4.591, -2.45]
+    in: microwave
+  cup:
+    location: [0.481, -4.697]
+    in: counter_1
+  cutting board:
+    location: [0.462, -3.033]
+    in: counter_1
+  egg:
+    location: [4.61, -1.674]
+    in: fridge
+  fork:
+    location: [0.299, -4.644]
+    in: drawer_1
+  lemon:
+    location: [0.464, -4.272]
+    in: counter_1
+  milk:
+    location: [4.612, -1.879]
+    in: fridge
+  mug:
+    location: [0.488, -4.946]
+    in: counter_1
+  pan:
+    location: [0.46, -3.394]
+    in: counter_1
+  plate:
+    location: [3.269, -0.404]
+    in: cabinet_24
+  spoon:
+    location: [0.468, -3.842]
+    in: counter_1

@@ -1,0 +1,97 @@
+objects:
+  apple:
+    location: [2.724, -5.839]
+    in: counter_1
+  avocado:
+    location: [2.536, -5.846]
+    in: counter_1
+  banana:
+    location: [2.336, -5.844]
+    in: counter_1
+  bar:
+    location: [3.624, -5.635]
+    in: microwave
+  bar soap:
+    location: [6.127, -0.609]
+    in: fridge
+  bottled water_1:
+    location: [1.988, -5.873]
+    in: counter_1
+  bottled water_2:
+    location: [6.33, -0.613]
+    in: fridge
+  can opener:
+    location: [2.713, -6.014]
+    in: counter_1
+  candle:
+    location: [1.525, -0.148]
+    in: counter_2
+  cheese grater:
+    location: [2.651, -0.249]
+    in: counter_2
+  condiment bottle:
+    location: [1.993, -5.868]
+    in: counter_1
+  cutting board_1:
+    location: [1.33, -5.842]
+    in: counter_1
+  cutting board_2:
+    location: [3.649, -5.822]
+    in: microwave
+  dish brush:
+    location: [2.641, -0.249]
+    in: counter_2
+  kiwi:
+    location: [2.733, -5.84]
+    in: counter_1
+  knife_1:
+    location: [1.239, -5.896]
+    in: counter_1
+  knife_2:
+    location: [2.15, -5.884]
+    in: counter_1
+  knife_3:
+    location: [2.675, -0.271]
+    in: counter_2
+  ladle:
+    location: [1.682, -5.766]
+    in: counter_1
+  mug:
+    location: [2.969, -5.84]
+    in: counter_1
+  pan:
+    location: [1.724, -5.805]
+    in: counter_1
+  pear:
+    location: [2.564, -5.839]
+    in: counter_1
+  pizza cutter:
+    location: [2.154, -5.881]
+    in: counter_1
+  reamer_1:
+    location: [1.982, -5.873]
+    in: counter_1
+  reamer_2:
+    location: [2.64, -0.249]
+    in: counter_2
+  scissors:
+    location: [2.155, -5.886]
+    in: counter_1
+  soap dispenser:
+    location: [1.493, -0.163]
+    in: counter_2
+  spatula:
+    location: [1.68, -5.768]
+    in: counter_1
+  sponge_1:
+    location: [2.552, -5.838]
+    in: counter_1
+  sponge_2:
+    location: [2.699, -0.095]
+    in: counter_2
+  strainer:
+    location: [1.724, -5.772]
+    in: counter_1
+  straw:
+    location: [3.148, -5.899]
+    in: counter_1

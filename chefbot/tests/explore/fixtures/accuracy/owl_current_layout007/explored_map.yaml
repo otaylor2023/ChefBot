@@ -1,0 +1,94 @@
+objects:
+  apple:
+    location: [0.478, -2.189]
+    in: counter_1
+  banana:
+    location: [0.474, -1.79]
+    in: counter_1
+  bar:
+    location: [0.851, -0.685]
+    in: counter_2
+  bar soap_1:
+    location: [5.876, -3.369]
+    in: fridge
+  bar soap_2:
+    location: [6.1, -0.89]
+    in: coffee machine
+  bottled water_1:
+    location: [0.485, -1.396]
+    in: counter_1
+  bottled water_2:
+    location: [5.913, -3.206]
+    in: fridge
+  bowl:
+    location: [0.503, -3.127]
+    in: microwave
+  candle:
+    location: [1.386, -0.151]
+    in: counter_4
+  condiment bottle:
+    location: [0.477, -1.407]
+    in: counter_1
+  cup:
+    location: [0.514, -2.416]
+    in: counter_1
+  cutting board_1:
+    location: [0.324, -0.849]
+    in: counter_1
+  cutting board_2:
+    location: [0.39, -1.155]
+    in: counter_1
+  fork:
+    location: [6.392, -1.943]
+    in: counter_8
+  ladle_1:
+    location: [0.466, -1.603]
+    in: counter_1
+  ladle_2:
+    location: [6.385, -2.038]
+    in: counter_8
+  mug:
+    location: [0.516, -2.608]
+    in: counter_1
+  oven tray:
+    location: [5.958, -0.912]
+    in: coffee machine
+  pan:
+    location: [0.555, -1.113]
+    in: counter_2
+  pear:
+    location: [0.511, -1.97]
+    in: counter_1
+  pickle:
+    location: [0.515, -1.997]
+    in: counter_1
+  reamer_1:
+    location: [0.576, -1.148]
+    in: counter_1
+  reamer_2:
+    location: [1.363, -0.165]
+    in: counter_4
+  soap dispenser_1:
+    location: [1.358, -0.166]
+    in: counter_4
+  soap dispenser_2:
+    location: [5.593, -2.898]
+    in: fridge
+  spatula_1:
+    location: [0.463, -1.633]
+    in: counter_1
+  spatula_2:
+    location: [0.572, -1.153]
+    in: counter_1
+  spoon:
+    location: [0.463, -1.592]
+    in: counter_1
+  spray:
+    location: [0.484, -1.4]
+    in: counter_1
+  whisk:
+    location: [6.389, -1.943]
+    in: counter_8
+  wooden spoon:
+    location: [6.388, -2.043]
+    in: counter_8
