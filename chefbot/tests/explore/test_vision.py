@@ -260,3 +260,35 @@ def test_small_boxes_go_to_the_detector_checker_once_per_spot():
     first = det.detect(["mug"])
     det.detect(["mug"])
     assert "lemon" in [d.label for d in first] and vlm.checked == [["pear"]]  # checked once; the big box never
+
+
+def test_occlusion_is_the_share_of_a_box_on_a_nearer_surface():
+    from chefbot.explore.vision import occlusion
+
+    rgbd = scene()
+    rgbd.depth[200:230, 300:340] = 1.2  # something in front of the top half of the object
+    point = box_point(scene(), (300, 200, 340, 260))
+    assert abs(occlusion(rgbd, (300, 200, 340, 260), point, 0.04) - 0.5) < 0.05
+    assert occlusion(scene(), (300, 200, 340, 260), point, 0.04) == 0.0
+
+
+def test_with_look_closely_an_unsure_object_says_so_until_seen_close_and_the_close_view_wins():
+    near = scene()
+    near.depth[200:260, 300:340] = 0.4  # the wrist camera, 0.4 m from it
+    near.cam_to_world = near.cam_to_world.copy()
+    near.cam_to_world[2, 3] += 1.1
+    near.rgb[0, 0, 0] = 9
+    mask = np.zeros((480, 640), dtype=bool)
+    mask[400:, 250:390] = True  # the gripper, low in the middle
+    vlm = ScriptedVLM([[{"label": "egg", "box": [300, 200, 340, 260]}],
+                       [{"label": "lemon", "box": [300, 200, 340, 260]}, {"label": "tongs", "box": [260, 410, 380, 470]}]])
+    det = VisionDetector(scene, Fixtures(), set(), vlm, {"height_range": (0, 5), "look_closely": True, "same_view_diff": 0,
+                                                         "approach_small_px": 3000, "close_weight": 3, "label_vote": True,
+                                                         "conflict_radius": 0.08})  # fmt: skip
+    assert det.detect(["egg"])[0].confidence < 0.5  # seen only small (under 3000 px)
+    with det.viewing(lambda: (near, mask)):
+        close = det.detect(["egg"])
+    assert [d.label for d in close] == ["lemon"]  # the gripper's box is dropped
+    assert close[0].confidence > 0.5
+    assert np.allclose(close[0].position_world, box_point(near, (300, 200, 340, 260)))
+    assert [label for label, _ in det.superseded()] == ["egg"]  # one close view outvotes one far one

@@ -45,7 +45,7 @@ TASK = REPO / "chefbot" / "tasks" / "explore_kitchen.yaml"
 
 # What the explorer may call: looking, moving and doors; nothing that moves objects or heats.
 TOOLS = ("go_to", "detect", "nearby", "align", "open", "close", "wait", "get_status", "stop", "get_pose",
-         "complete", "set_status", "finish")  # fmt: skip
+         "complete", "set_status", "finish", "look_closely")  # fmt: skip
 
 
 @dataclass
@@ -60,6 +60,10 @@ class World:
     info: dict = dataclasses.field(default_factory=dict)
     stack: Any = None  # robocasa: the sim stack, for the video recorder only
     positions: Callable[[], dict] | None = None  # true 3D object positions; call only after the run
+
+
+def detector_name(world: "World") -> str | None:
+    return world.info.get("detector")
 
 
 def strip_objects(semantic: dict) -> dict:
@@ -168,6 +172,14 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
         operator=lambda reason: "continue", system_prompt=prompt, tools_only=TOOLS,
     )  # fmt: skip
     holder["session"] = session
+    seen_3d: dict[str, list[float]] = {}  # the agent's map name -> where it last saw it
+    close_look = None
+    if explore_cfg["vision"].get("look_closely") and world.stack is not None and detector_name(world) in ("vision", "owl"):
+        from chefbot.explore.look import SCHEMA, CloseLook
+
+        close_look = CloseLook(world.robot, world.stack.env, session.registry.tools, world.detector,
+                               where=seen_3d.get, config=explore_cfg["vision"])  # fmt: skip
+        session.registry.add(close_look, [SCHEMA])
     session.log.start(task="explore_kitchen", task_file=str(task), seed=seed, policy=policy,
                       models={"agent": config.model if policy == "llm" else "scripted"},
                       tools=[s["function"]["name"] for s in session.registry.schemas], **world.info)  # fmt: skip
@@ -177,8 +189,9 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
             from chefbot.explore.scripted import ScriptedExplorer
 
             vision_cfg = explore_cfg["vision"]
-            approach = ({"distance": vision_cfg.get("approach_distance", 0.7), "per_stop": vision_cfg.get("approach_per_stop", 2)}
-                        if detector in ("vision", "owl") and vision_cfg.get("approach_small") else None)  # fmt: skip
+            approach = ({"distance": vision_cfg.get("approach_distance", 0.7), "per_stop": vision_cfg.get("approach_per_stop", 2),
+                         "close": close_look is not None}
+                        if detector in ("vision", "owl") and (vision_cfg.get("approach_small") or close_look) else None)  # fmt: skip
             llm = ScriptedExplorer(WorldMap.from_dict(world.start), set(open_labels),
                                    storage_max_bottom=float(explore_cfg["storage_max_bottom"]), approach=approach)  # fmt: skip
         else:
@@ -205,15 +218,13 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
     def before_action(s: AgentSession, tool: str, args: dict, reasoning) -> None:
         recorder.caption = (f"> {call_text(tool, args)}", "...")
 
-    seen_3d: dict[str, list[float]] = {}  # the agent's map name -> where it last saw it
-
     def after_action(s: AgentSession, tool: str, args: dict, result, reasoning) -> None:
         if recorder is not None:
             summary = f"{'ok' if result.success else 'FAILED: ' + str(result.error)}  {result.message}".strip()
             recorder.caption = (recorder.caption[0], summary if len(summary) <= 150 else summary[:147] + "...")
             if (result.data or {}).get("status") != "moving":
                 recorder.hold(1.5 if tool in ("detect", "nearby") else 0.8)
-        if tool == "detect" and result.success:
+        if tool in ("detect", "look_closely") and result.success:
             for e in s.registry.tools.detections.all():  # where the agent saw each mapped object, in 3D
                 if e.map_name is not None:
                     seen_3d[e.map_name] = [round(float(v), 4) for v in e.position_world]
@@ -253,6 +264,8 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
     result["outcome"] = list(outcome)
     if getattr(llm, "approaches", None) is not None and getattr(llm, "_approach", None) is not None:
         result["approaches"] = dict(llm.approaches)  # go closer: extra stops made, and ones it could not reach
+    if close_look is not None:
+        result["close_looks"] = dict(close_look.stats, occluded_sightings=world.detector.occluded_seen)
     checks = getattr(getattr(world.detector, "_vlm", None), "sam3_checks", None)
     if checks:
         result["sam3_checks"] = checks  # pictures the SAM 3 checker looked at

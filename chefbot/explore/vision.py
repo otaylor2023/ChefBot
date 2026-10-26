@@ -15,6 +15,7 @@ burners are what the robot acts on.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import io
 import json
@@ -92,6 +93,30 @@ def box_point(rgbd: RGBD, box: tuple[float, float, float, float]) -> np.ndarray 
     k = rgbd.intrinsics
     camera = np.array([(u - k[0, 2]) / k[0, 0] * z, (v - k[1, 2]) / k[1, 1] * z, z, 1.0])
     return (rgbd.cam_to_world @ camera)[:3]
+
+
+def occlusion(rgbd: RGBD, box, point: np.ndarray, gap: float) -> float:
+    """Share of the box's pixels with a surface nearer the camera than the object by more than `gap`:
+    something in front of it (from the robot's own depth image, nothing else)."""
+    h, w = rgbd.depth.shape
+    x0, y0, x1, y1 = (int(round(v)) for v in box)
+    x0, x1, y0, y1 = max(0, x0), min(w, x1), max(0, y0), min(h, y1)
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    d = rgbd.depth[y0:y1, x0:x1]
+    valid = np.isfinite(d) & (d > 0.05)
+    if not valid.any():
+        return 0.0
+    cam = np.linalg.inv(rgbd.cam_to_world) @ np.append(point, 1.0)
+    return float((valid & (d < cam[2] - gap)).sum() / valid.sum())
+
+
+def _share(mask: np.ndarray, box) -> float:
+    """Share of a box covered by `mask`."""
+    h, w = mask.shape
+    x0, y0, x1, y1 = (int(round(v)) for v in box)
+    x0, x1, y0, y1 = max(0, x0), min(w, x1), max(0, y0), min(h, y1)
+    return float(mask[y0:y1, x0:x1].mean()) if x1 > x0 and y1 > y0 else 0.0
 
 
 class VisionLanguageModel:
@@ -188,6 +213,19 @@ class VisionDetector(Detector):
         self.refined = 0  # boxes looked at again, enlarged
         self._approach = bool(cfg.get("approach_small", False))
         self._approach_px = float(cfg.get("approach_small_px", 1000))
+        # look_closely: an uncertain object (seen only small, low scores, two names on its spot, or only
+        # ever partly hidden) says so, to be looked at with the wrist camera from close by; a close view's
+        # position wins and its name counts close_weight times in the vote.
+        self._look = bool(cfg.get("look_closely", False))
+        self._close_range = float(cfg.get("close_range", 0.6))
+        self._close_weight = float(cfg.get("close_weight", 3))
+        self._uncertain_score = float(cfg.get("uncertain_score", 0.3))
+        self._occl_share = float(cfg.get("occluded_share", 0.25))
+        self._occl_gap = float(cfg.get("occluded_gap", 0.04))
+        self._robot_share = float(cfg.get("robot_share", 0.3))
+        self._close_names_all = bool(cfg.get("close_names_all", True))
+        self._robot_mask: np.ndarray | None = None  # pixels of the robot itself in the current view (close looks)
+        self.occluded_seen = 0  # sightings with a nearer surface over much of the box
         self._footprints = [f for f in (footprints or []) if f.size is not None and f.facing is not None]
         self._tracks: list[dict] = []  # one per object: label, summed position, sightings
         self._cache: tuple[str, list[int]] | None = None
@@ -223,6 +261,38 @@ class VisionDetector(Detector):
             found += self._objects()
         return found
 
+    @contextlib.contextmanager
+    def viewing(self, render: Callable[[], tuple[RGBD, np.ndarray | None]], camera: str | None = None):
+        """Within it, detect() looks through another camera (the wrist camera, close by): `render` gives
+        the image and the robot's own pixels in it (boxes mostly on the robot are its gripper)."""
+        saved, saved_name = self._render, self.camera_name
+        rgbd, mask = render()
+        self._render, self._robot_mask = (lambda: rgbd), mask
+        if camera is not None:
+            self.camera_name = lambda: camera
+        # Close up every box is big: a hybrid detector names them all with its small-object namer,
+        # which is the better one on a single object filling the box (close_names_all).
+        hybrid = getattr(self._vlm, "_hybrid_px", None)
+        if hybrid is not None and self._close_names_all:
+            self._vlm._hybrid_px = math.inf
+        try:
+            yield
+        finally:
+            self._render, self._robot_mask, self.camera_name = saved, None, saved_name
+            if hybrid is not None:
+                self._vlm._hybrid_px = hybrid
+
+    def tracked(self) -> list[tuple[str, np.ndarray]]:
+        """(label, position) of every object it is tracking."""
+        return [(t["label"], self._position(t)) for t in self._tracks]
+
+    def seen_clearly(self, where: np.ndarray, radius: float = 0.1) -> bool | None:
+        """Whether the last sighting of the object at `where` was unhidden (None: no object there)."""
+        near = [t for t in self._tracks if float(np.linalg.norm(self._position(t)[:2] - np.asarray(where)[:2])) <= radius]
+        if not near:
+            return None
+        return not max(near, key=lambda t: t["n"]).get("last_occluded", False)
+
     def _objects(self) -> list[Detection]:
         rgbd = self._render()
         key = hashlib.sha1(rgbd.rgb[::8, ::8].tobytes()).hexdigest()  # same view: same answer
@@ -250,11 +320,17 @@ class VisionDetector(Detector):
             x0, y0, x1, y1 = item["box"]
             if min(x0, y0, x1, y1) < self._edge or max(x0, x1) > w - 1 - self._edge or max(y0, y1) > h - 1 - self._edge:
                 continue  # cut off by the image edge: the visible sliver puts it in the wrong place
+            if self._robot_mask is not None and (_share(self._robot_mask, item["box"]) > self._robot_share
+                                                 or (x1 - x0) * (y1 - y0) > 0.4 * w * h):  # fmt: skip
+                continue  # the robot's own gripper, or a box around most of a close view (the whole counter)
             point = box_point(rgbd, item["box"])
             if point is None or float(np.linalg.norm(point - origin)) > self._max_range or not self._plausible(point):
                 continue
+            occluded = occlusion(rgbd, item["box"], point, self._occl_gap) > self._occl_share
+            self.occluded_seen += occluded
             seen.append(self._track(label, point, float(np.linalg.norm(point - origin)), exclude=seen,
-                                    score=float(item.get("score") or 0.0), px=(x1 - x0) * (y1 - y0)))  # fmt: skip
+                                    score=float(item.get("score") or 0.0), px=(x1 - x0) * (y1 - y0),
+                                    occluded=occluded))  # fmt: skip
         self._cache = (key, seen)
         out = [self._report(i) for i in seen]
         self._log(rgbd, named, out)
@@ -343,7 +419,7 @@ class VisionDetector(Detector):
         return False
 
     def _track(self, label: str, point: np.ndarray, distance: float, exclude: list[int], score: float = 0.0,
-               px: float = 0.0) -> int:  # fmt: skip
+               px: float = 0.0, occluded: bool = False) -> int:  # fmt: skip
         """The object this sighting is of (the nearest of that label within merge_radius), or a new one.
         Its position is the mean of its sightings, so later full views wash out a poor first one."""
         best, best_d = None, self._merge
@@ -359,13 +435,19 @@ class VisionDetector(Detector):
             if d <= best_d:
                 best, best_d = i, d
         if best is None:
-            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0, "nearest": distance, "score": 0.0, "px": 0.0})
+            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0, "nearest": distance, "score": 0.0, "px": 0.0,
+                                 "close_sum": np.zeros(3), "close_n": 0, "clear_n": 0})  # fmt: skip
             best = len(self._tracks) - 1
         self._tracks[best]["sum"] += point
         self._tracks[best]["n"] += 1
         self._tracks[best]["nearest"] = min(self._tracks[best]["nearest"], distance)
         self._tracks[best]["score"] += score
         self._tracks[best]["px"] = max(self._tracks[best]["px"], px)  # its largest box so far
+        if distance <= self._close_range:  # a close view: its position wins
+            self._tracks[best]["close_sum"] += point
+            self._tracks[best]["close_n"] += 1
+        self._tracks[best]["clear_n"] += not occluded
+        self._tracks[best]["last_occluded"] = occluded
         return best
 
     def superseded(self) -> list[tuple[str, np.ndarray]]:
@@ -407,20 +489,43 @@ class VisionDetector(Detector):
             votes: dict[str, list[float]] = {}
             for i in members:
                 v = votes.setdefault(self._tracks[i]["label"], [0, 0.0, math.inf])
-                v[0] += self._tracks[i]["n"]
+                t = self._tracks[i]
+                v[0] += t["n"] + (self._close_weight - 1) * t.get("close_n", 0)  # close views count more
                 v[1] += self._tracks[i]["score"]
                 v[2] = min(v[2], self._tracks[i]["nearest"])
             # Most sightings; then the higher summed score; then the name from the closest view.
             winner = max(votes, key=lambda label: (votes[label][0], votes[label][1], -votes[label][2]))
-            out += [(self._tracks[i]["label"], self._tracks[i]["sum"] / self._tracks[i]["n"])
+            out += [(self._tracks[i]["label"], self._position(self._tracks[i]))
                     for i in members if self._tracks[i]["label"] != winner]  # fmt: skip
         return out
+
+    def _position(self, t: dict) -> np.ndarray:
+        return t["close_sum"] / t["close_n"] if t.get("close_n") else t["sum"] / t["n"]
+
+    def uncertain(self, t: dict) -> list[str]:
+        """Why an object not yet seen close up is worth a close look (look_closely), if it is."""
+        if t.get("close_n"):
+            return []
+        why = []
+        if t["px"] < self._approach_px:
+            why.append("small")
+        if t["score"] / t["n"] < self._uncertain_score:
+            why.append("low score")
+        here = t["sum"] / t["n"]
+        if any(o["label"] != t["label"] and float(np.linalg.norm((o["sum"] / o["n"])[:2] - here[:2])) <= self._conflict
+               for o in self._tracks):  # fmt: skip
+            why.append("two names")
+        if not t["clear_n"]:
+            why.append("occluded")
+        return why
 
     def _report(self, i: int) -> Detection:
         t = self._tracks[i]
         # approach_small: an object only ever seen small says so (low confidence), so it can be looked at closer.
         small = self._approach and t["px"] < self._approach_px
-        return Detection(t["label"], t["sum"] / t["n"], 0.4 if small else 0.9)
+        if self._look:
+            small = bool(self.uncertain(t))
+        return Detection(t["label"], self._position(t), 0.4 if small else 0.9)
 
     def _log(self, rgbd: RGBD, named: list[dict], out: list[Detection]) -> None:
         """Each image the VLM saw, with what it said and where that put things (runs/<run>/vision/)."""

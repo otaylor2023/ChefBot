@@ -21,7 +21,8 @@ from chefbot.agent.world.map import WorldMap
 class ScriptedExplorer:
     def __init__(self, start_map: WorldMap, open_labels: set[str], step_id: str = "s1",
                  storage_max_bottom: float = math.inf, approach: dict | None = None):  # fmt: skip
-        """`approach` (distance, per_stop): look closer at objects detect says it saw only small."""
+        """`approach` (distance, per_stop, close): look closer at objects detect says it saw only small
+        or is unsure of; with close, through the wrist camera (look_closely)."""
         self._map = start_map
         self._approach = approach
         self._small: dict[str, str] = {}  # place -> label: seen only small, not yet looked at closer
@@ -161,6 +162,11 @@ class ScriptedExplorer:
                 self.approaches["unreachable"] += 1
                 continue
             self.approaches["stops"] += 1
+            if self._approach.get("close"):  # the wrist camera, from about 0.3 m
+                looked = yield ("look_closely", {"place": place})
+                if looked.get("success"):
+                    continue
+                self.approaches["close_failed"] = self.approaches.get("close_failed", 0) + 1
             yield ("detect", {})
 
 

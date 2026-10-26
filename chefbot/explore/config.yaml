@@ -49,6 +49,23 @@ vision:
   approach_small_px: 1000  # px: a box this small (area) is "seen small"
   approach_distance: 0.7   # m: stand this far from it to look again
   approach_per_stop: 2     # at most this many approaches after each fixture or cabinet group
+  look_closely: false    # look at uncertain objects (small, low score, two names on one spot, only ever partly hidden)
+                         # with the wrist camera from close by (explore/look.py); the route goes there like approach_small
+  close_distance: 0.32   # m: wrist camera to object
+  close_elevation_deg: 50  # looking down at it this much
+  close_dip_deg: 28      # the camera aims this much below it, so it sits above the gripper in the picture
+  close_sides_deg: [0, 30, -30]  # straight on, then from the left and right if no arm pose fits or it is still partly hidden
+  close_range: 0.6       # m: a sighting from this close is a close view: its position wins...
+  close_weight: 3        # ...and its name counts this many times in the name vote
+  uncertain_score: 0.3   # an object whose mean box score is below this is uncertain
+  occluded_share: 0.25   # a box with this share of its pixels on a nearer surface (by occluded_gap) is partly hidden
+  occluded_gap: 0.04     # m
+  robot_share: 0.3       # in a close view, a box with this share of its pixels on the robot is its own gripper
+  close_names_all: true  # in a close view, a hybrid detector (owl.hybrid_siglip) names every box with SigLIP 2:
+                         # close up everything is big, and OWLv2 names a single object filling the box poorly
+  move_occluders: false  # after looking closely from every side, an object still partly hidden: pick what is in front
+                         # of it, set it down on a free spot nearby, look again, put it back (explore/move_aside.py;
+                         # grasp and placement from the robot's own depth points, no ground truth)
   synonyms:                            # VLM word -> catalogue label
     water bottle: bottled water
     bottle of water: bottled water

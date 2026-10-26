@@ -61,6 +61,7 @@ def replay(run_dir: Path) -> list[dict]:
     from chefbot.agent.world.map import WorldMap
     from chefbot.envs.robocasa.build_map import object_positions
     from chefbot.envs.robocasa.detector import FIXTURE_LABELS, PART_RULES, scene_objects
+    from chefbot.explore.look import WRIST_CAMERA
     from chefbot.explore.vision import _CONFIG, _VOCAB, normalize
     from chefbot.interface.types import Pose2D
     from chefbot.scripts.explore import EXPLORE, REPO, robocasa_world
@@ -68,7 +69,7 @@ def replay(run_dir: Path) -> list[dict]:
     start = json.loads((run_dir / "start.json").read_text())
     frames = sorted(glob.glob(str(run_dir / "vision" / "*.json")))
     logs = [json.loads(Path(f).read_text()) for f in frames]
-    camera = next((log["camera"] for log in logs if log.get("camera")), _CONFIG["vision"]["camera"])
+    camera = next((log["camera"] for log in logs if log.get("camera") and log["camera"] != WRIST_CAMERA), _CONFIG["vision"]["camera"])
     truth = (yaml.safe_load((run_dir / "true_map.yaml").read_text()) or {}).get("objects") or {}
     task_file = Path(start["task_file"])
     task_file = task_file if task_file.is_absolute() else REPO / task_file
@@ -100,32 +101,44 @@ def replay(run_dir: Path) -> list[dict]:
 
     rows, frame, skipped = [], 0, 0
     actions = [json.loads(line) for line in (run_dir / "run.jsonl").read_text().splitlines()]
+
+    def view(cam: str, record: dict) -> None:
+        """The logged frames that look like what `cam` shows now."""
+        nonlocal frame, skipped, rows
+        # The detector logged a frame for each model call; a call is a view that changed (in the
+        # run, physics jitter can change it at the same spot too). So: every logged frame that
+        # looks like this view is this view.
+        rgbd = env.get_camera_rgbd(cam)
+
+        def diff_to(i: int) -> float:
+            saved = np.asarray(Image.open(frames[i].replace(".json", ".png")).convert("RGB"), dtype=float)
+            return float(np.abs(saved - rgbd.rgb).mean())
+
+        ahead = [i for i in range(frame, min(frame + 4, len(logs))) if diff_to(i) <= _SAME_IMAGE]
+        if ahead:
+            skipped += ahead[0] - frame  # logged frames no replayed view looks like
+            frame = ahead[0]
+        while frame < len(logs):
+            diff = diff_to(frame)
+            if diff > _SAME_IMAGE:
+                break
+            rows += _sightings(env, cam, rgbd, objects, logs[frame], frame + 1, diff, truth,
+                               object_points, fixture_labels, synonyms, words, record)  # fmt: skip
+            frame += 1
+
     for record in (r for r in actions if r.get("kind") == "action"):
         tool, args = record["tool"], record["args"]
         if tool == "detect" and frame < len(logs):
             # Any detect may have called the model: even one for handles also asks about the
             # objects on the agent's map nearby. Frames are matched by what they show.
-            if True:
-                # The detector logged a frame for each model call; a call is a view that changed (in the
-                # run, physics jitter can change it at the same spot too). So: every logged frame that
-                # looks like this view is this view.
-                rgbd = env.get_camera_rgbd(camera)
-
-                def diff_to(i: int) -> float:
-                    saved = np.asarray(Image.open(frames[i].replace(".json", ".png")).convert("RGB"), dtype=float)
-                    return float(np.abs(saved - rgbd.rgb).mean())
-
-                ahead = [i for i in range(frame, min(frame + 4, len(logs))) if diff_to(i) <= _SAME_IMAGE]
-                if ahead:
-                    skipped += ahead[0] - frame  # logged frames no replayed view looks like
-                    frame = ahead[0]
-                while frame < len(logs):
-                    diff = diff_to(frame)
-                    if diff > _SAME_IMAGE:
-                        break
-                    rows += _sightings(env, camera, rgbd, objects, logs[frame], frame + 1, diff, truth,
-                                       object_points, fixture_labels, synonyms, words, record)  # fmt: skip
-                    frame += 1
+            view(camera, record)
+        if tool == "look_closely" and frame < len(logs):
+            # The wrist camera's close views: the arm where the run logged it, then back to ready.
+            # (A view taken with something moved aside is replayed without moving it.)
+            for close in (record.get("data") or {}).get("close_views", []):
+                env.set_arm_joints(np.array(close["q"]))
+                view(WRIST_CAMERA, record)
+            env.set_arm_joints(world.robot._arm.ready)
         if tool in ("go_to", "align", "open", "close", "detect", "nearby", "wait", "stop"):
             registry.dispatch(tool, args)
             pose = (record.get("data") or {}).get("pose")
