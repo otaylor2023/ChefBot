@@ -138,6 +138,46 @@ def replay(run_dir: Path) -> list[dict]:
     return rows
 
 
+_MASK_FN = None  # (rgb, box) -> bool mask; set by --mask-depth
+
+
+def _mask_point(rgbd, mask) -> np.ndarray | None:
+    """The middle of an object's visible surface: its mask's pixels back-projected with their depth,
+    the nearer half kept (the mask's rim can catch what is behind)."""
+    if mask is None or not mask.any():
+        return None
+    vs, us = np.nonzero(mask)
+    z = rgbd.depth[vs, us]
+    ok = np.isfinite(z) & (z > 0.05)
+    if not ok.any():
+        return None
+    us, vs, z = us[ok], vs[ok], z[ok]
+    keep = z <= np.percentile(z, 50) + 0.02
+    k = rgbd.intrinsics
+    cam = np.stack([(us[keep] - k[0, 2]) / k[0, 0] * z[keep], (vs[keep] - k[1, 2]) / k[1, 1] * z[keep], z[keep],
+                    np.ones(keep.sum())])  # fmt: skip
+    return (rgbd.cam_to_world @ cam)[:3].mean(axis=1)
+
+
+def sam2_masks(model_id: str = "facebook/sam2.1-hiera-small"):
+    """(rgb, box) -> the SAM 2.1 mask of the box's object (bool, image sized)."""
+    import torch
+    from PIL import Image
+    from transformers import Sam2Model, Sam2Processor
+
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    proc = Sam2Processor.from_pretrained(model_id)
+    model = Sam2Model.from_pretrained(model_id).to(device).eval()
+
+    def mask(rgb, box):
+        inp = proc(images=Image.fromarray(rgb), input_boxes=[[[float(v) for v in box]]], return_tensors="pt").to(device)
+        with torch.no_grad():
+            out = model(**inp, multimask_output=False)
+        return proc.post_process_masks(out.pred_masks.cpu(), inp["original_sizes"].cpu())[0][0, 0].numpy().astype(bool)
+
+    return mask
+
+
 def _segmentation(env, camera: str, h: int, w: int) -> np.ndarray:
     def render():
         with env.lock:
@@ -189,6 +229,7 @@ def _sightings(env, camera, rgbd, objects, log, frame, diff, truth, object_point
             ys, xs = np.nonzero(mask)
             bbox = [float(xs.min()), float(ys.min()), float(xs.max() + 1), float(ys.max() + 1)]
             row["_bbox"] = bbox
+            row.update(bx0=int(bbox[0]), by0=int(bbox[1]), bx1=int(bbox[2]), by1=int(bbox[3]))
             row.update(box_h_px=round(bbox[3] - bbox[1]), box_w_px=round(bbox[2] - bbox[0]),
                        at_edge=bool(bbox[0] < _EDGE or bbox[1] < _EDGE or bbox[2] > w - _EDGE or bbox[3] > h - _EDGE))  # fmt: skip
             on_it = [n for n in named if _box_overlap(n["box"], bbox) >= 0.3]
@@ -199,14 +240,30 @@ def _sightings(env, camera, rgbd, objects, log, frame, diff, truth, object_point
                 d = min(kept, key=lambda d: np.linalg.norm(np.array(d["position"]) - center))
                 err = np.array(d["position"]) - center
                 row.update(outcome="kept", error_m=round(float(np.linalg.norm(err)), 3), error_xy_m=round(float(np.linalg.norm(err[:2])), 3))
+                if right:
+                    row["det_box"] = [round(v) for v in right[0]["box"]]
+                if right and _MASK_FN is not None:  # depth from a mask of the object instead of the box centre
+                    from chefbot.explore.vision import box_point
+
+                    box = right[0]["box"]
+                    mask = _MASK_FN(rgbd.rgb, box)
+                    by_box = box_point(rgbd, box)
+                    by_mask = _mask_point(rgbd, mask)
+                    if by_box is not None:
+                        row["box_error_m"] = round(float(np.linalg.norm(by_box - center)), 3)
+                    if by_mask is not None:
+                        row["mask_error_m"] = round(float(np.linalg.norm(by_mask - center)), 3)
+                        row["mask_error_xy_m"] = round(float(np.linalg.norm((by_mask - center)[:2])), 3)
             elif right:
                 box = right[0]["box"]
+                row["det_box"] = [round(v) for v in box]
                 cx, cy = int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)
                 edge = min(box[0], box[1]) < _EDGE or box[2] > w - 1 - _EDGE or box[3] > h - 1 - _EDGE
                 hit = bool(np.isin(seg[min(h - 1, max(0, cy)), min(w - 1, max(0, cx))], geoms))
                 row.update(outcome="dropped", drop_reason="edge filter" if edge else ("depth hit the object" if hit else "depth on the background"))
             elif wrong:
                 row.update(outcome="wrong label", wrong_as=wrong[0])
+                row["det_box"] = [round(v) for v in next(n["box"] for n in on_it if n["label"] == wrong[0])]
             else:
                 row.update(outcome="not named")
             if right and right[0].get("score") is not None:
@@ -271,7 +328,11 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--owl-scores", action="store_true")
     parser.add_argument("--analyze", action="store_true", help="only analyze <out>/sightings.csv (no replay)")
+    parser.add_argument("--mask-depth", action="store_true", help="kept sightings: also the error with depth from a SAM 2.1 mask")
     args = parser.parse_args()
+    if args.mask_depth:
+        global _MASK_FN
+        _MASK_FN = sam2_masks()
     args.out.mkdir(parents=True, exist_ok=True)
     if args.analyze:
         print(analyze(args.out / "sightings.csv", args.runs, args.out))

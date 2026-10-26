@@ -198,3 +198,73 @@ was shut down: $0.19 spent, 43 calls (27 views and 16 zooms), no result. It has 
 
 Runs: vote `2026-10-25_220505`, vote + zoom `2026-10-25_221115`, vote + go closer
 `2026-10-26_081003`, vote + zoom + go closer `2026-10-26_084214` (all `..._layout007`).
+
+## 7. Other models, compared offline on the saved pictures (free)
+
+The test set is every real object visible in the 361 saved detector pictures (758 sightings on the
+pictures each model ran on). Each model is scored by whether a box on the object carries the right
+name, a wrong one, or none. Runs locally on the Mac, with no API calls. The tool is
+`chefbot/explore/naming_bench.py`; the full table is in `docs/root_cause/naming_bench.md`.
+
+| model | named right | wrong name | not named | false finds per picture | seconds per picture |
+|---|---|---|---|---|---|
+| VLM (saved answers, only the 74 pictures it saw, 127 sightings) | 78% | 17% | 5% | 0.6 | (API) |
+| OWLv2, as the explorer uses it | 43% | 36% | 21% | 1.6 | 1.6 |
+| OWLv2 boxes, renamed by SigLIP 2 | 50% | 23% | 27% | 1.3 | 2.1 |
+| SigLIP 2 naming each real object's own box (naming only) | 56% | 29% | 15% | 0 | 3.7 |
+
+Named right, by the object's visible pixels:
+
+| model | under 100 | 100 to 300 | 300 to 1000 | 1000 to 3000 | over 3000 |
+|---|---|---|---|---|---|
+| VLM | 17% | 73% | 75% | 91% | 100% |
+| OWLv2 | 13% | 39% | 45% | 78% | 93% |
+| OWLv2 boxes + SigLIP 2 | 29% | 52% | 63% | 47% | 56% |
+| SigLIP 2 on the true boxes | 39% | 61% | 68% | 51% | 49% |
+
+- **SigLIP 2 (`google/siglip2-so400m-patch14-384`) names small objects much better than OWLv2:**
+  63% against 45% at 300 to 1000 px, and 52% against 39% at 100 to 300 px. But it is worse on big
+  ones, because it picks the near-synonym the catalogue also holds: pan as saucepan (41), lemon as
+  lime (32), cup as coffee cup.
+- **A hybrid would take the best of both:** OWLv2's name for boxes over 1000 px, SigLIP 2's under.
+  Estimated from the bins, about 56% named right overall, against OWLv2's 43%. It costs about 0.5 s
+  per small box, and nothing in API calls.
+- **The VLM is still clearly best at naming:** 78%, and 91 to 100% above 1000 px. Its wrong names
+  are near-synonyms too (cup and mug, apple as tomato, pan as bowl).
+- **Many remaining errors are near-synonyms in our own word list** (cup, mug, coffee cup; pan,
+  saucepan; lemon, lime). Grouping those as equivalent, or trimming the list, would recover a large
+  share for every model.
+- **Grounding DINO successors did not work here.** LLMDet (`iSEE-Laboratory/llmdet_tiny`) gave
+  boxes outside the picture and subword names ("##er") with the full word list, on both the GPU and
+  the CPU. That matches the known transformers weight-loading issue. MM Grounding DINO
+  (`openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det`) gave zero-width boxes even with
+  five words. Neither was scored.
+- **SAM 3 / 3.1 could not be tried:** the weights are gated (HTTP 401 without a Hugging Face login).
+  To enable it: accept the license on huggingface.co/facebook/sam3 (or sam3.1) with a Hugging Face
+  account, then log in on this Mac (`hf auth login`, or `huggingface-cli login`, with a read token).
+
+### Depth from a SAM 2.1 mask instead of the box centre
+
+For the 275 kept sightings with a box from the detector, `facebook/sam2.1-hiera-small` segmented the
+object in the box, and the point was taken from the mask's own pixels:
+
+| | 3D error median | 3D error p90 | mask better than box |
+|---|---|---|---|
+| VLM boxes (75) | 4.0 cm with the box, 2.8 cm with the mask | 7.3 vs 6.8 cm | 64% |
+| OWLv2 boxes (200) | 3.8 vs 3.3 cm | 7.6 vs 7.6 cm | 61% |
+
+The mask helps most where the box catches a lot of background (the bowl: 11.0 to 5.1 cm). It does
+little for long or flat objects (cutting board, pan), where the camera sees a surface away from the
+object's middle. SAM 2.1 takes about 1 s per box on the Mac.
+
+### Recommendation
+
+1. **Hybrid naming, free:** OWLv2 boxes, with SigLIP 2 renaming boxes under 1000 px. About +13
+   points of objects named right over OWLv2, no API cost.
+2. **Treat near-synonyms in the word list as one name** (cup, mug, coffee cup; pan, saucepan;
+   lemon, lime), or trim the list. This helps every model, the VLM included.
+3. **For the best names, use the VLM,** and pair it with going closer: its names improve with
+   pixels, unlike OWLv2's.
+4. **SAM 2.1 masks for depth:** a modest gain (about 0.7 cm median); worth it only if position
+   matters more than run time.
+5. **SAM 3** stays to be tried once a Hugging Face login with Meta's license is available.
