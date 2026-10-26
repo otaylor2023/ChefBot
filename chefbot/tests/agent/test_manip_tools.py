@@ -316,3 +316,22 @@ def test_a_door_you_opened_closes_by_its_name_when_its_handle_is_out_of_view():
     assert registry.dispatch("close", {"id": "cabinet_1"}).success
     assert registry.tools.kitchen.states["cabinet_1"].value == "closed"
     assert not registry.dispatch("close", {"id": "cabinet_1"}).success  # closed: no longer yours to close by name
+
+
+def test_go_to_with_a_distance_stands_that_far_and_detect_flags_what_was_seen_only_small():
+    registry, robot, detector = make()
+    registry.dispatch("go_to", {"place": "counter_1", "distance": 0.6})
+    assert robot.goals[-1].y == pytest.approx(0.3 + 0.6)  # the counter faces +y
+    assert registry.dispatch("go_to", {"place": "counter_1", "distance": 0.1}).data["distance"] == 0.4  # clamped
+
+    class Unsure(type(detector)):
+        def detect(self, classes):
+            out = super().detect(classes)
+            for d in out:
+                if d.label == "mug":
+                    d.confidence = 0.4  # a camera detector saw it only small
+            return out
+
+    registry.tools._detector = Unsure(robot, list(OBJECTS))
+    found = {d["label"]: d for d in registry.dispatch("detect", {"classes": ["mug", "egg"]}).data["detections"]}
+    assert found["mug"].get("seen_small") and found["mug"]["place"] and "seen_small" not in found["egg"]

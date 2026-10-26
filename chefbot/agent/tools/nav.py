@@ -65,7 +65,8 @@ class NavTools:
 
     # -- go_to ---------------------------------------------------------------
 
-    def go_to(self, place: str, wait: bool = True, part: str | None = None, along: float | None = None) -> ToolResult:
+    def go_to(self, place: str, wait: bool = True, part: str | None = None, along: float | None = None,
+              distance: float | None = None) -> ToolResult:  # fmt: skip
         entry = self._map.get(place)
         if entry is None:
             known = ", ".join(e.name for e in self._map.list())
@@ -77,8 +78,11 @@ class NavTools:
         if along is not None:
             entry = _along(entry, max(-1.0, min(1.0, float(along))))
         self.tool_use["lowered_into"] = None  # the robot lifts a lowered tool out before driving
-        self._robot.go_to_pose(self._approach_pose(entry))
+        standoff = None if distance is None else max(0.4, min(2.0, float(distance)))
+        self._robot.go_to_pose(self._approach_pose(entry, standoff))
         extra = {"part": part} if part else {"along": along} if along is not None else {}
+        if standoff is not None:
+            extra["distance"] = standoff
         call = f'go_to("{place}"' + "".join(f", {k}={json.dumps(v)}" for k, v in extra.items()) + ")"
         result = self.motion_tool_result(wait, call, {"place": place, **extra})
         if entry.kind == "object" and result.success:
@@ -88,7 +92,7 @@ class NavTools:
                 result.data["where"] = where
         return result
 
-    def _approach_pose(self, entry: MapEntry) -> Pose2D:
+    def _approach_pose(self, entry: MapEntry, standoff: float | None = None) -> Pose2D:
         # An object on or in a fixture is approached from the fixture's open side,
         # standing in front of the object itself (a counter can be meters long).
         facing = entry.facing
@@ -101,7 +105,7 @@ class NavTools:
             direction = self._robot.get_base_pose().xy - location
         norm = float(np.linalg.norm(direction))
         direction = direction / norm if norm > 1e-6 else np.array([1.0, 0.0])
-        goal = location + self._cfg.approach_distance * direction
+        goal = location + (standoff if standoff is not None else self._cfg.approach_distance) * direction
         return Pose2D(float(goal[0]), float(goal[1]), math.atan2(-direction[1], -direction[0]))
 
     # -- detect --------------------------------------------------------------
@@ -152,6 +156,9 @@ class NavTools:
                 if (owner := self.fixture_of_handle(e)) is not None:
                     described[e.id]["of"] = owner
         self._learn(entries, described)
+        for e in entries:  # the detector saw it only small: a closer look may tell it better
+            if e.confidence < _SEEN_SMALL and e.map_name is not None:
+                described[e.id].update(seen_small=True, place=e.map_name)
         data = {"detections": [described[e.id] for e in found]}
         if not found:
             return ToolResult(True, None, f"Nothing found for: {', '.join(requested)}.", data)
@@ -569,6 +576,7 @@ def _along(entry, t: float):
     return dataclasses.replace(entry, location=(float(x), float(y)))
 
 
+_SEEN_SMALL = 0.5  # a detection this unsure was only seen small (a camera detector's flag)
 _MOVED = 0.01  # m: a sighting this far from the map's spot moves the map entry
 _SAME_SPOT = 0.3  # m: an object seen this close to where you thought it was has not moved
 _PARTS = {"burner", "faucet", "knob", "shelf"}  # parts of fixtures, never loose objects

@@ -41,6 +41,10 @@ vision:
   refine_side: 384       # px: the crop is enlarged to this side
   same_view_diff: 1.0    # a view this close to the last one (mean abs pixel difference) reuses its answer
   max_cost_usd: 0.60     # the VLM stops being called once a run has spent this much (OpenRouter cost)
+  approach_small: false  # go closer: objects only seen small are flagged in detect, and the route approaches them
+  approach_small_px: 1000  # px: a box this small (area) is "seen small"
+  approach_distance: 0.7   # m: stand this far from it to look again
+  approach_per_stop: 2     # at most this many approaches after each fixture or cabinet group
   synonyms:                            # VLM word -> catalogue label
     water bottle: bottled water
     bottle of water: bottled water

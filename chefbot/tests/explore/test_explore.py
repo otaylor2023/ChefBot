@@ -145,3 +145,31 @@ def test_a_door_left_ajar_counts_as_left_open():
     world = WorldMap.from_dict({"frame": "world", "fixtures": {"fridge": {"location": [0.0, 0.0], "facing": [0.0, 1.0]}},
                                 "objects": {}})  # fmt: skip
     assert "fridge: left ajar (close it)" in Coverage(world, frozenset({"fridge"})).remaining({"fridge": "ajar"})
+
+
+def test_scripted_explorer_looks_closer_at_objects_seen_only_small():
+    from chefbot.explore.scripted import ScriptedExplorer
+
+    world = WorldMap.from_dict({"frame": "world", "fixtures": {
+        "counter_1": {"location": [0.0, 0.0], "facing": [0.0, 1.0]}}, "objects": {}})  # fmt: skip
+    explorer = ScriptedExplorer(world, set(), approach={"distance": 0.7, "per_stop": 2})
+    small = {"success": True, "data": {"detections": [{"id": "egg", "label": "egg", "seen_small": True, "place": "egg"},
+                                                      {"id": "spoon", "label": "spoon", "seen_small": True, "place": "spoon"},
+                                                      {"id": "mug", "label": "mug"}]}}  # fmt: skip
+    explorer._note_small(small)
+    route = explorer._look_closer()
+    calls = [next(route)]
+    calls.append(route.send({"success": True}))  # reached the egg: look
+    calls.append(route.send({"success": True, "data": {"detections": [{"id": "spoon", "label": "spoon", "place": "spoon"}]}}))
+    assert calls[:2] == [("go_to", {"place": "egg", "distance": 0.7}), ("detect", {})]
+    # (that look saw the spoon well, so the next call is the second approach only if still small)
+    explorer2 = ScriptedExplorer(world, set(), approach={"distance": 0.7, "per_stop": 2})
+    explorer2._note_small(small)
+    explorer2._note_small({"data": {"detections": [{"id": "spoon", "label": "spoon", "place": "spoon"}]}})
+    assert list(explorer2._small) == ["egg"]  # seen well since: no longer to approach
+    explorer3 = ScriptedExplorer(world, set(), approach={"distance": 0.7, "per_stop": 2})
+    explorer3._note_small(small)
+    r = explorer3._look_closer()
+    assert next(r) == ("go_to", {"place": "egg", "distance": 0.7})
+    assert r.send({"success": False}) == ("go_to", {"place": "spoon", "distance": 0.7})  # the egg's spot: unreachable
+    assert explorer3.approaches["unreachable"] == 1

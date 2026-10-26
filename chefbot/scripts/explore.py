@@ -176,8 +176,11 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
         if policy == "scripted":
             from chefbot.explore.scripted import ScriptedExplorer
 
+            vision_cfg = explore_cfg["vision"]
+            approach = ({"distance": vision_cfg.get("approach_distance", 0.7), "per_stop": vision_cfg.get("approach_per_stop", 2)}
+                        if detector in ("vision", "owl") and vision_cfg.get("approach_small") else None)  # fmt: skip
             llm = ScriptedExplorer(WorldMap.from_dict(world.start), set(open_labels),
-                                   storage_max_bottom=float(explore_cfg["storage_max_bottom"]))  # fmt: skip
+                                   storage_max_bottom=float(explore_cfg["storage_max_bottom"]), approach=approach)  # fmt: skip
         else:
             from chefbot.agent.loop.llm import OpenRouterClient
 
@@ -248,6 +251,8 @@ def run(env: str = "symbolic", policy: str = "llm", detector: str = "groundtruth
         save(true_positions, run_dir / "true_positions.yaml")
     result = score(explored, truth)
     result["outcome"] = list(outcome)
+    if getattr(llm, "approaches", None) is not None and getattr(llm, "_approach", None) is not None:
+        result["approaches"] = dict(llm.approaches)  # go closer: extra stops made, and ones it could not reach
     result["run_dir"] = str(run_dir)
     if world.info.get("committed_map") and Path(world.info["committed_map"]).exists():
         committed = yaml.safe_load(Path(world.info["committed_map"]).read_text())

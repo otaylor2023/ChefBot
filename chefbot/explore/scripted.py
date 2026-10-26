@@ -20,8 +20,13 @@ from chefbot.agent.world.map import WorldMap
 
 class ScriptedExplorer:
     def __init__(self, start_map: WorldMap, open_labels: set[str], step_id: str = "s1",
-                 storage_max_bottom: float = math.inf):  # fmt: skip
+                 storage_max_bottom: float = math.inf, approach: dict | None = None):  # fmt: skip
+        """`approach` (distance, per_stop): look closer at objects detect says it saw only small."""
         self._map = start_map
+        self._approach = approach
+        self._small: dict[str, str] = {}  # place -> label: seen only small, not yet looked at closer
+        self._approached: set[str] = set()
+        self.approaches = {"stops": 0, "unreachable": 0}
         self._max_bottom = storage_max_bottom  # cabinets higher than this cannot be looked into
         self._open = open_labels
         self._step = step_id
@@ -32,7 +37,9 @@ class ScriptedExplorer:
     def chat(self, messages, tools=None, **kwargs) -> LLMResponse:
         try:
             if self._started:  # the previous call's result is the last tool message
-                tool, args = self._policy.send(_last_tool_result(messages))
+                result = _last_tool_result(messages)
+                self._note_small(result)
+                tool, args = self._policy.send(result)
             else:
                 self._started = True
                 tool, args = next(self._policy)
@@ -45,31 +52,11 @@ class ScriptedExplorer:
         storage = [e for e in fixtures if e.z is not None and e.z[0] <= self._max_bottom]  # cabinets, drawers
         yield ("set_status", {"step_id": self._step, "status": "active"})
         for entry in (e for e in fixtures if e.z is None):
-            moved = yield ("go_to", {"place": entry.name})
-            if not moved.get("success"):
-                continue
-            yield ("detect", {})
-            if entry.label not in self._open:
-                continue
-            handle = f"{entry.label} handle"
-            ids = _ids((yield ("detect", {"classes": [handle]})))
-            if not ids:
-                continue
-            yield ("align", {"id": ids[0]})
-            opened = yield ("open", {"id": ids[0]})
-            if not opened.get("success"):
-                continue
-            yield ("detect", {})
-            # An open door can swing its handle out of view: close by the fixture itself then.
-            ids = _ids((yield ("detect", {"classes": [entry.label, handle]})))
-            handles = [i for i in ids if i.startswith(handle)]
-            if handles:
-                yield ("close", {"id": handles[0]})
-            elif entry.name in ids:
-                yield ("align", {"id": entry.name})
-                yield ("close", {"id": entry.name})
+            yield from self._visit(entry)
+            yield from self._look_closer()
         yield from self._storage(storage)
         done = yield ("complete", {"step_id": self._step})
+
         # Long fixtures (an island) may have ends not yet in view: complete names them.
         for _ in range(2):
             if done.get("success"):
@@ -83,6 +70,31 @@ class ScriptedExplorer:
         summary = "explored every fixture" if done.get("success") else f"explored; left: {done.get('message')}"
         yield ("finish", {"summary": summary, "abandon": not done.get("success")})
 
+    def _visit(self, entry):
+        """A fixture: go to it and look; behind its door, if it has one."""
+        moved = yield ("go_to", {"place": entry.name})
+        if not moved.get("success"):
+            return
+        yield ("detect", {})
+        if entry.label not in self._open:
+            return
+        handle = f"{entry.label} handle"
+        ids = _ids((yield ("detect", {"classes": [handle]})))
+        if not ids:
+            return
+        yield ("align", {"id": ids[0]})
+        opened = yield ("open", {"id": ids[0]})
+        if not opened.get("success"):
+            return
+        yield ("detect", {})
+        # An open door can swing its handle out of view: close by the fixture itself then.
+        ids = _ids((yield ("detect", {"classes": [entry.label, handle]})))
+        handles = [i for i in ids if i.startswith(handle)]
+        if handles:
+            yield ("close", {"id": handles[0]})
+        elif entry.name in ids:
+            yield ("align", {"id": entry.name})
+            yield ("close", {"id": entry.name})
 
     def _storage(self, storage):
         """Cabinets and drawers, one stop per group of neighbours: at each, one door at a time
@@ -120,6 +132,36 @@ class ScriptedExplorer:
                     if (yield ("close", {"id": mine[0]})).get("success"):
                         break
                     yield ("align", {"id": mine[0]})
+            yield from self._look_closer()
+
+    def _note_small(self, result: dict) -> None:
+        """From a detect's result: objects it saw only small join the list; seen well, they leave it."""
+        if self._approach is None:
+            return
+        for d in (result.get("data") or {}).get("detections", []):
+            place = d.get("place") or d.get("id")
+            if d.get("seen_small") and place not in self._approached:
+                self._small[place] = d["label"]
+            elif not d.get("seen_small"):
+                self._small.pop(place, None)
+
+    def _look_closer(self):
+        """approach: stand nearer to up to per_stop of the objects seen only small, and look again
+        (the detector's tracking and name vote merge what it sees)."""
+        if self._approach is None:
+            return
+        for _ in range(int(self._approach.get("per_stop", 2))):
+            if not self._small:
+                return
+            place = next(iter(self._small))
+            self._small.pop(place)
+            self._approached.add(place)
+            moved = yield ("go_to", {"place": place, "distance": float(self._approach.get("distance", 0.7))})
+            if not moved.get("success"):
+                self.approaches["unreachable"] += 1
+                continue
+            self.approaches["stops"] += 1
+            yield ("detect", {})
 
 
 _GROUP_RADIUS = 0.6  # m: cabinets and drawers this close to a stop's are opened and looked into together

@@ -179,6 +179,8 @@ class VisionDetector(Detector):
         self._refine_context = float(cfg.get("refine_context", 3.0))
         self._refine_side = int(cfg.get("refine_side", 384))
         self.refined = 0  # boxes looked at again, enlarged
+        self._approach = bool(cfg.get("approach_small", False))
+        self._approach_px = float(cfg.get("approach_small_px", 1000))
         self._footprints = [f for f in (footprints or []) if f.size is not None and f.facing is not None]
         self._tracks: list[dict] = []  # one per object: label, summed position, sightings
         self._cache: tuple[str, list[int]] | None = None
@@ -239,7 +241,7 @@ class VisionDetector(Detector):
             if point is None or float(np.linalg.norm(point - origin)) > self._max_range or not self._plausible(point):
                 continue
             seen.append(self._track(label, point, float(np.linalg.norm(point - origin)), exclude=seen,
-                                    score=float(item.get("score") or 0.0)))  # fmt: skip
+                                    score=float(item.get("score") or 0.0), px=(x1 - x0) * (y1 - y0)))  # fmt: skip
         self._cache = (key, seen)
         out = [self._report(i) for i in seen]
         self._log(rgbd, named, out)
@@ -305,7 +307,8 @@ class VisionDetector(Detector):
                 return True
         return False
 
-    def _track(self, label: str, point: np.ndarray, distance: float, exclude: list[int], score: float = 0.0) -> int:
+    def _track(self, label: str, point: np.ndarray, distance: float, exclude: list[int], score: float = 0.0,
+               px: float = 0.0) -> int:  # fmt: skip
         """The object this sighting is of (the nearest of that label within merge_radius), or a new one.
         Its position is the mean of its sightings, so later full views wash out a poor first one."""
         best, best_d = None, self._merge
@@ -316,12 +319,13 @@ class VisionDetector(Detector):
             if d <= best_d:
                 best, best_d = i, d
         if best is None:
-            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0, "nearest": distance, "score": 0.0})
+            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0, "nearest": distance, "score": 0.0, "px": 0.0})
             best = len(self._tracks) - 1
         self._tracks[best]["sum"] += point
         self._tracks[best]["n"] += 1
         self._tracks[best]["nearest"] = min(self._tracks[best]["nearest"], distance)
         self._tracks[best]["score"] += score
+        self._tracks[best]["px"] = max(self._tracks[best]["px"], px)  # its largest box so far
         return best
 
     def superseded(self) -> list[tuple[str, np.ndarray]]:
@@ -374,7 +378,9 @@ class VisionDetector(Detector):
 
     def _report(self, i: int) -> Detection:
         t = self._tracks[i]
-        return Detection(t["label"], t["sum"] / t["n"], 0.9)
+        # approach_small: an object only ever seen small says so (low confidence), so it can be looked at closer.
+        small = self._approach and t["px"] < self._approach_px
+        return Detection(t["label"], t["sum"] / t["n"], 0.4 if small else 0.9)
 
     def _log(self, rgbd: RGBD, named: list[dict], out: list[Detection]) -> None:
         """Each image the VLM saw, with what it said and where that put things (runs/<run>/vision/)."""

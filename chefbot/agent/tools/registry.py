@@ -73,7 +73,10 @@ TOOL_SCHEMAS: list[dict] = [
                                     "its left or right end, as you face it, instead of its middle."},
             "along": {"type": "number", "minimum": -1, "maximum": 1,
                       "description": "Optional, finer than part: where along a long fixture to stand, "
-                                     "-1 its left end, 0 its middle, 1 its right end."},  # fmt: skip
+                                     "-1 its left end, 0 its middle, 1 its right end."},
+            "distance": {"type": "number", "minimum": 0.4, "maximum": 2.0,
+                         "description": "Optional: stand this far (m) from the place instead of the usual "
+                                        "distance, e.g. closer to get a better look at a small object."},  # fmt: skip
             "wait": _WAIT_PARAM,
         },
         ["place"],

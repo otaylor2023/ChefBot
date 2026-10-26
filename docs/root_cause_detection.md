@@ -161,3 +161,40 @@ python -m chefbot.explore.rootcause runs/<run> [...] --out <folder> --analyze
 ```
 
 The first writes `sightings.csv`. The second writes the tables, `objects.csv` and the three plots.
+
+## 6. Fixes tried on layout 7 (OWLv2, current route, free)
+
+Same kitchen and route each time; 14 objects. "Go closer" means: after each fixture or cabinet group,
+the robot stands about 0.7 m from up to 2 objects the detector has only seen small (under 1000 px),
+looks again, and lets the name vote merge the views.
+
+| setup | found | missed | wrong names on real objects | false finds | xy median / p90 (cm) | extra stops | run time |
+|---|---|---|---|---|---|---|---|
+| baseline | 9/14 | egg, fork, lemon, milk, plate | egg as bar soap, lemon as pear or pickle, milk as bottled water | 22 | 3.0 / 9.8 | 0 | 12.8 min (shared machine) |
+| vote | 8/14 | cup, egg, fork, lemon, milk, plate | egg as bar soap, milk as bottled water | 9 | 2.8 / 9.9 | 0 | 5.8 min |
+| vote + zoom | 9/14 | cup, fork, milk, plate, spoon | cup as jello cup, milk as bottled water, spoon as spatula | 9 | 2.2 / 9.8 | 0 | 16.6 min |
+| vote + go closer | 9/14 | egg, fork, lemon, milk, plate | egg as bar soap, lemon as sponge, milk as bottled water | 10 | 2.9 / 11.1 | 20 (0 unreachable) | 31.8 min |
+| vote + zoom + go closer | 7/14 | bottled water, cup, fork, milk, mug, plate, spoon | bottled water as condiment bottle, milk as bottled water, mug as ice cream, spoon as spatula | 12 | 2.0 / 9.6 | 8 (0 unreachable) | 6.7 min |
+
+The last run also had two cost changes: a nearly identical view reuses the last answer, and a
+small spot is zoomed only once. That is why it is faster than "vote + zoom".
+
+What this shows:
+
+- **The vote helps most:** false finds drop from 22 to 9, at no cost. But it keeps a name OWLv2
+  gets wrong most of the time (the cup read as a mug).
+- **The zoom finds small things** (egg, lemon) and tightens positions (median about 2 cm), but its
+  enlarged crops bring new wrong names (jello cup, spatula, ice cream, condiment bottle).
+- **Going closer did not change OWLv2's names.** Up close, the egg is still "bar soap", the milk
+  still "bottled water", the lemon "sponge". Most of its 20 stops went to OWLv2's own false finds,
+  which are also seen small (wooden spoon, ladle, spatula, spray, pizza cutter), and the route took
+  about 2.5 times longer. Every chosen standing spot was reachable on this kitchen.
+- So with OWLv2 the limit is the model's naming, not the view. Going closer would pay off with a
+  detector whose names improve with pixels (the VLM's wrong names fell to near 0 above 1000 px) and
+  if it only approaches objects with a fair score, not every small box.
+
+The VLM run with vote and zoom on layout 7 (approved, about $0.30) stopped partway when the session
+was shut down: $0.19 spent, 43 calls (27 views and 16 zooms), no result. It has not been rerun.
+
+Runs: vote `2026-10-25_220505`, vote + zoom `2026-10-25_221115`, vote + go closer
+`2026-10-26_081003`, vote + zoom + go closer `2026-10-26_084214` (all `..._layout007`).
