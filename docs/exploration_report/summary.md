@@ -94,6 +94,16 @@ The hard task's 14 objects:
   it was best visible, with a zoomed crop, its size in pixels, its distance and the cause.
 
 
+## Layout pictures
+
+Each kitchen as the runs had it (same task and seed): seen from above with fixture names, the objects (numbered, listed on the right) and the robot's start; the plan from the start map; and two angled views. Wall cabinets and walls are left out from above, and the near walls in the angled views. Counter colors can differ from the runs' pictures: RoboCasa picks textures at random.
+
+- Layout 1: [from above, labeled](media/layouts/layout001_top.png), [plan from the start map, with cabinets and drawers](media/layouts/layout001_plan.png), [angled view](media/layouts/layout001_view1.png), [angled view from the other side](media/layouts/layout001_view2.png)
+- Layout 7: [from above, labeled](media/layouts/layout007_top.png), [plan from the start map, with cabinets and drawers](media/layouts/layout007_plan.png), [angled view](media/layouts/layout007_view1.png), [angled view from the other side](media/layouts/layout007_view2.png)
+- Layout 25: [from above, labeled](media/layouts/layout025_top.png), [plan from the start map, with cabinets and drawers](media/layouts/layout025_plan.png), [angled view](media/layouts/layout025_view1.png), [angled view from the other side](media/layouts/layout025_view2.png)
+- Layout 39: [from above, labeled](media/layouts/layout039_top.png), [plan from the start map, with cabinets and drawers](media/layouts/layout039_plan.png), [angled view](media/layouts/layout039_view1.png), [angled view from the other side](media/layouts/layout039_view2.png)
+
+
 ### Layout 1, exact detector
 
 Run `2026-10-25_145153_explore_robocasa_scripted_s0`: 6/6 found, 0 false finds.

@@ -247,6 +247,31 @@ def gallery(run_dir: Path, t: dict, sightings: list[dict], out_dir: Path, object
     return out
 
 
+_VIEWS = (("top", "from above, labeled"), ("plan", "plan from the start map, with cabinets and drawers"),
+          ("view1", "angled view"), ("view2", "angled view from the other side"))
+
+
+def layouts_section(out: Path) -> tuple[str, str]:
+    """(markdown, html) of the layout pictures in out/media/layouts (layout_views.py), if any."""
+    tops = sorted((out / "media" / "layouts").glob("layout*_top.png"))
+    if not tops:
+        return "", ""
+    intro = ("Each kitchen as the runs had it (same task and seed): seen from above with fixture names, the "
+             "objects (numbered, listed on the right) and the robot's start; the plan from the start map; and two "
+             "angled views. Wall cabinets and walls are left out from above, and the near walls in the angled views. "
+             "Counter colors can differ from the runs' pictures: RoboCasa picks textures at random.")  # fmt: skip
+    md, body = ["\n## Layout pictures\n", intro + "\n"], []
+    for top in tops:
+        tag = top.name.removesuffix("_top.png")
+        n = int(tag.removeprefix("layout"))
+        files = [(f"media/layouts/{tag}_{v}.png", what) for v, what in _VIEWS if (top.parent / f"{tag}_{v}.png").exists()]
+        md.append(f"- Layout {n}: " + ", ".join(f"[{what}]({f})" for f, what in files))
+        figs = "".join(f'<figure><a href="{f}"><img src="{f}" loading="lazy"></a><figcaption>{html.escape(what)}</figcaption></figure>'
+                       for f, what in files)  # fmt: skip
+        body.append(f"<h3>Layout {n}</h3><div class=layouts>{figs}</div>")
+    return "\n".join(md) + "\n", f"<h2>Layout pictures</h2><p>{html.escape(intro)}</p>" + "".join(body)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("specs", nargs="+")
@@ -258,7 +283,8 @@ def main() -> int:
     (args.out / "media").mkdir(exist_ok=True)
     objects_csv = [r for f in args.objects for r in csv.DictReader(open(f))]
     intro = args.intro.read_text() if args.intro else ""
-    md, body = [intro], []
+    layouts_md, layouts_html = layouts_section(args.out)
+    md, body = [intro, layouts_md], []
     for spec in args.specs:
         title, rest = spec.split("=", 1)
         run_path, _, sight_path = rest.partition("@")
@@ -287,9 +313,13 @@ def main() -> int:
     try:
         from markdown_it import MarkdownIt
 
-        intro_html = MarkdownIt("commonmark").enable("table").render(intro)
+        render = MarkdownIt("commonmark").enable("table").render
     except ImportError:
-        intro_html = f"<pre>{html.escape(intro)}</pre>"
+        def render(text):
+            return f"<pre>{html.escape(text)}</pre>"
+    # The layout pictures go right after the layouts table, before how to read the runs.
+    head, sep, tail = intro.partition("## How to read")
+    intro_html = render(head) + layouts_html + (render(sep + tail) if sep else "")
     (args.out / "index.html").write_text(_PAGE.replace("{intro}", intro_html).replace("{runs}", "".join(body)))
     return 0
 
@@ -308,7 +338,7 @@ section{background:var(--card);border:1px solid var(--line);border-radius:10px;p
 video{width:100%;max-width:760px;border:1px solid var(--line)}.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
 figure{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg)}figure img{width:100%;display:block}
 figcaption{font-size:12.5px;padding:6px 8px;color:var(--muted)}figure.noimg figcaption{padding:12px}.note{color:var(--muted)}ul.false{columns:2;font-size:13px}
-code{font-size:12.5px}
+code{font-size:12.5px}.layouts{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:10px}
 </style></head><body><h1>Exploration report</h1>
 <p class="note">Colors: green found and right; orange wrong name, or found more than 15 cm off; red missed. In pictures: colored
 boxes are the true objects, blue boxes are what the detector drew and named.</p>
