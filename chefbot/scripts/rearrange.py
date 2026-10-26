@@ -54,7 +54,7 @@ SKIP_IN = ("fridge", "microwave", "dishwasher", "oven", "cabinet", "drawer", "to
 def run(env: str = "symbolic", moves: int = 6, seed: int = 0, explored: Path | None = None,
         detector: str = "groundtruth", task: Path = explore.TASK, out: Path = REPO / "runs", noise: str = "off",
         quiet: bool = False, layout: int | None = None, style: int | None = None, detour: bool = True,
-        look_after_place: bool = True, llm=None, video_speed: int = 0) -> dict:  # fmt: skip
+        look_after_place: bool = True, llm=None, video_speed: int = 0, objects: tuple[str, ...] = ()) -> dict:  # fmt: skip
     """`llm`: a policy in place of ScriptedRearranger (tests); it must have `.moves`.
     video_speed > 0 (robocasa): record runs/<run>/rearrange.mp4, keeping every Nth sim tick."""
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -73,7 +73,7 @@ def run(env: str = "symbolic", moves: int = 6, seed: int = 0, explored: Path | N
     (run_dir / "start_map.yaml").write_text(yaml.safe_dump(start, sort_keys=False, default_flow_style=None))
     world_map = WorldMap.from_dict(start)
     policy = llm or ScriptedRearranger(WorldMap.from_dict(start), moves, seed, skip_in=SKIP_IN, detour=detour,
-                                       look_after_place=look_after_place)  # fmt: skip
+                                       look_after_place=look_after_place, objects=objects)  # fmt: skip
     vocab = yaml.safe_load((explore.EXPLORE / "vocab.yaml").read_text())
     agent_config = dataclasses.replace(
         AgentConfig.load(), default_vocab=tuple(dict.fromkeys([*vocab["parts"], *vocab["objects"]])),
@@ -170,6 +170,7 @@ def summarize(moves, final: dict, explored: dict, truth: dict) -> dict:
                           "map_problems": row.get("problems") if row else None})  # fmt: skip
     return {
         "moves": out_moves,
+        "moves_done": f"{sum(m.placed for m in moves)}/{len(moves)}",
         "picks": {"tried": len(picks), "ok": sum(m.picked for m in picks),
                   "first_try": sum(m.picked and m.pick_attempts == 1 for m in picks)},
         "places": {"tried": len(placed), "ok": sum(m.placed for m in placed), "dropped": sum(m.dropped for m in placed)},
@@ -184,7 +185,7 @@ def summarize(moves, final: dict, explored: dict, truth: dict) -> dict:
 
 def report(result: dict) -> str:
     p, q = result["picks"], result["places"]
-    lines = [f"picks: {p['ok']}/{p['tried']} ({p['first_try']} first try)   places: {q['ok']}/{q['tried']}"
+    lines = [f"moves done: {result['moves_done']}   picks: {p['ok']}/{p['tried']} ({p['first_try']} first try)   places: {q['ok']}/{q['tried']}"
              + (f" ({q['dropped']} dropped)" if q["dropped"] else ""),
              f"moved objects where the map says: {result['moved_tracked']}/{result['moved_objects']}"]  # fmt: skip
     for m in result["moves"]:
@@ -205,6 +206,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--env", choices=["symbolic", "robocasa"], default="symbolic")
     parser.add_argument("--moves", type=int, default=6)
+    parser.add_argument("--objects", nargs="+", default=[],
+                        help="labels to move, in order, instead of random ones (the same moves for any map)")  # fmt: skip
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--map", type=Path, help="explored_map.yaml to start from (default: explore first)")
     parser.add_argument("--detector", choices=["groundtruth", "vision", "owl"], default="groundtruth",
@@ -222,7 +225,7 @@ def main() -> int:
     args = parser.parse_args()
     result = run(args.env, args.moves, args.seed, args.map, args.detector, args.task, args.out, args.noise,
                  args.quiet, args.layout, args.style, not args.no_detour, not args.no_look,
-                 video_speed=args.video_speed if args.video else 0)  # fmt: skip
+                 video_speed=args.video_speed if args.video else 0, objects=tuple(args.objects))  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k not in ("map_after", "map_stale")}, default=str))
     return 0 if result["map_after"]["perfect"] else 1

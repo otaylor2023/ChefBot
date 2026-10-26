@@ -103,3 +103,19 @@ def test_rearrange_in_robocasa(tmp_path):
     # what must hold is that whatever was put down is on the map where it truly is.
     assert result["picks"]["ok"] >= 1 and result["places"]["ok"] >= 1
     assert result["moved_tracked"] == result["moved_objects"]
+
+
+def test_a_fixed_object_list_makes_the_same_moves_whatever_the_map(tmp_path):
+    """--objects: every map gets the same objects to the same targets; one it lacks is a move not made."""
+    explored = explore.run("symbolic", "scripted", out=tmp_path / "explore", quiet=True)
+    full = Path(explored["run_dir"]) / "explored_map.yaml"
+    lacking = yaml.safe_load(full.read_text())
+    del lacking["objects"]["mug"]
+    lacking_path = tmp_path / "lacking.yaml"
+    lacking_path.write_text(yaml.safe_dump(lacking))
+    runs = [rearrange.run("symbolic", moves=4, explored=m, out=tmp_path / m.stem, quiet=True,
+                          objects=("mug", "pan", "bottled water", "pan")) for m in (full, lacking_path)]  # fmt: skip
+    a, b = ([(m["object"], m["target"]) for m in r["moves"]] for r in runs)
+    assert [m for m in a if m[0] != "mug"] == [m for m in b if m[0] != "mug"] and len(a) == len(b) == 4
+    assert runs[0]["moves_done"] == "4/4" and runs[1]["moves_done"] == "3/4"
+    assert runs[1]["moves"][0]["errors"] == ["pick: not on the map"]

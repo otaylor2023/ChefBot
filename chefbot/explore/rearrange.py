@@ -55,12 +55,16 @@ class Move:
 class ScriptedRearranger:
     def __init__(self, start_map: WorldMap, moves: int, seed: int = 0, surfaces: tuple[str, ...] = ("counter", "table", "island"),
                  skip_in: tuple[str, ...] = (), detour: bool = True, look_after_place: bool = True,
-                 step_id: str = "s1"):  # fmt: skip
+                 step_id: str = "s1", objects: tuple[str, ...] = ()):  # fmt: skip
         """`surfaces`: fixture labels things are put down on. `skip_in`: fixture labels whose
-        objects are left alone (behind a door: the fridge, cabinets)."""
+        objects are left alone (behind a door: the fridge, cabinets). `objects`: labels to move,
+        in this order (cycling), in place of random picks from the map: with the same seed, every
+        run tries the same objects to the same targets, whatever its map holds."""
         self._map = start_map
         self._n = moves
+        self._seed = seed
         self._rng = random.Random(seed)
+        self._objects = tuple(objects)
         self._surfaces = [e for e in start_map.list() if e.kind == "fixture" and e.label in surfaces]
         self._skip_in = set(skip_in)
         self._detour = detour
@@ -92,13 +96,27 @@ class ScriptedRearranger:
         # Where the agent believes each object is: the start map, then where it put things.
         where = {e.name: e.inside for e in self._map.list() if e.kind == "object"}
         failed: set[str] = set()  # objects that would not come up: not tried again
-        for _ in range(self._n):
+        for i in range(self._n):
+            self._rng = random.Random(self._seed * 1000 + i)  # one per move: a failure elsewhere shifts nothing
             candidates = [o for o in self._movable(where) if o not in failed]
-            if not candidates or not self._surfaces:
+            if not self._surfaces:
                 break
-            obj = self._rng.choice(candidates)
-            targets = [s for s in self._surfaces if s.name != where[obj]] or self._surfaces
-            target = self._rng.choice(targets)
+            if self._objects:
+                label = self._objects[i % len(self._objects)]
+                target = self._rng.choice(self._surfaces)
+                mapped = [o for o in candidates if label_of(o) == label]
+                if not mapped:  # the map does not have it (or has it behind a door): nowhere to go
+                    self.moves.append(Move(label, None, target.name, errors=["pick: not on the map"]))
+                    continue
+                obj = mapped[0]
+                if target.name == where[obj]:  # the next surface: the same for every run
+                    target = self._surfaces[(self._surfaces.index(target) + 1) % len(self._surfaces)]
+            else:
+                if not candidates:
+                    break
+                obj = self._rng.choice(candidates)
+                targets = [s for s in self._surfaces if s.name != where[obj]] or self._surfaces
+                target = self._rng.choice(targets)
             move = Move(obj, where[obj], target.name)
             self.moves.append(move)
             yield from self._pick(move)
