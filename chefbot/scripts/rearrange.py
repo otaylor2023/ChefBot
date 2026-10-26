@@ -136,7 +136,8 @@ def run(env: str = "symbolic", moves: int = 6, seed: int = 0, explored: Path | N
         world.close()
     save(truth, run_dir / "true_map.yaml")
     result = summarize(policy.moves, final, explored_dict, truth)
-    result.update(outcome=list(outcome), run_dir=str(run_dir), explored_map=str(explored), explored_by=explored_by(explored))
+    result.update(outcome=list(outcome), run_dir=str(run_dir), explored_map=str(explored), explored_by=explored_by(explored),
+                  detector=detector, detector_cost_usd=round(getattr(getattr(world.detector, "_vlm", None), "cost_usd", 0.0), 4))
     (run_dir / "score.json").write_text(json.dumps(result, indent=2))
     if not quiet:
         print("\n" + report(result) + f"\nrun: {run_dir}")
@@ -196,6 +197,8 @@ def report(result: dict) -> str:
             err += f" ({'; '.join(m['map_problems'])})"
         lines.append(f"  {m['object']}: {m['source']} -> {m['target']}: {state}{err}"
                      + (f" [{'; '.join(m['errors'])}]" if m["errors"] else ""))  # fmt: skip
+    if result.get("detector_cost_usd"):
+        lines.append(f"detector ({result['detector']}) cost: ${result['detector_cost_usd']:.2f}")
     lines.append("after the moves, " + describe(result["map_after"]))
     s = result["map_stale"]
     lines.append(f"the explored map, never updated, would have {s['found']}/{s['total']} right")
