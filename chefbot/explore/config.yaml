@@ -33,7 +33,12 @@ vision:
   height_range: [0.2, 2.2]  # m: where loose objects can sit
   footprint_margin: 0.1  # m: points must fall over a fixture footprint, give or take this
   conflict_radius: 0.08  # m: two differently named objects this close may be one thing...
-  closer_by: 0.5         # m: ...and the name from a view at least this much closer wins
+  closer_by: 0.5         # m: ...and the name from a view at least this much closer wins (label_vote off)
+  label_vote: true       # ...or: the name seen most often on the spot wins (ties: higher summed score)
+  refine_small: false    # look again at small boxes: the detector on an enlarged crop around each
+  refine_small_px: 1000  # px: boxes smaller than this (area) are looked at again
+  refine_context: 3.0    # crop side, in box sizes
+  refine_side: 384       # px: the crop is enlarged to this side
   synonyms:                            # VLM word -> catalogue label
     water bottle: bottled water
     bottle of water: bottled water

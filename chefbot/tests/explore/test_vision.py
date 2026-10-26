@@ -120,3 +120,53 @@ def test_a_far_misnaming_is_superseded_by_a_closer_look():
     det.detect(["mug"])
     det.detect(["mug"])
     assert [label for label, _ in det.superseded()] == ["cutting board"]
+
+
+def test_the_name_seen_most_often_on_a_spot_wins_a_closer_view():
+    far = scene()
+    near = scene()
+    near.depth[200:260, 300:340] = 0.9  # 0.6 m closer
+    near.cam_to_world = near.cam_to_world.copy()
+    near.cam_to_world[2, 3] += 0.6
+    near.rgb[0, 0, 0] = 9
+    views = [far, near]
+    for i in range(2):  # two more far views, each a different image
+        v = scene()
+        v.rgb[0, 0, 0] = 20 + i
+        views.append(v)
+    shots = iter(views)
+    vlm = ScriptedVLM([[{"label": "spoon", "box": [300, 200, 340, 260], "score": 0.3}],
+                       [{"label": "fork", "box": [300, 200, 340, 260], "score": 0.4}],
+                       [{"label": "spoon", "box": [300, 200, 340, 260], "score": 0.3}],
+                       [{"label": "spoon", "box": [300, 200, 340, 260], "score": 0.3}]])  # fmt: skip
+    det = VisionDetector(lambda: next(shots), Fixtures(), set(), vlm, {"height_range": (0, 5), "label_vote": True})
+    for _ in range(4):
+        det.detect(["mug"])
+    assert [label for label, _ in det.superseded()] == ["fork"]  # 3 spoon sightings to 1, though fork was closer
+    det_old = VisionDetector(lambda: next(iter([])), Fixtures(), set(), ScriptedVLM([]), {"label_vote": False})
+    det_old._tracks = det._tracks
+    assert [label for label, _ in det_old.superseded()] == ["spoon"]  # the old rule: the closer view wins
+
+
+class CropVLM:
+    """Says "pear" on the full image; on an enlarged crop it sees the lemon."""
+
+    def __init__(self):
+        self.sizes = []
+
+    def objects(self, rgb):
+        self.sizes.append(rgb.shape[:2])
+        if rgb.shape[:2] == (480, 640):
+            return [{"label": "pear", "box": [310, 220, 330, 240], "score": 0.25},
+                    {"label": "cutting board", "box": [100, 100, 200, 160], "score": 0.6}]  # fmt: skip
+        h, w = rgb.shape[:2]
+        return [{"label": "lemon", "box": [w * 0.4, h * 0.4, w * 0.6, h * 0.6], "score": 0.5}]
+
+
+def test_a_small_box_is_looked_at_again_enlarged():
+    vlm = CropVLM()
+    det = VisionDetector(scene, Fixtures(), set(), vlm, {"height_range": (0, 5), "refine_small": True,
+                                                         "refine_small_px": 1000, "refine_side": 384})  # fmt: skip
+    found = det.detect(["mug"])
+    assert sorted(d.label for d in found) == ["cutting board", "lemon"]  # the 20x20 box, relabeled; the big one kept
+    assert det.refined == 1 and max(vlm.sizes[1]) == 384

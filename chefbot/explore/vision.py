@@ -18,6 +18,7 @@ import base64
 import hashlib
 import io
 import json
+import math
 import re
 from pathlib import Path
 from typing import Callable
@@ -162,6 +163,12 @@ class VisionDetector(Detector):
         self._margin = float(cfg.get("footprint_margin", 0.1))
         self._conflict = float(cfg.get("conflict_radius", 0.08))
         self._closer = float(cfg.get("closer_by", 0.5))
+        self._vote = bool(cfg.get("label_vote", False))
+        self._refine = bool(cfg.get("refine_small", False))
+        self._refine_px = float(cfg.get("refine_small_px", 1000))
+        self._refine_context = float(cfg.get("refine_context", 3.0))
+        self._refine_side = int(cfg.get("refine_side", 384))
+        self.refined = 0  # boxes looked at again, enlarged
         self._footprints = [f for f in (footprints or []) if f.size is not None and f.facing is not None]
         self._tracks: list[dict] = []  # one per object: label, summed position, sightings
         self._cache: tuple[str, list[int]] | None = None
@@ -202,6 +209,8 @@ class VisionDetector(Detector):
         if self._cache is not None and self._cache[0] == key:
             return [self._report(i) for i in self._cache[1]]
         named = self._vlm.objects(rgbd.rgb)
+        if self._refine:
+            named = [self._refined(rgbd.rgb, item) for item in named]
         origin = rgbd.cam_to_world[:3, 3]
         h, w = rgbd.depth.shape
         seen = []
@@ -215,11 +224,43 @@ class VisionDetector(Detector):
             point = box_point(rgbd, item["box"])
             if point is None or float(np.linalg.norm(point - origin)) > self._max_range or not self._plausible(point):
                 continue
-            seen.append(self._track(label, point, float(np.linalg.norm(point - origin)), exclude=seen))
+            seen.append(self._track(label, point, float(np.linalg.norm(point - origin)), exclude=seen,
+                                    score=float(item.get("score") or 0.0)))  # fmt: skip
         self._cache = (key, seen)
         out = [self._report(i) for i in seen]
         self._log(rgbd, named, out)
         return out
+
+    def _refined(self, rgb: np.ndarray, item: dict) -> dict:
+        """A small box (under refine_small_px) looked at again: the detector run on an enlarged crop
+        around it, whose answer for the thing in the middle replaces the first (label, box, score)."""
+        x0, y0, x1, y1 = item["box"]
+        if (x1 - x0) * (y1 - y0) >= self._refine_px:
+            return item
+        h, w = rgb.shape[:2]
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        half = max(24.0, max(x1 - x0, y1 - y0) * self._refine_context / 2)
+        cx0, cy0 = int(max(0, cx - half)), int(max(0, cy - half))
+        cx1, cy1 = int(min(w, cx + half)), int(min(h, cy + half))
+        if cx1 - cx0 < 8 or cy1 - cy0 < 8:
+            return item
+        from PIL import Image
+
+        scale = self._refine_side / max(cx1 - cx0, cy1 - cy0)
+        crop = np.asarray(Image.fromarray(rgb[cy0:cy1, cx0:cx1]).resize(
+            (round((cx1 - cx0) * scale), round((cy1 - cy0) * scale)), Image.BICUBIC))  # fmt: skip
+        self.refined += 1
+        again = []
+        for other in self._vlm.objects(crop):
+            bx0, by0, bx1, by1 = (v / scale for v in other["box"])
+            box = [bx0 + cx0, by0 + cy0, bx1 + cx0, by1 + cy0]
+            mx, my = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+            if x0 <= mx <= x1 and y0 <= my <= y1:  # the same thing: its middle within the first box
+                again.append(({**other, "box": box}, math.hypot(mx - cx, my - cy)))
+        if not again:
+            return item
+        best = min(again, key=lambda a: a[1])[0]
+        return {**best, "refined_from": item["label"]}
 
     def _plausible(self, point: np.ndarray) -> bool:
         """On or in a fixture: within a fixture's footprint and at a height things sit at."""
@@ -235,7 +276,7 @@ class VisionDetector(Detector):
                 return True
         return False
 
-    def _track(self, label: str, point: np.ndarray, distance: float, exclude: list[int]) -> int:
+    def _track(self, label: str, point: np.ndarray, distance: float, exclude: list[int], score: float = 0.0) -> int:
         """The object this sighting is of (the nearest of that label within merge_radius), or a new one.
         Its position is the mean of its sightings, so later full views wash out a poor first one."""
         best, best_d = None, self._merge
@@ -246,16 +287,21 @@ class VisionDetector(Detector):
             if d <= best_d:
                 best, best_d = i, d
         if best is None:
-            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0, "nearest": distance})
+            self._tracks.append({"label": label, "sum": np.zeros(3), "n": 0, "nearest": distance, "score": 0.0})
             best = len(self._tracks) - 1
         self._tracks[best]["sum"] += point
         self._tracks[best]["n"] += 1
         self._tracks[best]["nearest"] = min(self._tracks[best]["nearest"], distance)
+        self._tracks[best]["score"] += score
         return best
 
     def superseded(self) -> list[tuple[str, np.ndarray]]:
-        """Objects seen only from afar where a closer look found something else on the same spot
-        (a far-off "cutting board" that up close is a knife block): (label, position) of each."""
+        """Differently named objects on one spot (within conflict_radius) that are one thing:
+        (label, position) of each name that loses. With label_vote, the name seen most often there
+        wins (ties: the higher summed score, then the closest view); otherwise a name from a view at least closer_by nearer
+        wins (a far-off "cutting board" that up close is a knife block)."""
+        if self._vote:
+            return self._outvoted()
         out = []
         for t in self._tracks:
             here = t["sum"] / t["n"]
@@ -264,6 +310,37 @@ class VisionDetector(Detector):
                         and float(np.linalg.norm((o["sum"] / o["n"])[:2] - here[:2])) <= self._conflict):  # fmt: skip
                     out.append((t["label"], here))
                     break
+        return out
+
+    def _outvoted(self) -> list[tuple[str, np.ndarray]]:
+        spot = [(t["sum"] / t["n"])[:2] for t in self._tracks]
+        group = list(range(len(self._tracks)))  # union-find over tracks within conflict_radius
+
+        def root(i: int) -> int:
+            while group[i] != i:
+                group[i] = group[group[i]]
+                i = group[i]
+            return i
+
+        for i in range(len(self._tracks)):
+            for j in range(i + 1, len(self._tracks)):
+                if self._tracks[i]["label"] != self._tracks[j]["label"] and float(np.linalg.norm(spot[i] - spot[j])) <= self._conflict:
+                    group[root(i)] = root(j)
+        clusters: dict[int, list[int]] = {}
+        for i in range(len(self._tracks)):
+            clusters.setdefault(root(i), []).append(i)
+        out = []
+        for members in clusters.values():
+            votes: dict[str, list[float]] = {}
+            for i in members:
+                v = votes.setdefault(self._tracks[i]["label"], [0, 0.0, math.inf])
+                v[0] += self._tracks[i]["n"]
+                v[1] += self._tracks[i]["score"]
+                v[2] = min(v[2], self._tracks[i]["nearest"])
+            # Most sightings; then the higher summed score; then the name from the closest view.
+            winner = max(votes, key=lambda label: (votes[label][0], votes[label][1], -votes[label][2]))
+            out += [(self._tracks[i]["label"], self._tracks[i]["sum"] / self._tracks[i]["n"])
+                    for i in members if self._tracks[i]["label"] != winner]  # fmt: skip
         return out
 
     def _report(self, i: int) -> Detection:
