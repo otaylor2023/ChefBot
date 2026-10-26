@@ -35,6 +35,30 @@ class Siglip:
             self.text = torch.cat(feats)
             self.text = self.text / self.text.norm(dim=-1, keepdim=True)
 
+    def top(self, rgb: np.ndarray, box, k: int = 3, context: float = 1.3) -> list[str]:
+        """The k object names that best match the crop (kitchen-part words left out)."""
+        sims = self._sims(rgb, box, context)
+        if sims is None:
+            return []
+        order = sims[: self.n_objects].argsort(descending=True)[:k]
+        return [self.labels[int(i)] for i in order]
+
+    def _sims(self, rgb: np.ndarray, box, context: float):
+        from PIL import Image
+
+        h, w = rgb.shape[:2]
+        cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        half = max(16.0, max(box[2] - box[0], box[3] - box[1]) * context / 2)
+        crop = rgb[int(max(0, cy - half)):int(min(h, cy + half)), int(max(0, cx - half)):int(min(w, cx + half))]
+        if crop.size == 0:
+            return None
+        with self.torch.no_grad():
+            x = self.proc(images=Image.fromarray(crop), return_tensors="pt").to(self.device)
+            f = self.model.get_image_features(**x)
+            f = getattr(f, "pooler_output", f)
+            f = f / f.norm(dim=-1, keepdim=True)
+            return (f @ self.text.T)[0]
+
     def name(self, rgb: np.ndarray, box, context: float = 1.3) -> tuple[str, float]:
         from PIL import Image
 

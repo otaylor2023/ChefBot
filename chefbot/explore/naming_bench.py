@@ -163,6 +163,7 @@ def main() -> int:
     parser.add_argument("--models", default="owl,gdino,siglip,owl+siglip,vlm")
     parser.add_argument("--gdino", default="iSEE-Laboratory/llmdet_tiny")
     parser.add_argument("--aliases", action="store_true", help="also score with near-synonyms as one name")
+    parser.add_argument("--every", type=int, default=1, help="use every Nth picture (a sample, for slow models)")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     _, fixtures, _ = _labels()
@@ -176,6 +177,8 @@ def main() -> int:
     for name, d in dirs.items():
         for png in sorted((d / "vision").glob("*.png")):
             frames[(name, int(png.stem))] = png
+    if args.every > 1:
+        frames = {k: v for i, (k, v) in enumerate(sorted(frames.items())) if i % args.every == 0}
     cache: dict = {}
 
     def rgb(key):
@@ -193,7 +196,7 @@ def main() -> int:
             results.append(evaluate("vlm (saved answers; its frames only)" + (", aliases" if al else ""), vlm_frames, sightings,
                                     lambda k: json.loads(frames[k].with_suffix(".json").read_text())["vlm"], fixture_words, al))  # fmt: skip
     owl = None
-    if "owl" in wanted or "owl+siglip" in wanted or "hybrid" in wanted:
+    if "owl" in wanted or "owl+siglip" in wanted or "hybrid" in wanted or "sam3" in wanted:
         from chefbot.explore.owl import OwlV2Model
 
         owl = OwlV2Model()
@@ -211,7 +214,7 @@ def main() -> int:
                 print(table(results[-1:]), flush=True)
     from chefbot.explore.siglip import Siglip
 
-    siglip = Siglip() if ("siglip" in wanted or "owl+siglip" in wanted or "hybrid" in wanted) else None
+    siglip = Siglip() if ("siglip" in wanted or "owl+siglip" in wanted or "hybrid" in wanted or "sam3" in wanted) else None
     if "hybrid" in wanted:
         hybrid_items = {}
 
@@ -232,6 +235,31 @@ def main() -> int:
         for al in ([False, True] if args.aliases else [False]):
             results.append(evaluate("hybrid: owl, siglip under 1000 px" + (", aliases" if al else ""), frames, sightings,
                                     hybrid_of, fixture_words, al))  # fmt: skip
+            print(table(results[-1:]), flush=True)
+    if "sam3" in wanted:
+        from chefbot.explore.sam3 import Sam3
+
+        sam = Sam3()
+        sam3_items = {}
+
+        def sam3_of(k):  # OWLv2's candidate boxes; SAM 3 picks among SigLIP 2's top 3 names (and OWLv2's)
+            if k not in sam3_items:
+                img = rgb(k)
+                cands = owl_of(k)
+                prompts = sorted({n for c in cands for n in [c["label"], *siglip.top(img, c["box"], 3)]})
+                masks = sam.objects(img, prompts) if prompts else []
+                out = []
+                for c in cands:
+                    on = [m for m in masks if _iou(m["box"], c["box"]) >= 0.3]
+                    if on:
+                        best = max(on, key=lambda m: m["score"])
+                        out.append(dict(c, label=best["label"], box=best["box"]))
+                sam3_items[k] = out
+            return sam3_items[k]
+
+        for al in ([False, True] if args.aliases else [False]):
+            results.append(evaluate("sam3 picks among siglip top 3 for owl boxes" + (", aliases" if al else ""), frames,
+                                    sightings, sam3_of, fixture_words, al))  # fmt: skip
             print(table(results[-1:]), flush=True)
     if "owl+siglip" in wanted:
         results.append(evaluate("owl boxes + siglip names", frames, sightings,

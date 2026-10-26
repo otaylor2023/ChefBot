@@ -322,3 +322,65 @@ With aliases, the hybrid names 74% right at 300 to 1000 px (OWLv2: 45%) and 62% 
 - The milk (always "bottled water") and the plate and fork (a cabinet and drawer the robot cannot
   open or reach) are not perception problems this can fix.
 - **SAM 3 is still to be tried:** no Hugging Face login was found on the Mac.
+
+## 9. Two like things side by side, and SAM 3 (free)
+
+### Cup and mug kept apart: layout 7 reaches 10/14 with OWLv2
+
+With aliases, the cup and the mug (21 cm apart) both read as "mug". Two things merged them into one
+object:
+
+- **The detector's tracker:** with aliases, a group name now merges sightings only within 12 cm
+  (`vision.alias_merge_radius`).
+- **The agent's map:** objects seen from beyond the map query's range now take same-label map
+  entries one to one, nearest pairs first.
+
+| layout 7, OWLv2, current route | found | missed | wrong names on real objects | false finds | xy median / p90 (cm) | run time |
+|---|---|---|---|---|---|---|
+| baseline | 9/14 | egg, fork, lemon, milk, plate | 4 | 22 | 3.0 / 9.8 | 12.8 min (shared machine) |
+| vote + hybrid + aliases | 9/14 | mug, fork, milk, plate, spoon | 1 | 8 | 2.3 / 9.8 | 11.7 min |
+| **vote + hybrid + aliases, the fix** | **10/14** | fork, milk, plate, spoon | 2 (milk as bottled water, spoon as banana) | 12 | 2.9 / 11.1 | 15.3 min |
+| exact detector | 13/14 | fork | 0 | 0 | 0.1 / 0.1 | 9.2 min |
+
+### SAM 3, offline (`facebook/sam3`, transformers `Sam3Model`)
+
+Access is through the Hugging Face login with Meta's license; it runs locally.
+`facebook/sam3.1` ships only `sam3.1_multiplex.pt`, a video-focused checkpoint for Meta's own code,
+so the image test uses SAM 3.
+
+- **Too slow for the whole word list:** about 7 s per picture for one prompt and 20 s for eight, on
+  both the Mac GPU and the CPU. That is about 10 minutes per picture for the ~230 names.
+- **So it checks candidates instead:** each OWLv2 box gets SigLIP 2's 3 best names plus OWLv2's
+  own, and SAM 3 prompts them all on the picture. A box takes the name whose SAM 3 mask overlaps
+  it best.
+- **Sample:** every 6th saved picture (61 pictures, 113 sightings of real objects; the VLM had only
+  11 of them).
+
+| model (same 61 pictures) | named right | wrong name | not named | false finds per picture | seconds per picture |
+|---|---|---|---|---|---|
+| OWLv2 | 42% | 36% | 21% | 1.6 | 0.8 |
+| OWLv2, aliases | 50% | 28% | 21% | 1.6 | 0.8 |
+| hybrid, aliases | 65% | 12% | 23% | 1.6 | 0.85 |
+| **SAM 3 picking among SigLIP 2's top 3, aliases** | **71%** | **5%** | 24% | **1.1** | **19.7** |
+| VLM, aliases (11 sightings) | 100% | 0% | 0% | 0.8 | (API) |
+
+By pixel size, SAM 3 with aliases names 76% right at 100 to 300 px and 80% at 300 to 1000 px. The
+hybrid gets 66% and 73%, and OWLv2 48% and 57%.
+
+- **SAM 3 is the best free namer here:** wrong names at 5%, and the fewest false finds of the local
+  models, because its masks reject boxes that hold nothing of the proposed names. It does not find
+  more objects: the "not named" share is OWLv2's, since OWLv2 still proposes the boxes.
+- **It is about 23 times slower than the hybrid:** about 20 s per picture on the Mac. A layout 7
+  run has about 100 pictures, so it would add about 30 minutes. It suits a second look at uncertain
+  boxes only, not every picture.
+- **Position from SAM 3's masks was not measured separately.** Its masks would enter the depth the
+  same way as SAM 2.1's (section 7: median 3D error 3.9 down to 3.2 cm).
+
+### Recommendation now
+
+1. **Default for free runs: OWLv2 + hybrid + aliases + vote,** with the side-by-side fix. That is
+   10/14 on layout 7, at no API cost and about the same run time.
+2. **SAM 3 as a checker only for uncertain or small boxes:** the best local naming (5% wrong), when
+   about 20 s per checked picture is acceptable.
+3. **The VLM remains the best namer** (78 to 86% over its full set). Pair it with going closer for
+   the small objects.
