@@ -423,6 +423,8 @@ def analyze(csv_path: Path, run_dirs: list[Path], out_dir: Path) -> str:
     md = []
     for det in ("vision", "owl"):
         sights = [r for r in rows if r["detector"] == det and int(r["visible_px"]) > 0]
+        if not sights:
+            continue
         good = lambda r: r["outcome"] == "kept"
         md.append(f"\n### {det}: per sighting (an object visible in a frame), {len(sights)} sightings\n")
         md.append("| visible pixels | sightings | kept | named right (kept or dropped) | wrong label | not named |")
