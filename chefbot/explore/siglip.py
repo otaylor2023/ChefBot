@@ -59,6 +59,23 @@ class Siglip:
             f = f / f.norm(dim=-1, keepdim=True)
             return (f @ self.text.T)[0]
 
+    def embed(self, rgb: np.ndarray, box, context: float = 1.0) -> np.ndarray | None:
+        """The crop's unit image embedding: how it looks, to tell it from like objects."""
+        from PIL import Image
+
+        h, w = rgb.shape[:2]
+        cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        half = max(16.0, max(box[2] - box[0], box[3] - box[1]) * context / 2)
+        crop = rgb[int(max(0, cy - half)):int(min(h, cy + half)), int(max(0, cx - half)):int(min(w, cx + half))]
+        if crop.size == 0:
+            return None
+        with self.torch.no_grad():
+            x = self.proc(images=Image.fromarray(crop), return_tensors="pt").to(self.device)
+            f = self.model.get_image_features(**x)
+            f = getattr(f, "pooler_output", f)
+            f = f / f.norm(dim=-1, keepdim=True)
+        return f[0].float().cpu().numpy()
+
     def name(self, rgb: np.ndarray, box, context: float = 1.3) -> tuple[str, float]:
         from PIL import Image
 

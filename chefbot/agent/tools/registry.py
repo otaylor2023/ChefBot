@@ -354,6 +354,51 @@ LOOP_SCHEMAS: list[dict] = [
 ]
 
 
+# Object memory (chefbot.agent.world.objects): which one of like things, what each was used for.
+MEMORY_SCHEMAS: list[dict] = [
+    _tool(
+        "find_objects",
+        "Look up objects in your memory of the kitchen, each one by its own id even among like ones "
+        "(fork_1 .. fork_5): what each was used for (stirred, poured_into, lowered_into, squeezed...), in "
+        "which step, its states (clean / dirty, empty / some / full, raw / used up), and what it is set "
+        "aside for. All filters are optional and combine; with none, lists the objects by category. "
+        "Costs no look: it answers from what you have seen and done.",
+        {
+            "category": {"type": "string", "description": 'e.g. "cutlery", "cooking utensil", "cookware", "tableware", '
+                                                          '"drinkware", "liquid container", "ingredient", "other".'},
+            "label": {"type": "string", "description": 'e.g. "fork".'},
+            "state": {"type": "string", "description": 'e.g. "clean", "dirty", "empty", "full".'},
+            "used": {"type": "string", "description": 'Only those used this way, e.g. "stirred", "poured_into".'},
+            "recipe": {"type": "string", "description": "Only those used or set aside for this dish (words of the goal)."},
+            "step": {"type": "string", "description": 'Only those used or set aside for this step, e.g. "s3".'},
+            "free": {"type": "boolean", "description": "true: only those set aside for nothing."},
+        },
+    ),
+    _tool(
+        "object_info",
+        "Everything you know of one object: what tells it from like ones, where it was last, its states, "
+        "its contents, and its full history (each action, when, in which step).",
+        {"id": {"type": "string", "description": 'An object id, e.g. "fork_3".'}},
+        ["id"],
+    ),
+    _tool(
+        "note_object",
+        "Write down what you know of an object: a state you can tell (dirty, full, empty...), that it is set "
+        "aside for a later step (for_step, and the ingredient it will hold or work on), or a note. "
+        "done=true: it is no longer set aside for that step (or for anything, without for_step).",
+        {
+            "id": {"type": "string", "description": 'An object id, e.g. "bowl" or "fork_2".'},
+            "state": {"type": "string", "enum": ["clean", "dirty", "empty", "some", "full", "raw", "cut", "cooked", "used up"]},
+            "for_step": {"type": "string", "description": 'A step id from the plan, e.g. "s4".'},
+            "ingredient": {"type": "string", "description": 'What it is for, e.g. "eggs".'},
+            "note": {"type": "string"},
+            "done": {"type": "boolean"},
+        },
+        ["id"],
+    ),
+]
+
+
 class ToolRegistry:
     """The tools the agent gets: those the robot's capabilities allow, minus `exclude`,
     and only those in `only` when it is given (task files and agent.yaml set these)."""
@@ -375,7 +420,7 @@ class ToolRegistry:
         self._exclude, self._only = set(exclude), (set(only) if only is not None else None)
         self._schemas: dict[str, dict] = {}
         self._handlers = {}
-        for schema in TOOL_SCHEMAS + HANDHELD_SCHEMAS:
+        for schema in TOOL_SCHEMAS + HANDHELD_SCHEMAS + MEMORY_SCHEMAS:
             name = schema["function"]["name"]
             if self.allowed(name):
                 owner = next(o for o in (self.manip, self.kitchen, self.handheld, self.tools) if hasattr(o, name))

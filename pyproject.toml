@@ -28,7 +28,7 @@ dev = ["pytest"]
 include = ["chefbot*"]
 
 [tool.setuptools.package-data]
-chefbot = ["config/**/*.yaml", "robot/kinematics/assets/**/*", "envs/robocasa/assets/**/*"]
+chefbot = ["config/**/*.yaml", "agent/world/*.yaml", "robot/kinematics/assets/**/*", "envs/robocasa/assets/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["chefbot/tests"]

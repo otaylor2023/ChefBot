@@ -18,6 +18,7 @@ from chefbot.agent.world.detections import DetectionEntry, Detections
 from chefbot.agent.world.kitchen import MAP, SEEN, YOU, KitchenBelief
 from chefbot.agent.world.map import MapEntry, WorldMap, label_of
 from chefbot.agent.world.nearby import NearbyView, build_nearby
+from chefbot.agent.world.objects import ObjectMemory
 from chefbot.interface.detector import Detector
 from chefbot.interface.robot_api import RobotAPI
 from chefbot.interface.types import Detection, MotionResult, MotionStatus, Pose2D, ToolResult
@@ -59,9 +60,14 @@ class NavTools:
         # Door / burner states and where objects are (KITCHEN block); run time from `now`.
         self.kitchen = KitchenBelief()
         self.now = time.monotonic  # the agent loop sets its run clock
+        # Each object's identity, what was done with it, its states (MEMORY tools).
+        self.objects = ObjectMemory(lambda: self.now())
         for e in world_map.list():
             if e.kind == "object" and e.inside:
                 self.kitchen.put(e.name, e.inside, MAP, 0.0)
+            if e.kind == "object":
+                inst = self.objects.ensure(e.name, e.label)
+                inst.last_xy, inst.last_where = e.location, e.inside
 
     # -- go_to ---------------------------------------------------------------
 
@@ -175,22 +181,22 @@ class NavTools:
             return DetectionEntry(
                 id, det.label, position, float(det.confidence), pose, now, map_name, near,
                 getattr(det, "state", None), bool(getattr(det, "in_gripper", False)),
+                getattr(det, "signature", None), getattr(det, "attributes", None),
             )  # fmt: skip
 
         # Fixtures stay where the map says; loose objects move, so an object seen
         # away from its map location is still reported (under a fresh id).
         map_labels = {e.label for e in self._map.list() if e.kind == "fixture"}
-        # Map matching: closest (detection, map entry) pairs first, one-to-one.
+        # Map matching: closest (detection, map entry) pairs first, one-to-one; like
+        # things side by side (two forks) are told apart by how they look, when known.
         pairs = sorted(
-            (_xy_dist(det.position_world, m.location), i, m.name)
+            (self._match_cost(det, m.name, _xy_dist(det.position_world, m.location)), i, m.name)
             for i, det in enumerate(raw)
             for m in in_range
-            if m.label == det.label
+            if m.label == det.label and _xy_dist(det.position_world, m.location) <= self._cfg.map_match_radius
         )
         matched: dict[int, str] = {}
-        for dist, i, name in pairs:
-            if dist > self._cfg.map_match_radius:
-                break
+        for _, i, name in pairs:
             if i not in matched and name not in matched.values():
                 matched[i] = name
 
@@ -247,13 +253,15 @@ class NavTools:
                     n += 1
                 name = f"{e.label}_{n}"
             mapped = self._map.get(name)
+            old = self.kitchen.where.get(name)
+            self.objects.seen(name, e.label, e.position_world, holder, e.signature, e.attributes,
+                              moved=old is not None and old.source == YOU and old.value != holder)  # fmt: skip
             if (e.map_name is None or mapped.inside != self._top(holder)
                     or _xy_dist(e.position_world, mapped.location) > _MOVED):  # fmt: skip
                 # Seen somewhere the map does not have it: the map follows.
                 self._map.put(MapEntry(name, (float(e.position_world[0]), float(e.position_world[1])),
                                        kind="object", inside=self._top(holder)))  # fmt: skip
                 e.map_name = name
-            old = self.kitchen.where.get(name)
             if old is None or old.value != holder:
                 self.kitchen.put(name, holder, SEEN, now)
 
@@ -286,6 +294,8 @@ class NavTools:
         xy = target.target_world
         self._map.put(MapEntry(obj, (float(xy[0]), float(xy[1])), kind="object", inside=self._top(holder)))
         self.kitchen.put(obj, holder, YOU, self.now())
+        self.objects.did("placed", obj, holder)
+        self.objects.ensure(obj).last_xy = (float(xy[0]), float(xy[1]))
         for inner in self.held_contents(obj):  # what was in it comes back with it
             self._map.put(MapEntry(inner, (float(xy[0]), float(xy[1])), kind="object", inside=self._top(holder)))
 
@@ -297,7 +307,7 @@ class NavTools:
         loose = [e for e in entries if e.map_name is None and not e.in_gripper and e.label not in fixture_labels
                  and e.label not in _PARTS and not e.label.endswith(" handle")]  # fmt: skip
         pairs = sorted(
-            (_xy_dist(e.position_world, m.location), i, m.name)
+            (self._match_cost(e, m.name, _xy_dist(e.position_world, m.location)), i, m.name)
             for i, e in enumerate(loose) for m in self._map.list()
             if m.kind == "object" and m.label == e.label and m.name not in claimed
             and _xy_dist(e.position_world, m.location) <= _SAME_SPOT
@@ -309,7 +319,14 @@ class NavTools:
                 claimed.add(name)
                 done.add(i)
 
+    def _match_cost(self, det, name: str, dist: float) -> float:
+        """Distance (m) plus how unlike the map's `name` the sighting looks."""
+        look = self.objects.appearance_cost(name, getattr(det, "signature", None), getattr(det, "attributes", None))
+        return dist + _LOOK_M * look
+
     def record_pick(self, obj: str) -> None:
+        was = self.kitchen.where.get(obj)
+        self.objects.did("picked", obj, was.value if was else None)
         self.kitchen.forget(obj)
         for inner in self.held_contents(obj):  # its contents go with it: off the map, still believed inside
             self._map.remove(inner)
@@ -332,6 +349,64 @@ class NavTools:
             self.opened_by[name] = target
         elif state == "closed":
             self.opened_by.pop(name, None)
+
+    # -- object memory: which one, what was done with it, what it is for -------------
+
+    def find_objects(self, category: str | None = None, label: str | None = None, state: str | None = None,
+                     used: str | None = None, recipe: str | None = None, step: str | None = None,
+                     free: bool | None = None) -> ToolResult:  # fmt: skip
+        mem = self.objects
+        if not any(v is not None for v in (category, label, state, used, recipe, step, free)):
+            groups = mem.categories_of()
+            text = "; ".join(f"{c}: {', '.join(ids)}" for c, ids in sorted(groups.items()))
+            return ToolResult(True, None, text or "No objects known.", {"categories": groups})
+        states = None
+        if state is not None:
+            key = _state_key(state)
+            if key is None:
+                return ToolResult(False, "bad_state", f'Unknown state "{state}". States: {", ".join(_STATE_VALUES)}.')
+            states = {key: state}
+        found = mem.find(category, label, states, used, recipe, step, free)
+        rows = [mem.describe(i.id) for i in found]
+        if not rows:
+            return ToolResult(True, None, "No object matches.", {"objects": []})
+        text = "; ".join(r["id"] + (f" ({mem.get(r['id']).tag()})" if mem.get(r["id"]).tag() else "")
+                         + (f", used: {', '.join(r['uses'])}" if r["uses"] else "") for r in rows)  # fmt: skip
+        return ToolResult(True, None, text, {"objects": rows})
+
+    def object_info(self, id: str) -> ToolResult:
+        inst = self.objects.get(id)
+        if inst is None:
+            return ToolResult(False, "unknown_object", f'No object "{id}" in memory.')
+        data = self.objects.describe(id)
+        data["history"] = [u.to_dict() for u in inst.uses]
+        return ToolResult(True, None, json.dumps(data), data)
+
+    def note_object(self, id: str, state: str | None = None, for_step: str | None = None,
+                    ingredient: str | None = None, note: str | None = None, done: bool = False) -> ToolResult:  # fmt: skip
+        """Note what you know of an object: a state (dirty, full), or that it is set aside for a
+        step (and the ingredient it is for); done=True takes it off that step (or every step)."""
+        if self.objects.get(id) is None and self._map.get(id) is None and (self.held or {}).get("id") != id:
+            return ToolResult(False, "unknown_object", f'No object "{id}".')
+        said = []
+        if state is not None:
+            key = _state_key(state)
+            if key is None:
+                return ToolResult(False, "bad_state", f'Unknown state "{state}". States: {", ".join(_STATE_VALUES)}.')
+            self.objects.set_state(id, key, state)
+            said.append(state)
+        if done:
+            self.objects.release(id, for_step)
+            said.append(f"no longer set aside{' for ' + for_step if for_step else ''}")
+        elif for_step is not None or ingredient is not None:
+            self.objects.reserve(id, step=for_step, ingredient=ingredient, note=note)
+            said.append(f"set aside for {for_step or 'later'}" + (f" ({ingredient})" if ingredient else ""))
+        elif note:
+            self.objects._log(self.objects.ensure(id), "note", None, note)
+            said.append("noted")
+        if not said:
+            return ToolResult(False, "invalid_arguments", "Give a state, for_step / ingredient, a note, or done.")
+        return ToolResult(True, None, f"{id}: {', '.join(said)}.", self.objects.describe(id))
 
     def describe_where(self, obj: str) -> str:
         fact = self.kitchen.where.get(obj)
@@ -594,8 +669,18 @@ def _along(entry, t: float):
 _SEEN_SMALL = 0.5  # a detection this unsure was only seen small (a camera detector's flag)
 _MOVED = 0.01  # m: a sighting this far from the map's spot moves the map entry
 _SAME_SPOT = 0.3  # m: an object seen this close to where you thought it was has not moved
+_LOOK_M = 0.3  # m of distance that looking wholly unlike an object weighs as, when matching to it
 _PARTS = {"burner", "faucet", "knob", "shelf"}  # parts of fixtures, never loose objects
 _CONTAINERS = {"fridge", "cabinet", "microwave", "drawer", "oven", "toaster", "pan", "pot", "bowl", "mug", "sink", "egg cracker"}
+
+
+# Object states the agent can note, and their keys (categories.yaml).
+_STATE_VALUES = {"clean": "clean", "dirty": "clean", "empty": "fill", "full": "fill", "some": "fill",
+                 "raw": "prep", "cut": "prep", "cooked": "prep", "used up": "prep"}  # fmt: skip
+
+
+def _state_key(value: str) -> str | None:
+    return _STATE_VALUES.get(value)
 
 
 def _is_container(name: str) -> bool:

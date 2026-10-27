@@ -51,6 +51,8 @@ vision:
   approach_per_stop: 2     # at most this many approaches after each fixture or cabinet group
   look_closely: false    # look at uncertain objects (small, low score, two names on one spot, only ever partly hidden)
                          # with the wrist camera from close by (explore/look.py); the route goes there like approach_small
+  appearance_signature: false  # pass each box's SigLIP 2 image embedding on as its signature, so the object memory
+                                # tells like things apart (five forks); needs owl.hybrid_siglip (local, free)
   close_distance: 0.32   # m: wrist camera to object
   close_elevation_deg: 50  # looking down at it this much
   close_dip_deg: 28      # the camera aims this much below it, so it sits above the gripper in the picture

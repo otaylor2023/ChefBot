@@ -217,6 +217,9 @@ class VisionDetector(Detector):
         # ever partly hidden) says so, to be looked at with the wrist camera from close by; a close view's
         # position wins and its name counts close_weight times in the vote.
         self._look = bool(cfg.get("look_closely", False))
+        # SigLIP 2 image embedding of each box (local, free; needs the detector's SigLIP, as hybrid_siglip
+        # loads it), passed on as the detection's signature: the object memory tells like things apart by it.
+        self._signatures = bool(cfg.get("appearance_signature", False))
         self._close_range = float(cfg.get("close_range", 0.6))
         self._close_weight = float(cfg.get("close_weight", 3))
         self._uncertain_score = float(cfg.get("uncertain_score", 0.3))
@@ -328,9 +331,11 @@ class VisionDetector(Detector):
                 continue
             occluded = occlusion(rgbd, item["box"], point, self._occl_gap) > self._occl_share
             self.occluded_seen += occluded
+            siglip = getattr(self._vlm, "_siglip", None) if self._signatures else None
             seen.append(self._track(label, point, float(np.linalg.norm(point - origin)), exclude=seen,
                                     score=float(item.get("score") or 0.0), px=(x1 - x0) * (y1 - y0),
-                                    occluded=occluded))  # fmt: skip
+                                    occluded=occluded,
+                                    sig=siglip.embed(rgbd.rgb, item["box"]) if siglip is not None and not occluded else None))  # fmt: skip
         self._cache = (key, seen)
         out = [self._report(i) for i in seen]
         self._log(rgbd, named, out)
@@ -419,7 +424,7 @@ class VisionDetector(Detector):
         return False
 
     def _track(self, label: str, point: np.ndarray, distance: float, exclude: list[int], score: float = 0.0,
-               px: float = 0.0, occluded: bool = False) -> int:  # fmt: skip
+               px: float = 0.0, occluded: bool = False, sig: np.ndarray | None = None) -> int:  # fmt: skip
         """The object this sighting is of (the nearest of that label within merge_radius), or a new one.
         Its position is the mean of its sightings, so later full views wash out a poor first one."""
         best, best_d = None, self._merge
@@ -448,6 +453,8 @@ class VisionDetector(Detector):
             self._tracks[best]["close_n"] += 1
         self._tracks[best]["clear_n"] += not occluded
         self._tracks[best]["last_occluded"] = occluded
+        if sig is not None:
+            self._tracks[best]["sig"] = self._tracks[best].get("sig", 0) + sig
         return best
 
     def superseded(self) -> list[tuple[str, np.ndarray]]:
@@ -525,7 +532,9 @@ class VisionDetector(Detector):
         small = self._approach and t["px"] < self._approach_px
         if self._look:
             small = bool(self.uncertain(t))
-        return Detection(t["label"], self._position(t), 0.4 if small else 0.9)
+        sig = t.get("sig")
+        sig = sig / (np.linalg.norm(sig) or 1.0) if sig is not None else None
+        return Detection(t["label"], self._position(t), 0.4 if small else 0.9, signature=sig)
 
     def _log(self, rgbd: RGBD, named: list[dict], out: list[Detection]) -> None:
         """Each image the VLM saw, with what it said and where that put things (runs/<run>/vision/)."""

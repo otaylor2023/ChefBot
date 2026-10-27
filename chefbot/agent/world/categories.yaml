@@ -1,0 +1,33 @@
+# Logical categories of loose objects, for the object memory (chefbot.agent.world.objects).
+# `labels`: object labels (map labels, as in explore/vocab.yaml) in the category.
+# `states`: the state keys an object of the category has, each with its value before anything
+# is known: "clean" (clean / dirty), "fill" (empty / full / some), "prep" (raw / cut / cooked / used up).
+# A label in no category is in "other", with no states.
+cutlery:
+  labels: [fork, spoon, knife, chopsticks]
+  states: {clean: clean}
+cooking utensil:
+  labels: [ladle, spatula, whisk, electric whisk, tongs, peeler, cheese grater, pizza cutter, reamer, rolling pin,
+           egg cracker, can opener, bottle opener, measuring cup, colander, cutting board]
+  states: {clean: clean}
+cookware:
+  labels: [pan, pot, saucepan, kettle non electric, baking sheet, oven tray]
+  states: {clean: clean, fill: empty}
+tableware:
+  labels: [bowl, plate, placemat, tray, basket]
+  states: {clean: clean, fill: empty}
+drinkware:
+  labels: [cup, mug, glass cup, coffee cup, wine glass, water bottle]
+  states: {clean: clean, fill: empty}
+liquid container:
+  labels: [bottled water, bottled drink, boxed drink, milk, juice, lemonade, beer, wine, liquor, canola oil,
+           olive oil bottle, oil and vinegar bottle, pitcher, jug, jug wide opening, blender jug, condiment bottle,
+           honey bottle, ketchup, mustard, mayonnaise, soy sauce, vinegar]
+  states: {fill: full}
+ingredient:
+  labels: [apple, apricot, artichoke, asparagus, avocado, bacon, bagel, banana, beet, bell pepper, bread, broccoli,
+           butter stick, cabbage, carrot, cauliflower, celery, cheese, cherry, chicken breast, chicken drumstick,
+           chili pepper, corn, cucumber, egg, eggplant, fish, garlic, ginger, grapes, ham, kiwi, lamb chop, lemon,
+           lettuce, lime, mango, mushroom, onion, orange, peach, pear, pineapple, pork chop, potato, radish,
+           raspberry, salami, sausage, shrimp, squash, steak, strawberry, sweet potato, tomato, zucchini, flour bag]
+  states: {prep: raw}

@@ -129,7 +129,12 @@ class HandheldTools:
         self._nav = nav
 
     def lower_into(self, id: str, wait: bool = True) -> ToolResult:
-        return self._use(LOWER_INTO, id, wait, lambda entry: self._nav.tool_use.update(lowered_into=entry.map_name or entry.id))
+        def lowered(entry: DetectionEntry) -> None:
+            nav = self._nav
+            nav.tool_use.update(lowered_into=entry.map_name or entry.id)
+            nav.objects.did("lowered_into", nav.held["id"], entry.map_name or entry.id)
+
+        return self._use(LOWER_INTO, id, wait, lowered)
 
     def lift_out(self, wait: bool = True) -> ToolResult:
         return self._use(LIFT_OUT, None, wait, lambda _: self._nav.tool_use.update(lowered_into=None))
@@ -138,11 +143,16 @@ class HandheldTools:
         def squeezed(_) -> None:
             nav = self._nav
             nav.tool_use.update(squeezing=True)
+            into = nav.tool_use.get("lowered_into")
+            nav.objects.did("squeezed", nav.held["id"], into)
             # Whatever was in the tool was used up (the egg in the cracker): forget it.
             for obj, fact in list(nav.kitchen.where.items()):
                 if fact.value == nav.held["id"]:
                     nav.kitchen.forget(obj)
                     nav._map.remove(obj)
+                    nav.objects.use_up(obj)
+                    if into is not None:
+                        nav.objects.put_in(obj, into)  # the egg went into the bowl below
 
         return self._use(SQUEEZE, None, wait, squeezed)
 
@@ -152,12 +162,17 @@ class HandheldTools:
     def stir(self, seconds: float, wait: bool = True) -> ToolResult:
         if seconds <= 0 or seconds > 300:
             return ToolResult(False, "invalid_arguments", "seconds must be between 0 and 300")
-        return self._use(STIR, None, wait, lambda _: None, seconds)
+        def stirred(_) -> None:
+            nav = self._nav
+            nav.objects.did("stirred", nav.held["id"], nav.tool_use.get("lowered_into"), note=f"{seconds:g} s")
+
+        return self._use(STIR, None, wait, stirred, seconds)
 
     def pour(self, id: str, wait: bool = True) -> ToolResult:
         def poured(entry: DetectionEntry) -> None:
             nav = self._nav
             target = entry.map_name or entry.id
+            nav.objects.did("poured_into", nav.held["id"], target)
             for obj, fact in list(nav.kitchen.where.items()):
                 if fact.value == nav.held["id"]:
                     nav.kitchen.put(obj, target, YOU, nav.now())

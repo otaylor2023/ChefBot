@@ -22,6 +22,8 @@ class DetectionEntry:
     near_point_world: np.ndarray | None = None  # big things: the part nearest the robot when seen
     state: str | None = None  # "open" / "closed" / "on" / "off" when the detector can tell
     in_gripper: bool = False  # inside what the gripper holds
+    signature: np.ndarray | None = None  # appearance vector, if the detector gives one
+    attributes: dict | None = None  # e.g. {"color": "red"}, if the detector gives them
 
     @property
     def target_world(self) -> np.ndarray:

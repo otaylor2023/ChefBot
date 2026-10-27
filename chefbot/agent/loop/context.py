@@ -191,8 +191,13 @@ class TaskState:
         for obj, holder in holder_of.items():
             children.setdefault(holder or "", []).append(obj)
 
+        memory = getattr(nav, "objects", None)
+
         def obj_text(obj: str, depth: int = 0) -> str:
             text = obj
+            inst = memory.get(obj) if memory is not None else None
+            if inst is not None and inst.tag():
+                text += f" [{inst.tag()}]"
             fact = belief.where.get(obj)
             if fact is not None and fact.source == YOU:
                 text += f" (you put it here {_duration(now - fact.t)} ago)"

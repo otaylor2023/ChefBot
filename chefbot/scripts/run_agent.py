@@ -24,6 +24,7 @@ from chefbot.agent.loop.runner import AgentRunner, AgentSession
 from chefbot.agent.plan.model import Plan
 from chefbot.agent.tools.plan_tools import terminal_operator
 from chefbot.agent.world.map import WorldMap
+from chefbot.agent.world.objects import ObjectMemory
 from chefbot.scripts.view_run import load, report_html, summary
 
 REPO = Path(__file__).resolve().parents[2]
@@ -48,6 +49,7 @@ def run(
     video: bool = False,
     video_speed: int = 2,
     start_map: Path | None = None,
+    objects: Path | None = None,
 ) -> dict:
     from chefbot.scripts.envs import ENVS
 
@@ -73,6 +75,8 @@ def run(
         tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
     )  # fmt: skip
     session.bus.add_safety(world.safety)
+    if objects is not None:  # what an earlier run remembered of each object (its object_memory.yaml)
+        session.registry.tools.objects.merge(ObjectMemory.load(objects))
     session.log.start(
         task=world.name, task_file=str(task_path), seed=seed,
         reference_plan=plan.to_dict(), models={"agent": config.model, "judge": config.judge_model},
@@ -140,6 +144,7 @@ def run(
         if recorder is not None:
             recorder.close()
         world.close()
+    session.registry.tools.objects.save(run_dir / "object_memory.yaml")
     end_path = run_dir / "end.json"
     end = json.loads(end_path.read_text())
     end["ground_truth"] = verdict
@@ -165,6 +170,8 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--map", type=Path, dest="start_map",
                         help="start from this map (an explored_map.yaml) instead of the true one")  # fmt: skip
+    parser.add_argument("--objects", type=Path,
+                        help="start from what an earlier run remembered of each object (its object_memory.yaml)")  # fmt: skip
     parser.add_argument("--out", type=Path, default=REPO / "runs")
     parser.add_argument("--model")
     parser.add_argument("--judge-model")
@@ -180,7 +187,7 @@ def main() -> int:
                              max_llm_cost_usd=args.max_llm_cost_usd)  # fmt: skip
     operator = terminal_operator if args.operator == "terminal" else (lambda reason, a=args.operator: a)
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
-                 env=args.env, video=args.video, start_map=args.start_map)  # fmt: skip
+                 env=args.env, video=args.video, start_map=args.start_map, objects=args.objects)  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
     return 0 if result["success"] else 1

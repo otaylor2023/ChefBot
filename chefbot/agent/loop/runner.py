@@ -116,6 +116,8 @@ class AgentSession:
         plan_tools = PlanTools(store, check, bus, operator)
         registry.add_loop_tools(plan_tools, time_tools)
         registry.tools.now = clock.now  # the kitchen belief's "N ago" is in run time
+        # Each use an object's memory records names the step it was for and the dish.
+        registry.tools.objects.context = lambda: {"step": getattr(store.active(), "id", None), "recipe": store.live.goal}
         perception = Perception(FreshnessConfig(
             config.stale_after_calls, config.stale_move_m, config.stale_turn_deg,
             config.clear_move_m, config.clear_turn_deg,

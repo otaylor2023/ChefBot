@@ -47,6 +47,10 @@ class Detection:
     state: str | None = None
     # Seen in the gripper, inside what it holds (the egg in a held egg cracker).
     in_gripper: bool = False
+    # How it looks, to tell it from like ones (five forks): an appearance vector (an image
+    # embedding of its crop) and attributes such as {"color": "red"}. None: not given.
+    signature: np.ndarray | None = None
+    attributes: dict[str, str] | None = None
 
 
 class MotionStatus:
