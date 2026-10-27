@@ -34,6 +34,8 @@
   - near-synonyms as one name (cup and mug, pan and saucepan, lemon and lime)
   - SAM 3 as a checker
   - SAM 2.1 masks for depth
+  - a close look with the wrist camera at uncertain objects, and moving an object that hides another
+    (see "Close looks" below)
 
 ## Headline numbers
 
@@ -52,6 +54,9 @@ saucepan, lemon and lime, bottled water and water bottle), as in all tables belo
 - **SAM 3 as a checker on layout 7** (on top of the best free setup): 9/14 with the strict version
   (it drops boxes no mask fits) and 10/14 with the gentle one (it keeps them). Both runs have their
   own section below.
+- **Close looks with the wrist camera** (on top of the best free setup): layout 7 11/14 (from 10),
+  layout 39 10/14 (the best free setup there is also 10/14). Median position error 2.0 cm (from 2.8)
+  and 1.9 cm (from 2.2). Details in "Close looks" below.
 - **What limits each detector:**
   - **exact:** only what the route cannot reach (drawers too low for the arm, one cabinet it cannot
     open, one microwave out of reach)
@@ -61,6 +66,56 @@ saucepan, lemon and lime, bottled water and water bottle), as in all tables belo
   not shrink much with distance.
 - **The VLM runs on layouts 7, 25 and 39** used the earlier route: no cabinets or drawers opened,
   and the arm blocked the fridge. No VLM run was made on the current route, to save cost.
+
+## Close looks
+
+The question: in the failure pictures the object is far, off to the side, or partly hidden. Would
+looking from close by, and moving what is in the way, fix it?
+
+**What the failures show** (replay of all 9 camera runs: 124 true objects, 65 found right, 59 not):
+
+- No object, found or not, was ever seen from closer than 0.93 m. The base cameras cannot get
+  closer: the base, plus the counter's depth. Distance alone does not tell hits from misses (median
+  1.41 m against 1.46 m); the best viewing angle does more (8 degrees off the camera's axis against 14).
+- 30 failures were seen unhidden but far or off-axis, mostly wrong names. 12 were partly hidden in
+  every picture (against 7 of the 65 successes). 17 were never in a picture: the fork in a drawer,
+  the plate in a cabinet, and, in the earlier-route VLM runs, things behind doors not opened.
+
+**What was built** (free, no VLM; the robot uses only its own map, depth and detections):
+
+- `look_closely` (chefbot/explore/look.py): for an object the detector is unsure of (seen only small,
+  low score, two names on one spot, or only ever partly hidden by a nearer surface in the robot's own
+  depth image), the robot stands about 0.65 m in front of it and moves the arm so the wrist camera is
+  about 0.32 m from it, looking down 50 degrees with the object above the gripper in the picture.
+  Straight on first, then 30 degrees to the left and right if no arm pose fits or it is still hidden.
+  A close view's position wins, and its name counts 3 times in the name vote. In close views SigLIP 2
+  names every box (OWLv2 names a big close-up badly: it called the lemon a mango), the gripper's own
+  pixels are masked out from the robot's geometry, and image-sized boxes are dropped.
+- Moving what is in the way (chefbot/explore/move_aside.py, off by default): if the object is still
+  partly hidden from every side, the robot picks the mapped object in front of it, sets it down on a
+  free spot of the same counter, looks again and puts it back. The grasp is the ground-truth
+  proposer's geometry run on the robot's own depth points (completed by mirroring the seen half),
+  not on the object's true mesh; the free spot comes from the depth images too. On a bench test it
+  picked up the bottled water, the apple and the lemon; it found no grasp on the banana or the cup.
+
+**Results** (OWLv2 best free setup, current route; run times with three runs sharing the Mac):
+
+| | found | wrong name | median / mean xy error | close looks (failed: no arm pose) | objects moved | run time |
+|---|---|---|---|---|---|---|
+| layout 7, best free setup | 10/14 | milk, spoon | 2.8 / 4.7 cm | | | 15 min (alone) |
+| layout 7, + close looks | **11/14** | milk | **2.0 / 4.4 cm** | 36 (10) | 0 | 36 min |
+| layout 39, best free setup | 10/14 | bowl, milk | 2.2 / 3.1 cm | | | 27 min |
+| layout 39, + close looks | 10/14 | bowl, milk | **1.9 / 2.5 cm** | 25 (1) | 0 | 40 min |
+
+- The spoon on layout 7 is now named right; positions get a little better on both layouts.
+- Nothing was moved: 8 and 3 close views still showed the object partly hidden, but in no case did a
+  mapped object stand between the robot and them (what hid them was not something it had mapped).
+- What close looks did not fix: the fork and plate (inside a drawer and a cabinet: never in a
+  picture); the milk in the fridge, called bottled water (seen big and always by that name, so never
+  uncertain and never looked at closely); and on layout 39 the bowl in the microwave, called a
+  cutting board even from close by.
+- Cost: about one extra stop per uncertain object, many of them on false finds (spatulas, ladles);
+  the run takes about half again as long.
 
 ## Layouts explored
 
@@ -236,6 +291,29 @@ Run `2026-10-26_110513_explore_robocasa_scripted_s0_layout007`: 10/14 found, 10 
 | spoon | counter_1 | wrong name | banana_2 | counter_1 | 10.0 |  |
 
 False finds: bar at (0.85, -0.69) in counter_2, ladle at (0.35, -0.93) in counter_1, oven tray at (5.96, -0.91) in coffee machine, pickle at (0.48, -1.88) in counter_1, soap dispenser_1 at (1.36, -0.17) in counter_4, soap dispenser_2 at (5.59, -2.90) in fridge, spatula_1 at (6.39, -2.08) in counter_8, spatula_2 at (6.39, -1.97) in counter_8, spatula_3 at (6.39, -1.85) in counter_8, sugar cube at (6.10, -0.89) in coffee machine.
+
+### Layout 7, best free setup + close looks with the wrist camera (current route)
+
+Run `2026-10-26_150553_explore_robocasa_scripted_s0_layout007`: 11/14 found, 10 false finds.
+
+| true object | true fixture | found | name given | fixture given | xy error (cm) | 3D error (cm) |
+|---|---|---|---|---|---|---|
+| apple | counter_1 | yes | apple | counter_1 | 1.6 | 2.2 |
+| banana | counter_1 | yes | banana | counter_1 | 1.9 | 2.4 |
+| bottled water | counter_1 | yes | bottled water_1 | counter_1 | 1.6 | 2.5 |
+| bowl | microwave | yes | bowl | microwave | 11.0 | 11.4 |
+| cup | counter_1 | yes | mug_1 | counter_1 | 3.8 | 5.2 |
+| cutting board | counter_1 | yes | cutting board | counter_1 | 6.8 | 6.7 |
+| egg | fridge | yes | egg | fridge | 2.0 | 2.1 |
+| fork | drawer_4 | no |  |  |  |  |
+| lemon | counter_1 | yes | lemon | counter_1 | 1.8 | 2.7 |
+| milk | fridge | wrong name | bottled water_2 | fridge | 2.5 |  |
+| mug | counter_1 | yes | mug_2 | counter_1 | 3.5 | 4.2 |
+| pan | counter_1 | yes | pan | counter_2 | 13.2 | 13.3 |
+| plate | cabinet_3 | no |  |  |  |  |
+| spoon | counter_1 | yes | spoon | counter_1 | 1.0 | 0.6 |
+
+False finds: bar at (0.85, -0.69) in counter_2, ladle_1 at (0.35, -0.93) in counter_1, ladle_2 at (6.38, -2.12) in counter_8, ladle_3 at (6.38, -1.97) in counter_8, ladle_4 at (6.38, -1.91) in counter_8, ladle_5 at (6.39, -2.04) in counter_8, oven tray at (5.95, -0.92) in coffee machine, soap dispenser_1 at (1.36, -0.16) in counter_4, soap dispenser_2 at (5.59, -2.90) in fridge, sugar cube at (6.10, -0.90) in coffee machine.
 
 ### Layout 7, best free setup + SAM 3 checker, gentle (current route)
 
@@ -416,3 +494,49 @@ Run `2026-10-25_182428_explore_robocasa_scripted_s0_layout039`: 6/14 found, 20 f
 | spoon | counter_1 | wrong name | scissors | counter_1 | 0.1 |  |
 
 False finds: bar at (3.62, -5.63) in microwave, can opener at (2.71, -6.01) in counter_1, candle at (1.52, -0.15) in counter_2, cheese grater at (2.65, -0.25) in counter_2, condiment bottle at (1.99, -5.87) in counter_1, dish brush at (2.64, -0.25) in counter_2, kiwi at (2.73, -5.84) in counter_1, knife_1 at (1.24, -5.90) in counter_1, knife_2 at (2.15, -5.88) in counter_1, knife_3 at (2.67, -0.27) in counter_2, ladle at (1.68, -5.77) in counter_1, pear at (2.56, -5.84) in counter_1, pizza cutter at (2.15, -5.88) in counter_1, reamer_1 at (1.98, -5.87) in counter_1, reamer_2 at (2.64, -0.25) in counter_2, soap dispenser at (1.49, -0.16) in counter_2, spatula at (1.68, -5.77) in counter_1, sponge_1 at (2.55, -5.84) in counter_1, sponge_2 at (2.70, -0.10) in counter_2, strainer at (1.72, -5.77) in counter_1.
+
+### Layout 39, best free setup: OWLv2 + vote + hybrid + aliases (current route)
+
+Run `2026-10-26_150340_explore_robocasa_scripted_s0_layout039`: 10/14 found, 8 false finds.
+
+| true object | true fixture | found | name given | fixture given | xy error (cm) | 3D error (cm) |
+|---|---|---|---|---|---|---|
+| apple | counter_1 | yes | apple | counter_1 | 2.0 | 2.5 |
+| banana | counter_1 | yes | banana_1 | counter_1 | 1.7 | 2.4 |
+| bottled water | counter_1 | yes | bottled water_1 | counter_1 | 1.9 | 2.2 |
+| bowl | microwave | wrong name | cutting board_3 | microwave | 11.2 |  |
+| cup | counter_1 | yes | mug_1 | counter_1 | 2.8 | 3.8 |
+| cutting board | counter_1 | yes | cutting board_2 | counter_1 | 5.1 | 5.3 |
+| egg | fridge | yes | egg | fridge | 1.9 | 2.1 |
+| fork | drawer_3 | no |  |  |  |  |
+| lemon | counter_1 | yes | lemon | counter_1 | 2.5 | 2.7 |
+| milk | fridge | wrong name | bottled water_2 | fridge | 2.6 |  |
+| mug | counter_1 | yes | mug_3 | counter_1 | 3.4 | 4.0 |
+| pan | counter_1 | yes | pan | counter_1 | 8.9 | 9.0 |
+| plate | cabinet_18 | no |  |  |  |  |
+| spoon | counter_1 | yes | spoon | counter_1 | 0.5 | 0.2 |
+
+False finds: banana_2 at (2.39, -5.85) in counter_1, bar at (3.62, -5.63) in microwave, can opener at (2.71, -6.01) in counter_1, cutting board_1 at (1.25, -5.88) in counter_1, knife_1 at (2.64, -0.28) in counter_2, knife_2 at (2.68, -0.27) in counter_2, mug_2 at (3.15, -5.90) in counter_1, soap dispenser at (1.49, -0.16) in counter_2.
+
+### Layout 39, best free setup + close looks with the wrist camera (current route)
+
+Run `2026-10-26_150618_explore_robocasa_scripted_s0_layout039`: 10/14 found, 8 false finds.
+
+| true object | true fixture | found | name given | fixture given | xy error (cm) | 3D error (cm) |
+|---|---|---|---|---|---|---|
+| apple | counter_1 | yes | apple | counter_1 | 1.4 | 2.1 |
+| banana | counter_1 | yes | banana_1 | counter_1 | 1.0 | 1.1 |
+| bottled water | counter_1 | yes | bottled water_1 | counter_1 | 1.9 | 2.1 |
+| bowl | microwave | wrong name | cutting board_3 | microwave | 11.2 |  |
+| cup | counter_1 | yes | mug_1 | counter_1 | 0.5 | 2.3 |
+| cutting board | counter_1 | yes | cutting board_2 | counter_1 | 5.1 | 5.3 |
+| egg | fridge | yes | egg | fridge | 1.9 | 2.1 |
+| fork | drawer_3 | no |  |  |  |  |
+| lemon | counter_1 | yes | lemon | counter_1 | 1.8 | 2.7 |
+| milk | fridge | wrong name | bottled water_2 | fridge | 2.6 |  |
+| mug | counter_1 | yes | mug_3 | counter_1 | 2.0 | 2.7 |
+| pan | counter_1 | yes | pan | counter_1 | 8.9 | 9.1 |
+| plate | cabinet_18 | no |  |  |  |  |
+| spoon | counter_1 | yes | spoon | counter_1 | 0.5 | 0.4 |
+
+False finds: banana_2 at (2.34, -5.85) in counter_1, bar at (3.62, -5.63) in microwave, can opener at (2.71, -6.01) in counter_1, cutting board_1 at (1.25, -5.88) in counter_1, knife_1 at (2.63, -0.28) in counter_2, knife_2 at (2.68, -0.28) in counter_2, mug_2 at (3.17, -5.84) in counter_1, soap dispenser at (1.49, -0.16) in counter_2.
