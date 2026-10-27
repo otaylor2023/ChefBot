@@ -14,7 +14,7 @@ from chefbot.robot.arm.arm_controller import OK, ArmController, ArmResult
 from chefbot.robot.arm.gripper import Gripper
 from chefbot.robot.arm.ik import ArmIK
 from chefbot.robot.config import RobotConfig
-from chefbot.robot.kinematics.collision import ArmCollisionModel, Workspace, snapshot
+from chefbot.robot.kinematics.collision import ArmCollisionModel, Workspace, depth_points, snapshot
 from chefbot.robot.kinematics.reachability import ReachabilityChecker
 
 _BOX_CORNERS = np.array([[i, j, k] for i in (0, 1) for j in (0, 1) for k in (0, 1)])
@@ -63,6 +63,18 @@ class ArmStack:
             for image in images
         ])  # fmt: skip
         return Workspace(self.collision, points, cfg.planning_voxel, self.ik.joint_limits, cfg.planning_timeout_s, with_held)
+
+    def points_in(self, box: np.ndarray) -> int | None:
+        """How many depth points the planning cameras see inside a world box (2, 3:
+        min and max corners) now. None without a camera."""
+        if not self.config.planning_cameras:
+            return None
+        try:
+            images = [self.env.get_camera_rgbd(camera) for camera in self.config.planning_cameras]
+        except (NotImplementedError, RuntimeError):
+            return None
+        points = np.concatenate([depth_points(image) for image in images])
+        return int(np.all((points >= box[0]) & (points <= box[1]), axis=1).sum())
 
 
 @dataclass

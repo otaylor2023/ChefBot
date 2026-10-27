@@ -10,7 +10,7 @@ import pytest
 
 from chefbot.interface.fixtures import CLOSED, OPEN, UNKNOWN, FixtureActuator
 from chefbot.interface.proposers import GraspProposer, PlacementProposer
-from chefbot.interface.types import ActuationResult, Detection, Grasp, MotionStatus, Placement, Pose2D
+from chefbot.interface.types import RGBD, ActuationResult, Detection, Grasp, MotionStatus, Placement, Pose2D
 from chefbot.robot.arm.arm_controller import ArmController
 from chefbot.robot.arm.ik import arm_ik_from_config
 from chefbot.robot.config import RobotConfig
@@ -267,6 +267,64 @@ def test_collision_during_a_pick_stops_and_opens_nothing():
     assert env.gripper_commands == []
 
 
+class BoxedGrasp(OneGrasp):
+    """OneGrasp, with the object's box around the detection."""
+
+    def propose(self, target):
+        grasps = super().propose(target)
+        for grasp in grasps:
+            grasp.object_box = np.array([target.position_world - 0.03, target.position_world + 0.03])
+        return grasps
+
+
+class LookingDown(FakeEnv):
+    """A camera straight above OBJECT_AT: it sees the object's top while the object is
+    there (always, if `stays`: the fingers caught something else) and the counter once it is gone."""
+
+    stays = False
+
+    def get_camera_rgbd(self, cam):
+        there = self.stays or any(np.linalg.norm(o.position - OBJECT_AT) < 0.01 for o in self.objects)
+        top = OBJECT_AT[2] if there else OBJECT_AT[2] - 0.025
+        k = np.array([[500.0, 0.0, 4.5], [0.0, 500.0, 4.5], [0.0, 0.0, 1.0]])
+        return RGBD(np.zeros((10, 10, 3), np.uint8), np.full((10, 10), 2.0 - top, np.float32), k,
+                    pose_at([OBJECT_AT[0], OBJECT_AT[1], 2.0]))  # fmt: skip
+
+
+def seeing_robot(stays: bool, width: float):
+    env = LookingDown(START, arm_q=READY, tcp_world=tcp_world)
+    env.stays = stays
+    env.objects.append(FakeObject(OBJECT_AT.copy(), width=width))
+    cfg = replace(CFG, planning_cameras=("above",))
+    return Robot(env, room(), cfg, grasp_proposer=BoxedGrasp(), placement_proposer=OnePlacement()), env
+
+
+def test_pick_of_a_thin_object_that_came_up_is_held():
+    robot, env = seeing_robot(stays=False, width=0.015)  # a spoon, lying flat
+    robot.pick(Detection("spoon", OBJECT_AT))
+    result = robot.wait()
+    assert result.status == MotionStatus.SUCCESS, result.message
+    assert robot.get_held() is not None and env.objects[0].held
+
+
+def test_pick_that_left_the_object_where_it_was_is_grasp_failed():
+    robot, env = seeing_robot(stays=True, width=0.015)  # closed on something, but the spoon is still seen there
+    robot.pick(Detection("spoon", OBJECT_AT))
+    result = robot.wait()
+    assert result.status == MotionStatus.GRASP_FAILED and "still where it was" in result.message
+    assert robot.get_held() is None
+    assert not env.gripper_closed and env.gripper_width == pytest.approx(GRIPPER_OPEN)
+
+
+def test_pick_closed_far_narrower_than_the_object_is_grasp_failed_when_the_camera_cannot_tell():
+    robot, env = make()  # no camera
+    env.objects.append(FakeObject(OBJECT_AT.copy(), width=0.013))  # an edge, where a 5 cm egg was expected
+    robot.pick(Detection("egg", OBJECT_AT))
+    result = robot.wait()
+    assert result.status == MotionStatus.GRASP_FAILED and "narrower than the egg" in result.message
+    assert robot.get_held() is None and not env.gripper_closed
+
+
 # -- place ---------------------------------------------------------------------
 
 
@@ -303,6 +361,15 @@ def test_place_error_paths():
     far = robot.wait()
     assert far.status == MotionStatus.UNREACHABLE and "align" in far.message
     assert robot.get_held() is not None and egg.held  # still in the gripper after both
+
+
+def test_place_with_the_fingers_shut_on_nothing_is_not_holding():
+    robot, env, egg = holding_robot()
+    egg.held, egg.width, env.gripper_width = False, 0.0, 0.0  # it slipped out unnoticed
+    env.objects.clear()
+    robot.place(Detection("counter", OBJECT_AT + [0.0, 0.15, 0.0]))
+    assert robot.wait().status == MotionStatus.NOT_HOLDING
+    assert robot.get_held() is None
 
 
 # -- interlocks ----------------------------------------------------------------

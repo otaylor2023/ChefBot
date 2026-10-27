@@ -20,6 +20,15 @@ from chefbot.robot.skills.common import (
     to_ready,
 )
 
+# The lift is checked by looking where the object was (the top half of its box, above
+# what it stood on): with at least _MIN_SEEN points there before the pick, still this
+# share of them after the lift means it never came up, whatever the fingers closed on.
+# Seen too little there to tell (fallen out of sight), fingers shut to under this share
+# of the width the grasp expects caught something else (an edge it lies against).
+_MIN_SEEN = 20
+_LEFT_BEHIND = 0.5
+_NARROWER = 0.5
+
 
 def run_pick(
     stack: ArmStack,
@@ -64,6 +73,8 @@ def run_pick(
             f"the arm cannot reach any grasp on the {target.label}{where} from here; align to it first",
         ), None
 
+    spot = _top_half(chosen.object_box)
+    seen = stack.points_in(spot) if spot is not None else None
     for step in (
         lambda: to_ready(stack, world, preempt),
         lambda: follow_path(stack, plan.into, preempt),
@@ -83,6 +94,10 @@ def run_pick(
     if not gripper.is_holding():
         return _give_up(stack, plan, preempt, "the gripper closed on nothing"), None
     width = gripper.width()
+    seeable = seen is not None and seen >= _MIN_SEEN
+    if not seeable and width < _NARROWER * chosen.width_hint:
+        why = f"the gripper closed to {width * 100:.1f} cm, on something narrower than the {target.label}"
+        return _give_up(stack, plan, preempt, why), None
     # Where the object hangs from the gripper, for keeping it out of later world models.
     box_in_tcp = None
     if chosen.object_box is not None:
@@ -98,10 +113,24 @@ def run_pick(
     if not gripper.is_holding():
         gripper.open(preempt)
         return ArmResult(MotionStatus.GRASP_FAILED, f"the {target.label} slipped out of the gripper while lifting"), None
+    if seeable:
+        left = stack.points_in(spot)
+        if left is not None and left >= _LEFT_BEHIND * seen:
+            # The fingers closed on something (an edge, what it lay on), but the object stayed put.
+            gripper.open(preempt)
+            return ArmResult(MotionStatus.GRASP_FAILED, f"the {target.label} is still where it was after the lift"), None
     return (
         ArmResult(MotionStatus.SUCCESS, f"holding the {target.label}"),
         HeldObject(target.label, gripper.width(), np.asarray(target.position_world, dtype=float), box_in_tcp),
     )
+
+
+def _top_half(box: np.ndarray | None) -> np.ndarray | None:
+    if box is None:
+        return None
+    box = np.array(box, dtype=float)
+    box[0, 2] = (box[0, 2] + box[1, 2]) / 2
+    return box
 
 
 def _stopped() -> ArmResult:

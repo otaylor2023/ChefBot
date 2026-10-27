@@ -22,7 +22,8 @@ def run_place(
 ) -> tuple[ArmResult, HeldObject | None]:
     """Returns the result and what the gripper holds afterwards."""
     cfg, arm, gripper = stack.config, stack.arm, stack.gripper
-    if held is None:
+    # Believed held, but the fingers are shut on nothing: it is gone.
+    if held is None or not gripper.is_holding():
         return ArmResult(MotionStatus.NOT_HOLDING, "the gripper is not holding anything"), None
     moving = require_base_at_rest(stack.env)
     if not moving.ok:

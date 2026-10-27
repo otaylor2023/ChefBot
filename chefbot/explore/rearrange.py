@@ -55,17 +55,20 @@ class Move:
 class ScriptedRearranger:
     def __init__(self, start_map: WorldMap, moves: int, seed: int = 0, surfaces: tuple[str, ...] = ("counter", "table", "island"),
                  skip_in: tuple[str, ...] = (), detour: bool = True, look_after_place: bool = True,
-                 step_id: str = "s1", objects: tuple[str, ...] = ()):  # fmt: skip
-        """`surfaces`: fixture labels things are put down on. `skip_in`: fixture labels whose
-        objects are left alone (behind a door: the fridge, cabinets). `objects`: labels to move,
-        in this order (cycling), in place of random picks from the map: with the same seed, every
-        run tries the same objects to the same targets, whatever its map holds."""
+                 step_id: str = "s1", objects: tuple[str, ...] = (), min_surface: float = 0.2):  # fmt: skip
+        """`surfaces`: fixture labels things are put down on, less those the map does not say are
+        at least `min_surface` (m) wide either way: the filler strips in a counter's corners, where
+        nothing fits, have no footprint on the map (nor do the corner pieces). `skip_in`: fixture
+        labels whose objects are left alone (behind a door: the fridge, cabinets). `objects`: labels
+        to move, in this order (cycling), in place of random picks from the map: with the same seed,
+        every run tries the same objects to the same targets, whatever its map holds."""
         self._map = start_map
         self._n = moves
         self._seed = seed
         self._rng = random.Random(seed)
         self._objects = tuple(objects)
-        self._surfaces = [e for e in start_map.list() if e.kind == "fixture" and e.label in surfaces]
+        self._surfaces = [e for e in start_map.list() if e.kind == "fixture" and e.label in surfaces
+                          and e.size is not None and min(e.size) >= min_surface]  # fmt: skip
         self._skip_in = set(skip_in)
         self._detour = detour
         self._look = look_after_place

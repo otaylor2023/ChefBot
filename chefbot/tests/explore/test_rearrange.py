@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chefbot.explore.rearrange import Move, initial_map
+from chefbot.agent.world.map import WorldMap
+from chefbot.explore.rearrange import Move, ScriptedRearranger, initial_map
 from chefbot.scripts import explore, rearrange
 from chefbot.scripts.envs import symbolic
 
@@ -72,6 +73,17 @@ def test_initial_map_keeps_the_footprints_the_explored_map_drops():
     out = initial_map(start, explored)
     assert out["fixtures"]["counter_1"]["size"] == [2, 0.6] and out["objects"] == explored["objects"]
     assert start["objects"] == {}
+
+
+def test_things_go_only_on_surfaces_the_map_says_are_wide_enough():
+    fixtures = {"counter_1": {"location": [0, 0], "facing": [0, 1], "size": [2, 0.6]},
+                "counter_2": {"location": [1.1, 0], "facing": [0, 1], "size": [0.1, 0.6]},  # a filler strip
+                "counter_3": {"location": [1.5, 0]},  # a corner piece: no footprint on the map
+                "table": {"location": [3, 3], "facing": [1, 0], "size": [0.8, 0.8]},
+                "sink": {"location": [2, 0], "facing": [0, 1], "size": [0.8, 0.6]}}  # fmt: skip
+    start = WorldMap.from_dict({"frame": "world", "fixtures": fixtures,
+                                "objects": {"mug": {"location": [0.5, 0], "in": "counter_1"}}})  # fmt: skip
+    assert [s.name for s in ScriptedRearranger(start, 3)._surfaces] == ["counter_1", "table"]
 
 
 def test_summary_scores_each_object_after_its_last_move():
