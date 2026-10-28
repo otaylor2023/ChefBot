@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from chefbot.interface.types import RGBD, EnvState
+from chefbot.interface.types import RGBD, EnvState, Pose2D
 
 
 class Env(ABC):
@@ -19,9 +19,21 @@ class Env(ABC):
         """Command a base velocity (m/s, m/s, rad/s). `frame` is "world" or "base".
         The command holds until the next call."""
 
+    def set_base_target(self, pose: Pose2D, max_vel: tuple[float, float, float]) -> bool:
+        """Drive the base toward `pose` (world frame) within `max_vel` (m/s, m/s, rad/s), if the
+        base does that itself (a real base with its own trajectory controller). Returns False
+        when it does not: the robot layer then drives it with `set_base_velocity`."""
+        return False
+
     @abstractmethod
     def set_arm_joint_targets(self, q: np.ndarray) -> None:
-        """7-DoF joint position targets (rad). They hold until the next call."""
+        """Joint position targets (rad), one per arm joint. They hold until the next call."""
+
+    def set_arm_pose_target(self, flange_pose: np.ndarray) -> bool:
+        """Move the flange toward the 4x4 pose `flange_pose` (arm base frame), if the arm has its
+        own controller for that (a real arm's driver). Returns False when it does not: the robot
+        layer then solves IK itself and sends `set_arm_joint_targets`. Holds until the next call."""
+        return False
 
     @abstractmethod
     def set_gripper(self, closed: bool) -> None:
