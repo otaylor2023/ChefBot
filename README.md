@@ -14,8 +14,13 @@ agent  (chefbot/agent)   tools, semantic map, detections, nearby view, held obje
   |  RobotAPI + Detector  (in-process, or RemoteRobot over a websocket)
 robot  (chefbot/robot)   grid, A*, standoff poses, base control, arm IK and control, pick / place / open
   |  Env + GraspProposer, PlacementProposer, FixtureActuator  (always in-process)
-envs   (chefbot/envs)    robocasa today; isaac and real are placeholders
+envs   (chefbot/envs)    robocasa, symbolic; real (a client of the onboard server); isaac is a placeholder
+  |  websocket (interface/transport/onboard.py)
+onboard (chefbot/onboard) on the robot computer: the drivers' state and commands over Redis, cameras, watchdog
 ```
+
+The arm and gripper are config (`config/arms/`, `config/grippers/`), picked in
+`config/robot.yaml` (`hardware:`); `config/robot_real.yaml` is the real robot.
 
 Tools: `go_to`, `detect`, `nearby`, `align`, `pick`, `place`, `open`, `close`,
 `holding`, `wait`, `get_status`, `stop`, `get_pose`. The workflow they are built
@@ -80,6 +85,30 @@ registry.dispatch("go_to", {"place": "stove"})     # -> ToolResult(success, erro
 `robot` and `detector` are any `RobotAPI` and `Detector`: the in-process pair
 from `chefbot.envs.robocasa.serve.build_stack()`, or `RemoteRobot(url)` and
 `RemoteDetector(url)`.
+
+## The real robot (tidybot01)
+
+TidyBot++ with an FR3 and a Franka Hand. Its own drivers do the control (OpenSai
+for the arm, Franka's gripper driver, the hb1 base driver, mocap), on the robot
+computer's Redis. `chefbot/onboard` runs there: a thin server in front of them
+that streams state, passes commands through, grabs camera frames on request, and
+holds the robot if its client goes quiet. The robot layer runs on the laptop
+against `envs/real`'s `RealEnv`, which uses `Env.set_base_target` (the base
+drives to poses itself) and `Env.set_arm_pose_target` (straight lines go to the
+arm's Cartesian controller; our IK still plans and checks them).
+
+```sh
+# robot computer: see chefbot/onboard/bringup/README.md
+chefbot/onboard/bringup/launch.sh               # OpenSai, gripper and base drivers, then the onboard server
+python -m chefbot.onboard.check                 # read-only: which drivers are up
+
+# laptop
+ssh -L 8765:localhost:8765 tidybot01
+python -m chefbot.envs.real.check               # read-only: state, and the arm controller's point vs config
+```
+
+Not yet: the real kitchen's map, real grasp / placement proposers and fixture
+actuator, contact sensing, camera mounts (TODO markers in the configs).
 
 ## The agent loop (AGENT_SPEC.md)
 

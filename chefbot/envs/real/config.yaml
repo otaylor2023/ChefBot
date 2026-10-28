@@ -1,0 +1,15 @@
+# RealEnv: the real robot through the onboard server. The robot itself (arm, gripper, limits) is
+# config/robot_real.yaml; the onboard server's side is chefbot/onboard/config.yaml.
+
+url: ws://127.0.0.1:8765     # after `ssh -L 8765:localhost:8765 tidybot01`
+velocity_horizon_s: 0.5      # a base velocity command becomes a pose target this far ahead
+heartbeat_s: 0.1             # keep-alive while nothing else is sent (the server's watchdog is 0.3 s)
+max_state_age_s: 0.5         # older than this, get_state fails: the link is down
+
+# Camera mounts: the camera (OpenCV axes: x right, y down, z forward) in its parent's frame,
+# parent "base" (floor under the base center, x forward) or "flange". Names match the onboard
+# config's cameras. TODO(calibrate) once the RealSenses are mounted.
+cameras: {}
+#  wrist:
+#    parent: flange
+#    T: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]

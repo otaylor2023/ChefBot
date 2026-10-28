@@ -1,0 +1,36 @@
+# The onboard server on the robot computer (tidybot01). Lengths in meters.
+
+server:
+  host: 127.0.0.1        # reached through `ssh -L 8765:localhost:8765 tidybot01`
+  port: 8765
+  state_hz: 50
+  watchdog_s: 0.3        # silence from a client that has been commanding: hold the arm, stop the base
+  camera_idle_s: 10      # close a camera after this long without a request
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+
+base:
+  # The hb1 driver's own limits (launch: --max-vel-xy, --max-vel-yaw). Targets never go faster.
+  driver_max_vel_xy: 0.125
+  driver_max_vel_yaw: 0.4
+  # The mocap marker on the base: its yaw relative to the base's heading (ZitiBot's
+  # DEFAULT_MARKER_YAW_OFFSET_DEG), and its position in the base frame.
+  # TODO(measure): marker_xy (ZitiBot's tune_marker_offset.py measures the yaw; the xy is unmeasured).
+  marker_yaw_offset_deg: -38.17
+  marker_xy: [0.0, 0.0]
+
+gripper:
+  speed: 0.05            # m/s
+  force: 20.0            # N, when closing on an object
+
+# Told to the client in "hello" (it checks its own speeds against them).
+limits:
+  base_max_vel_xy: 0.125
+  base_max_vel_yaw: 0.4
+
+# The RealSenses. Not set up yet: add each one's serial (`rs-enumerate-devices -s`).
+cameras: []
+#  - {name: wrist, serial: "000000000000", width: 640, height: 480, fps: 15}
+#  - {name: base, serial: "000000000000", width: 640, height: 480, fps: 15}

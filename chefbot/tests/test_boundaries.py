@@ -47,7 +47,7 @@ def violations(layer: str, forbidden: tuple[str, ...], allow_under: str | tuple[
 
 
 def test_layers_exist():
-    for layer in ("agent", "robot", "interface", "envs"):
+    for layer in ("agent", "robot", "interface", "envs", "onboard"):
         assert modules_under(layer), layer
 
 
@@ -103,8 +103,22 @@ def test_grasping_depends_only_on_the_interface():
 
 
 def test_envs_do_not_import_the_robot_layer_or_the_agent():
-    # serve.py is the composition root that wires Robot(Env) to the server.
-    assert violations("envs", ("chefbot.robot", "chefbot.agent"), allow_under="envs/robocasa/serve.py") == []
+    # serve.py is the composition root that wires Robot(Env) to the server; the real robot's
+    # check.py uses the robot's kinematics to check its frames.
+    allowed = ("envs/robocasa/serve.py", "envs/real/check.py")
+    assert violations("envs", ("chefbot.robot", "chefbot.agent"), allow_under=allowed) == []
+
+
+def test_onboard_runs_on_the_interface_alone():
+    # What runs on the robot computer: no robot layer, agent, sims, perception, or kinematics.
+    others = ("chefbot.robot", "chefbot.agent", "chefbot.envs", "chefbot.grasping", "chefbot.scripts")
+    assert violations("onboard", others + SIM_AND_HARDWARE + KINEMATICS_ONLY) == []
+
+
+def test_nothing_imports_the_onboard_package():
+    # It is deployed alone; the client side shares only the protocol (interface/transport/onboard.py).
+    for layer in ("agent", "robot", "interface", "envs", "grasping", "scripts"):
+        assert violations(layer, ("chefbot.onboard",)) == [], layer
 
 
 def run_pytest_without(blocked: list[str], targets: list[str]) -> subprocess.CompletedProcess:
