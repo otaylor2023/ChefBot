@@ -1,14 +1,72 @@
-"""Robot-layer configuration (robot.yaml)."""
+"""Robot-layer configuration (robot.yaml), with the arm and gripper it names.
+
+robot.yaml picks the hardware (`hardware: {arm, gripper}`), described in
+config/arms/<arm>.yaml and config/grippers/<gripper>.yaml. A config may extend
+another (`extends: robot.yaml`): maps merge key by key, anything else replaces.
+"""
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "config" / "robot.yaml"
+CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+DEFAULT_PATH = CONFIG_DIR / "robot.yaml"
+REAL_PATH = CONFIG_DIR / "robot_real.yaml"
+
+
+@dataclass(frozen=True)
+class ArmSpec:
+    """An arm's kinematics, as the IK uses it (config/arms/<arm>.yaml `kinematics`)."""
+
+    mjcf: str = "fr3_kinematics.xml"  # in robot/kinematics/assets
+    flange_body: str = "fr3_link7"
+    flange_site: str = "attachment_site"
+    shoulder: tuple = (0.0, 0.0, 0.333)  # in the arm base frame
+    max_shoulder_to_flange: float = 0.95
+    position_seeds: tuple = (
+        (0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853),
+        (0.0, 0.6, 0.0, -1.2, 0.0, 1.8, -0.7853),
+        (0.0, -0.6, 0.0, -2.4, 0.0, 1.8, -0.7853),
+    )
+    pose_seeds: tuple = (
+        (0.0, -0.5, 0.0, -2.0, 0.0, 3.07, 0.785),
+        (0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785),
+    )
+
+    @property
+    def n_joints(self) -> int:
+        return len(self.position_seeds[0])
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "ArmSpec":
+        return cls(
+            mjcf=raw["mjcf"],
+            flange_body=raw["flange_body"],
+            flange_site=raw["flange_site"],
+            shoulder=tuple(raw["shoulder"]),
+            max_shoulder_to_flange=raw["max_shoulder_to_flange"],
+            position_seeds=tuple(tuple(q) for q in raw["position_seeds"]),
+            pose_seeds=tuple(tuple(q) for q in raw["pose_seeds"]),
+        )
+
+
+def load_raw(path: str | Path) -> dict:
+    """A config file with what it extends merged in."""
+    path = Path(path)
+    raw = yaml.safe_load(path.read_text()) or {}
+    parent = raw.pop("extends", None)
+    return _merge(load_raw(path.parent / parent), raw) if parent else raw
+
+
+def _merge(base: dict, over: dict) -> dict:
+    out = dict(base)
+    for key, value in over.items():
+        out[key] = _merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
 
 
 @dataclass(frozen=True)
@@ -22,7 +80,14 @@ class RobotConfig:
     # TCP relative to the flange
     tcp_xyz: tuple[float, float, float] = (0.0, 0.0, 0.16)
     tcp_yaw: float = 0.0
-    joint_limits: tuple | None = None  # 7 x (low, high); None: the FR3's own
+    joint_limits: tuple | None = None  # n x (low, high); None: the arm model's own
+    # Hardware (config/arms, config/grippers)
+    arm_name: str = "fr3"
+    gripper_name: str = "robotiq_2f85"
+    arm: ArmSpec = field(default_factory=ArmSpec)
+    # Where the real arm's own controller puts its pose targets, relative to the flange: (xyz, yaw).
+    # None: the arm has no such controller (sim), and lines run on our IK.
+    driver_control_point: tuple | None = None
     # Base controller
     control_rate: float = 20.0
     kp_pos: float = 2.0
@@ -58,6 +123,9 @@ class RobotConfig:
     joint_tolerance: float = 0.02
     tracking_tolerance: float = 0.25
     arm_settle_s: float = 1.5
+    cart_tracking_tolerance: float = 0.05
+    cart_goal_tolerance: float = 0.005
+    cart_goal_rot_tolerance: float = math.radians(2.0)
     # Gripper
     gripper_open_width: float = 0.085
     min_holding_width: float = 0.012
@@ -92,11 +160,15 @@ class RobotConfig:
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "RobotConfig":
-        raw = yaml.safe_load(Path(path or DEFAULT_PATH).read_text())
+        raw = load_raw(path or DEFAULT_PATH)
+        hardware = raw["hardware"]
+        arm_raw = yaml.safe_load((CONFIG_DIR / "arms" / f"{hardware['arm']}.yaml").read_text())
+        gripper = yaml.safe_load((CONFIG_DIR / "grippers" / f"{hardware['gripper']}.yaml").read_text())
         mount, gains, limits = raw["arm_mount"], raw["gains"], raw["limits"]
         tol, standoff, ik = raw["tolerances"], raw["standoff"], raw["ik"]
-        tcp, arm, gripper, skills = raw["tcp"], raw["arm"], raw["gripper"], raw["skills"]
-        joint_limits = raw.get("joint_limits")
+        tcp, arm, skills, postures = gripper["tcp"], raw["arm"], raw["skills"], arm_raw["postures"]
+        joint_limits = arm_raw.get("joint_limits")
+        control_point = (arm_raw.get("driver") or {}).get("control_point")
         planning = raw.get("planning") or {}
         return cls(
             footprint_radius=raw["footprint_radius"],
@@ -106,9 +178,15 @@ class RobotConfig:
             tcp_xyz=tuple(tcp["xyz"]),
             tcp_yaw=math.radians(tcp["yaw_deg"]),
             joint_limits=tuple(tuple(pair) for pair in joint_limits) if joint_limits else None,
-            arm_stow=tuple(arm["stow"]),
-            arm_carry=tuple(arm["carry"]),
-            arm_ready=tuple(arm["ready"]),
+            arm_name=hardware["arm"],
+            gripper_name=hardware["gripper"],
+            arm=ArmSpec.from_dict(arm_raw["kinematics"]),
+            driver_control_point=(
+                (tuple(control_point["xyz"]), math.radians(control_point["yaw_deg"])) if control_point else None
+            ),
+            arm_stow=tuple(postures["stow"]),
+            arm_carry=tuple(postures["carry"]),
+            arm_ready=tuple(postures["ready"]),
             max_joint_vel=arm["max_joint_vel"],
             max_joint_acc=arm["max_joint_acc"],
             cart_speed=arm["cart_speed"],
@@ -118,6 +196,9 @@ class RobotConfig:
             joint_tolerance=arm["joint_tolerance"],
             tracking_tolerance=arm["tracking_tolerance"],
             arm_settle_s=arm["settle_s"],
+            cart_tracking_tolerance=arm.get("cart_tracking_tolerance", cls.cart_tracking_tolerance),
+            cart_goal_tolerance=arm.get("cart_goal_tolerance", cls.cart_goal_tolerance),
+            cart_goal_rot_tolerance=math.radians(arm.get("cart_goal_rot_tolerance_deg", 2.0)),
             gripper_open_width=gripper["open_width"],
             min_holding_width=gripper["min_holding_width"],
             gripper_settle_s=gripper["settle_s"],

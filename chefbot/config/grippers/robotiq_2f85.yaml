@@ -1,0 +1,11 @@
+# Robotiq 2F-85, the sim robot's gripper (envs/robocasa/gripper.py).
+
+# TCP frame relative to the arm flange: the grip point (between the fingertip pads), z along the
+# approach direction, x along the direction the fingers close. Measured on the sim's grip site.
+tcp:
+  xyz: [0.0, 0.0, 0.1553]
+  yaw_deg: -45.0
+open_width: 0.085          # m between the pads, fully open
+min_holding_width: 0.012   # closed further than this: nothing between the fingers
+settle_s: 1.2              # max wait for the fingers to stop moving
+grasp_settle_s: 0.3        # extra wait after closing on an object

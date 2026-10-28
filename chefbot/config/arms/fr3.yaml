@@ -1,0 +1,34 @@
+# The Franka Research 3 on the real TidyBot++ (tidybot01), driven by OpenSai.
+# Lengths in meters, angles in radians unless a key says _deg.
+
+kinematics:
+  mjcf: fr3_kinematics.xml
+  flange_body: fr3_link7
+  flange_site: attachment_site
+  shoulder: [0.0, 0.0, 0.333]
+  max_shoulder_to_flange: 0.95
+  position_seeds:
+    - [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
+    - [0.0, 0.6, 0.0, -1.2, 0.0, 1.8, -0.7853]
+    - [0.0, -0.6, 0.0, -2.4, 0.0, 1.8, -0.7853]
+  pose_seeds:
+    - [0.0, -0.5, 0.0, -2.0, 0.0, 3.07, 0.785]
+    - [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
+
+# No joint_limits: the FR3's own, from the MJCF.
+
+postures:
+  stow: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
+  carry: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
+  ready: [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785]
+
+# The arm's own controller on the real robot. Pose targets (Env.set_arm_pose_target) are for the
+# point it moves, given here relative to the flange; the onboard side passes them through unchanged.
+driver:
+  # OpenSai's cartesian_task (zitibot_panda.xml): its `end-effector` link plus compliantFrame
+  # (0 0 0.1224). With OpenSai's own panda_arm_sphere.urdf the end-effector is the flange (link7 +
+  # 0.107); ZitiBot's copy puts it at link7 + 0.14, which would make this 0.1554.
+  # TODO(verify on the robot): `python -m chefbot.envs.real.check` compares this against OpenSai.
+  control_point:
+    xyz: [0.0, 0.0, 0.1224]
+    yaw_deg: 0.0

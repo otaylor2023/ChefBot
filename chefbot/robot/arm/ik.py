@@ -1,4 +1,4 @@
-"""Arm kinematics and IK (mink on the FR3 MJCF).
+"""Arm kinematics and IK (mink on the arm's MJCF, config/arms/<arm>.yaml).
 
 One model serves reachability (position-only, NAV_SPEC §6.5) and execution
 (full pose), so "reachable" and "executable" agree. Everything here is in the
@@ -15,42 +15,26 @@ import mujoco
 import numpy as np
 import qpsolvers
 
-FR3_MJCF = Path(__file__).resolve().parent.parent / "kinematics" / "assets" / "fr3_kinematics.xml"
+from chefbot.robot.config import ArmSpec
+
+ASSETS = Path(__file__).resolve().parent.parent / "kinematics" / "assets"
 TCP_SITE = "tcp"
-N_JOINTS = 7
-# Shoulder (joint 2) position in the arm base frame, and a generous bound on
-# shoulder -> flange distance, used to reject far targets without running IK.
-_SHOULDER = np.array([0.0, 0.0, 0.333])
-_MAX_SHOULDER_TO_FLANGE = 0.95
-# Position-only restarts: home, then the elbow tucked and extended.
-_POSITION_SEEDS = (
-    np.array([0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]),
-    np.array([0.0, 0.6, 0.0, -1.2, 0.0, 1.8, -0.7853]),
-    np.array([0.0, -0.6, 0.0, -2.4, 0.0, 1.8, -0.7853]),
-)
 
 
-# Full-pose restarts after the posture: gripper level and forward, then gripper down and close in.
-_POSE_SEEDS = (
-    np.array([0.0, -0.5, 0.0, -2.0, 0.0, 3.07, 0.785]),
-    np.array([0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]),
-)
-
-
-def load_arm(tcp_xyz, tcp_yaw: float, joint_limits=None) -> mujoco.MjModel:
-    """The FR3 with a `tcp` site. `tcp_xyz` / `tcp_yaw` place it relative to the
-    flange; `joint_limits` (7 x [low, high]) replaces the FR3's own limits."""
-    spec = mujoco.MjSpec.from_file(str(FR3_MJCF))
-    flange = next(s for s in spec.sites if s.name == "attachment_site")
-    link7 = next(b for b in spec.bodies if b.name == "fr3_link7")
-    link7.add_site(
+def load_arm(tcp_xyz, tcp_yaw: float, joint_limits=None, arm: ArmSpec = ArmSpec()) -> mujoco.MjModel:
+    """The arm with a `tcp` site. `tcp_xyz` / `tcp_yaw` place it relative to the
+    flange; `joint_limits` (n x [low, high]) replaces the arm's own limits."""
+    spec = mujoco.MjSpec.from_file(str(ASSETS / arm.mjcf))
+    flange = next(s for s in spec.sites if s.name == arm.flange_site)
+    link = next(b for b in spec.bodies if b.name == arm.flange_body)
+    link.add_site(
         name=TCP_SITE,
         pos=np.asarray(flange.pos) + np.asarray(tcp_xyz, dtype=float),
         quat=[np.cos(tcp_yaw / 2), 0.0, 0.0, np.sin(tcp_yaw / 2)],
     )
     model = spec.compile()
     if joint_limits is not None:
-        model.jnt_range[:N_JOINTS] = np.asarray(joint_limits, dtype=float)
+        model.jnt_range[: arm.n_joints] = np.asarray(joint_limits, dtype=float)
     return model
 
 
@@ -76,9 +60,14 @@ class ArmIK:
         max_iters: int = 150,
         dt: float = 0.1,
         damping: float = 1e-3,
+        arm: ArmSpec = ArmSpec(),
     ):
-        self.model = load_arm(tcp_xyz, tcp_yaw, joint_limits)
-        self.joint_limits = self.model.jnt_range[:N_JOINTS].copy()
+        self.arm = arm
+        self.model = load_arm(tcp_xyz, tcp_yaw, joint_limits, arm)
+        self.joint_limits = self.model.jnt_range[: arm.n_joints].copy()
+        self._shoulder = np.asarray(arm.shoulder, dtype=float)
+        self._position_seeds = tuple(np.asarray(q, dtype=float) for q in arm.position_seeds)
+        self._pose_seeds = tuple(np.asarray(q, dtype=float) for q in arm.pose_seeds)
         self._tcp_reach = float(np.linalg.norm(tcp_xyz))
         self._pos_tolerance = pos_tolerance
         self._pose_pos_tolerance = pose_pos_tolerance
@@ -96,7 +85,7 @@ class ArmIK:
         )
         # Nullspace pull: among the solutions, prefer the one nearest this posture.
         self._posture_task = mink.PostureTask(self.model, cost=1e-2)
-        self._posture = _POSITION_SEEDS[0] if posture is None else np.asarray(posture, dtype=float)
+        self._posture = self._position_seeds[0] if posture is None else np.asarray(posture, dtype=float)
         self._posture_task.set_target(self._posture)
         self._limits = [mink.ConfigurationLimit(self.model)]
         self._site_id = self.model.site(TCP_SITE).id
@@ -123,7 +112,7 @@ class ArmIK:
         if self._too_far(target):
             return None
         self._position_task.set_target(mink.SE3.from_translation(target))
-        for seed in _POSITION_SEEDS:
+        for seed in self._position_seeds:
             q = seed.copy()
             # Turn joint 1 toward the target so each restart starts in the right half-space.
             q[0] = np.clip(np.arctan2(target[1], target[0]), *self.joint_limits[0])
@@ -143,7 +132,7 @@ class ArmIK:
             return None
         self._pose_task.set_target(mink.SE3.from_matrix(target))
         seeds = [] if seed is None else [np.asarray(seed, dtype=float)]
-        seeds += [self._posture, *_POSE_SEEDS]
+        seeds += [self._posture, *self._pose_seeds]
         heading = np.arctan2(target[1, 3], target[0, 3])
         for i, start in enumerate(seeds):
             start = np.array(start, dtype=float)
@@ -164,7 +153,7 @@ class ArmIK:
     # -- internals ------------------------------------------------------------
 
     def _too_far(self, position: np.ndarray) -> bool:
-        return float(np.linalg.norm(position - _SHOULDER)) > _MAX_SHOULDER_TO_FLANGE + self._tcp_reach
+        return float(np.linalg.norm(position - self._shoulder)) > self.arm.max_shoulder_to_flange + self._tcp_reach
 
     def _tcp_pose(self) -> np.ndarray:
         data = self._configuration.data
@@ -199,6 +188,7 @@ def arm_ik_from_config(config) -> ArmIK:
         max_iters=config.ik_max_iters,
         dt=config.ik_dt,
         damping=config.ik_damping,
+        arm=config.arm,
     )
 
 

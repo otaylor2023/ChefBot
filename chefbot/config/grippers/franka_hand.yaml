@@ -1,0 +1,12 @@
+# Franka Hand, on the real FR3 (driven by OpenSai's Franka gripper driver).
+
+# TCP relative to the flange: the hand sits 45 degrees about the flange axis, and its fingertip
+# center is 0.1034 m out (Franka's documented flange -> TCP).
+# TODO(verify on the robot): the yaw sign against the fingers' closing direction.
+tcp:
+  xyz: [0.0, 0.0, 0.1034]
+  yaw_deg: -45.0
+open_width: 0.08
+min_holding_width: 0.004
+settle_s: 2.0              # the Franka Hand is slower than the sim's 2F-85
+grasp_settle_s: 0.3
