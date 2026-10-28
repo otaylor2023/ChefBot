@@ -1,8 +1,11 @@
 """ArmController: joint-space moves and straight-line Cartesian moves.
 
-Turns goals into a stream of joint position targets for the env, one per
-control tick. Every tick it checks for a stop request and for unexpected
-contact, and it never leaves the arm chasing a target after it returns.
+Turns goals into a stream of targets for the env, one per control tick: joint
+targets, or, on an arm whose own controller moves to poses (a real arm's
+driver, Env.set_arm_pose_target), the flange poses along a planned line. Lines
+are still planned with our IK, which checks they are reachable. Every tick it
+checks for a stop request and for unexpected contact, and it never leaves the
+arm chasing a target after it returns.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import numpy as np
 
 from chefbot.interface.env import Env
 from chefbot.interface.types import MotionStatus
-from chefbot.robot.arm.ik import ArmIK
+from chefbot.robot.arm.ik import ArmIK, rotation_angle
 from chefbot.robot.config import RobotConfig
 
 
@@ -69,6 +72,12 @@ class ArmController:
         self._ik = ik
         self._cfg = config
         self._target: np.ndarray | None = None  # last joint target sent
+        # The TCP in the flange frame, to send flange poses for TCP poses.
+        self._flange_to_tcp = np.eye(4)
+        c, s_ = math.cos(config.tcp_yaw), math.sin(config.tcp_yaw)
+        self._flange_to_tcp[:3, :3] = [[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]]
+        self._flange_to_tcp[:3, 3] = config.tcp_xyz
+        self._moves_poses: bool | None = None  # whether the env takes pose targets; asked on the first line
 
     # -- planning (no motion) ---------------------------------------------------
 
@@ -131,6 +140,8 @@ class ArmController:
             i = min(int(position), len(points) - 2)
             return points[i] + (position - i) * (points[i + 1] - points[i])
 
+        if self._env_moves_poses():
+            return self._run_poses(lambda s: self._ik.fk(along(s)), duration, self._ik.fk(points[-1]), preempt, expect_contact)
         return self._run(along, duration, points[-1], preempt, expect_contact)
 
     def move_line(self, goal: np.ndarray, preempt: threading.Event, expect_contact: bool = False) -> ArmResult:
@@ -148,6 +159,51 @@ class ArmController:
         return bool(np.abs(self._env.get_state().arm_q - np.asarray(q)).max() <= self._cfg.joint_tolerance)
 
     # -- internals --------------------------------------------------------------
+
+    def _env_moves_poses(self) -> bool:
+        """Whether the env's arm takes pose targets. Asked once, with the pose the arm is at."""
+        if self._moves_poses is None:
+            here = self._ik.fk(np.asarray(self._env.get_state().arm_q, dtype=float))
+            self._moves_poses = bool(self._env.set_arm_pose_target(self._flange(here)))
+        return self._moves_poses
+
+    def _flange(self, tcp_pose: np.ndarray) -> np.ndarray:
+        return tcp_pose @ np.linalg.inv(self._flange_to_tcp)
+
+    def _run_poses(self, tcp_at, duration: float, goal: np.ndarray, preempt, expect_contact: bool) -> ArmResult:
+        """`_run` for an arm that moves to poses itself: TCP poses along the line, tracking checked in
+        Cartesian space (its controller picks its own joint angles, so ours are only a prediction)."""
+        env, cfg = self._env, self._cfg
+        dt = cfg.control_dt
+        ticks = max(1, math.ceil(duration / dt))
+        settle_ticks = math.ceil(cfg.arm_settle_s / dt)
+        leaving = bool(env.get_state().arm_in_contact)
+        commanded: np.ndarray | None = None
+        for tick in range(1, ticks + settle_ticks + 1):
+            state = env.get_state()
+            if preempt.is_set():
+                self.hold()
+                return ArmResult(MotionStatus.STOPPED, "motion was stopped")
+            leaving = leaving and state.arm_in_contact and tick * dt <= _LEAVE_CONTACT_S
+            if state.arm_in_contact and not expect_contact and not leaving:
+                self.hold()
+                return ArmResult(MotionStatus.COLLISION, "the arm touched something")
+            tcp = self._ik.fk(np.asarray(state.arm_q, dtype=float))
+            if commanded is not None and np.linalg.norm(tcp[:3, 3] - commanded[:3, 3]) > cfg.cart_tracking_tolerance:
+                self.hold()
+                return ArmResult(MotionStatus.COLLISION, "the arm is blocked and cannot follow its path")
+            if (
+                tick > ticks
+                and np.linalg.norm(tcp[:3, 3] - goal[:3, 3]) <= cfg.cart_goal_tolerance
+                and rotation_angle(tcp[:3, :3].T @ goal[:3, :3]) <= cfg.cart_goal_rot_tolerance
+            ):
+                self._target = np.asarray(state.arm_q, dtype=float).copy()
+                return OK
+            commanded = tcp_at(smoothstep(tick / ticks))
+            env.set_arm_pose_target(self._flange(commanded))
+            env.wait_for_next_tick(dt)
+        self.hold()
+        return ArmResult(MotionStatus.TIMEOUT, "the arm did not reach its target")
 
     def _send(self, q: np.ndarray) -> None:
         self._target = np.asarray(q, dtype=float).copy()

@@ -272,12 +272,14 @@ class Robot(RobotAPI):
                 if elapsed > cfg.motion_timeout_s:
                     status, message = MotionStatus.TIMEOUT, "motion timed out"
                     break
-                command = controller.step(state.base_pose, dt)
+                # A base that drives to a pose itself gets the carrot; any other, a velocity.
+                target = controller.target(state.base_pose)
                 if controller.deviation > cfg.deviation_threshold:
                     status = MotionStatus.BLOCKED
                     message = f"base is {controller.deviation:.2f} m off the planned path"
                     break
-                env.set_base_velocity(*command, frame="world")
+                if not env.set_base_target(target, (cfg.max_lin_vel, cfg.max_lin_vel, cfg.max_ang_vel)):
+                    env.set_base_velocity(*controller.step(state.base_pose, dt), frame="world")
                 env.wait_for_next_tick(dt)
         finally:
             # Velocity is zeroed on every exit, including exceptions.
