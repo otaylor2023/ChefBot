@@ -6,7 +6,6 @@ state. Planning and control live in chefbot/robot.
 
 from __future__ import annotations
 
-import dataclasses
 import math
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +23,6 @@ from robosuite.utils.camera_utils import (
     get_real_depth_map,
 )
 
-from chefbot.envs.robocasa import yam_tidybot
 from chefbot.envs.robocasa.config import RoboCasaConfig
 from chefbot.envs.robocasa.gripper import PAD_GEOMS, register_gripper
 from chefbot.envs.robocasa.spawn import TASK_NAME, place_objects
@@ -32,8 +30,10 @@ from chefbot.interface.env import Env
 from chefbot.interface.types import RGBD, EnvState, Pose2D, wrap_angle
 
 _ROBOT_PREFIXES = ("robot0_", "mobilebase0_", "gripper0_")
+_BASE_BODY = "mobilebase0_base"
 _BASE_JOINTS = ("mobilebase0_joint_mobile_forward", "mobilebase0_joint_mobile_side", "mobilebase0_joint_mobile_yaw")
 _BASE_ACTUATORS = ("mobilebase0_actuator_mobile_forward", "mobilebase0_actuator_mobile_side", "mobilebase0_actuator_mobile_yaw")
+_ARM_JOINTS = tuple(f"robot0_joint{i}" for i in range(1, 8))
 _ARM_PART, _GRIPPER_PART = "right", "right_gripper"
 TOOL_BIT = 1 << 3  # collision bit a locked utensil keeps: only geoms with it in their conaffinity touch it
 LOCKED_MASS = 0.5  # kg: a locked object is at least this heavy while held (well over what is in it)
@@ -43,33 +43,13 @@ CARRY_TILT = 70.0  # deg: a locked container held still tipped further lets go o
 CARRY_STILL = 0.05  # rad/s: turning slower than this is held still
 CARRY_ABOVE = 0.06  # m above a container's rim that still counts as in it
 _GRIPPER_PREFIX = "gripper0_right_"
-
-
-@dataclasses.dataclass(frozen=True)
-class _RobotSpec:
-    """What differs between the robots this env runs."""
-
-    gripper: str  # robosuite gripper name
-    n_arm: int  # arm joints: robot0_joint1 .. robot0_joint{n_arm}
-    pad_geoms: dict  # side -> fingertip pad collision geoms (unprefixed)
-    # Gripper geoms that count for `arm_in_contact` (unprefixed); the fingers never count.
-    gripper_contact_geoms: tuple
-    # Pad geoms are boxes this thick: the gap between their faces is this much less than
-    # the distance between their centers.
-    pad_thickness: float
-    controller_from: str  # whose default composite controller config to start from
-    base_body: str  # the body whose orientation is the base's heading
-    # Rotor inertia added to the base's x, y, yaw joints (kg, kg, kg m^2): robosuite's stiff base velocity
-    # servos go unstable at our 2 ms step on a light base.
-    base_armature: tuple = (0.0, 0.0, 0.0)
-
-
-def _robot_spec(robot: str) -> _RobotSpec:
-    if robot == yam_tidybot.ROBOT_NAME:
-        yam_tidybot.register()
-        return _RobotSpec(yam_tidybot.GRIPPER_NAME, 6, yam_tidybot.PAD_GEOMS, ("hand_collision",), 0.0064, "PandaOmron", yam_tidybot.BASE_BODY, (1.0, 1.0, 2.0))
-    return _RobotSpec(register_gripper(), 7, PAD_GEOMS, ("base_mount_collision", "base_collision"), 0.008, robot, "mobilebase0_base")
-
+# Arm links that count for `arm_in_contact`. The first two links sit on the
+# base and never reach anything; the gripper body counts, its fingers do not.
+_ARM_CONTACT_BODIES = tuple(f"robot0_link{i}" for i in range(2, 8)) + ("robot0_right_hand",)
+_GRIPPER_CONTACT_GEOMS = ("base_mount_collision", "base_collision")
+# Pad geoms are 8 mm thick boxes: the gap between their faces is this much
+# less than the distance between their centers.
+_PAD_THICKNESS = 0.008
 # Below this commanded speed the friction feedforward fades out, so a zero
 # command means zero actuator effort. It has to be small: with the no-slip
 # solver on, joint friction is a hard threshold, and a slow final correction
@@ -92,8 +72,7 @@ def _release_gl_context() -> None:
 
 
 class RoboCasaEnv(Env):
-    """A RoboCasa kitchen with a mobile manipulator: RoboCasa's default mobile Franka
-    (PandaOmron), or TidyBot++ with a YAM arm (YamTidybot).
+    """A RoboCasa kitchen with the default mobile Franka (PandaOmron).
 
     The base is holonomic: three velocity actuators on x / y slide joints and a
     yaw hinge. The base pose is the yaw joint's anchor, which is also the center
@@ -109,12 +88,7 @@ class RoboCasaEnv(Env):
         # context stays bound to the thread that last used it, and the robot
         # layer (motion thread), the detector and recorders all ask for images.
         self._render_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="render") if render else None
-        self.spec = spec = _robot_spec(cfg.robot)
-        controller_config = load_composite_controller_config(robot=spec.controller_from)
-        if spec.controller_from != cfg.robot:
-            controller_config["body_parts"].pop("torso", None)  # TidyBot++ has no lift
-        # The base mixing in _controller_mixing is the legacy controller's (RoboCasa's PandaOmron uses it).
-        controller_config["body_parts"]["base"]["type"] = "JOINT_VELOCITY_LEGACY"
+        controller_config = load_composite_controller_config(robot=cfg.robot)
         # The arm takes absolute joint position targets; robosuite turns them
         # into torques (PD plus gravity compensation) at the physics rate.
         controller_config["body_parts"][_ARM_PART] = {
@@ -140,7 +114,7 @@ class RoboCasaEnv(Env):
         self.suite = robosuite.make(
             env_name=TASK_NAME,
             robots=cfg.robot,
-            gripper_types=spec.gripper,
+            gripper_types=register_gripper(),
             controller_configs=controller_config,
             chef_objects=cfg.objects,
             layout_ids=cfg.layout,
@@ -162,12 +136,11 @@ class RoboCasaEnv(Env):
         model = self.model
         model.opt.noslip_iterations = cfg.noslip_iterations
 
-        self._base_body = model.body(spec.base_body).id
+        self._base_body = model.body(_BASE_BODY).id
         joints = [model.joint(name).id for name in _BASE_JOINTS]
         self._slide_joints, self._yaw_joint = joints[:2], joints[2]
         self._base_qpos = [int(model.jnt_qposadr[j]) for j in joints]
         self._base_dofs = [int(model.jnt_dofadr[j]) for j in joints]
-        model.dof_armature[self._base_dofs] += np.asarray(spec.base_armature)
         actuators = [model.actuator(name).id for name in _BASE_ACTUATORS]
         # A velocity actuator settles where kv * (ctrl - v) balances joint
         # friction, i.e. `frictionloss / kv` short of the commanded velocity.
@@ -197,19 +170,16 @@ class RoboCasaEnv(Env):
         for geom in self._base_geoms:
             model.geom_priority[geom] = 1
             model.geom_friction[geom] = 0.0
-        # Arm links that count for `arm_in_contact`: all but the first two, which sit on the
-        # base and never reach anything; the gripper body counts, its fingers do not.
-        arm_names = [f"robot0_link{i}" for i in range(2, spec.n_arm + 1)] + ["robot0_right_hand"]
-        arm_bodies = {model.body(name).id for name in arm_names}
+        arm_bodies = {model.body(name).id for name in _ARM_CONTACT_BODIES}
         self._arm_geoms = frozenset(
             g for g in range(model.ngeom) if int(model.geom_bodyid[g]) in arm_bodies
-        ) | {model.geom(_GRIPPER_PREFIX + name).id for name in spec.gripper_contact_geoms}
+        ) | {model.geom(_GRIPPER_PREFIX + name).id for name in _GRIPPER_CONTACT_GEOMS}
         self._pad_geoms = {
             side: frozenset(model.geom(_GRIPPER_PREFIX + name).id for name in names)
-            for side, names in spec.pad_geoms.items()
+            for side, names in PAD_GEOMS.items()
         }
 
-        arm_joints = [model.joint(f"robot0_joint{i}").id for i in range(1, spec.n_arm + 1)]
+        arm_joints = [model.joint(name).id for name in _ARM_JOINTS]
         self._arm_qpos = [int(model.jnt_qposadr[j]) for j in arm_joints]
         self._arm_dofs = [int(model.jnt_dofadr[j]) for j in arm_joints]
         self.arm_joint_limits = model.jnt_range[arm_joints].copy()
@@ -285,7 +255,7 @@ class RoboCasaEnv(Env):
             self._command_world = np.array([vx, vy, vyaw], dtype=float)
 
     def set_arm_joint_targets(self, q: np.ndarray) -> None:
-        q = np.asarray(q, dtype=float).reshape(self.spec.n_arm)
+        q = np.asarray(q, dtype=float).reshape(7)
         with self.lock:
             self._arm_target = np.clip(q, self.arm_joint_limits[:, 0], self.arm_joint_limits[:, 1])
 
@@ -568,7 +538,7 @@ class RoboCasaEnv(Env):
     def _gripper_width(self) -> float:
         left, right = (next(iter(self._pad_geoms[side])) for side in ("left", "right"))
         gap = float(np.linalg.norm(self.data.geom_xpos[left] - self.data.geom_xpos[right]))
-        return max(0.0, gap - self.spec.pad_thickness)
+        return max(0.0, gap - _PAD_THICKNESS)
 
     def _action(self) -> np.ndarray:
         """The robosuite action that realizes the commanded world-frame base velocity."""
