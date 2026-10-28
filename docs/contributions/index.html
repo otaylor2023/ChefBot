@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>ChefBot Exploration Contributions</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;650;750&family=Public+Sans:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; concepts, then three goal steps with the same five parts, then an appendix of runs and media. */
+:root {
+  --bg: #f6f8f9; --surface: #ffffff; --fg: #17232b; --muted: #5a6b75; --line: #d7e0e5;
+  --accent: #0f6f7c; --accent-soft: #e1f0f2; --good: #23784a; --bad: #b2402f;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Public Sans", "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f171c; --surface: #16222a; --fg: #e3ebef; --muted: #93a6b1; --line: #2a3a44;
+  --accent: #5cc3cf; --accent-soft: #163a40; --good: #6ccf93; --bad: #ef8a78; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f171c; --surface: #16222a; --fg: #e3ebef; --muted: #93a6b1; --line: #2a3a44;
+  --accent: #5cc3cf; --accent-soft: #163a40; --good: #6ccf93; --bad: #ef8a78; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15.5px; line-height: 1.6; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 960px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 80px; }
+h1, h2, h3, h4 { font-family: var(--display); line-height: 1.2; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(28px, 5vw, 40px); font-weight: 750; }
+h2 { font-size: 26px; font-weight: 750; }
+h3 { font-size: 18px; font-weight: 650; padding-top: 10px; }
+h4 { font-size: 15.5px; font-weight: 650; }
+p, li { max-width: 70ch; }
+p { margin: 0; }
+a { color: var(--accent); }
+code { font-family: var(--mono); font-size: 0.84em; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 17px; color: var(--muted); }
+.caption { font-size: 13px; color: var(--muted); }
+header.top { display: grid; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+nav.toc { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; gap: 6px 18px; flex-wrap: wrap; padding-block: 10px; font-size: 13.5px; }
+nav.toc a { text-decoration: none; color: var(--muted); font-weight: 600; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); }
+section { display: grid; gap: 14px; padding-top: 40px; scroll-margin-top: 48px; }
+[id] { scroll-margin-top: 56px; }
+ul, ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.goals { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.goal { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; text-decoration: none; color: var(--fg); }
+.goal:hover, .goal:focus-visible { border-color: var(--accent); }
+.goal .num { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.goal b { font-family: var(--display); font-size: 16.5px; }
+.goal span { font-size: 13.5px; color: var(--muted); }
+.objective { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; }
+.objective dt { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); padding-top: 3px; }
+.objective dd { margin: 0; min-width: 0; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.n { white-space: nowrap; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.two > div { min-width: 0; display: grid; gap: 8px; align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.two h4.ok { color: var(--good); } .two h4.ko { color: var(--bad); }
+details { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+summary { cursor: pointer; padding: 10px 14px; font-weight: 600; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+pre { margin: 0; padding: 12px 14px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; border-top: 1px solid var(--line); white-space: pre; }
+.see { font-size: 14px; }
+.see a { font-weight: 600; }
+hr.big { border: 0; border-top: 2px solid var(--line); margin: 48px 0 0; }
+.layouts { display: grid; gap: 18px; }
+.lay { display: grid; gap: 8px; }
+.lay-imgs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+figure { margin: 0; display: grid; gap: 4px; min-width: 0; }
+figure img, figure video { width: 100%; max-width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); display: block; }
+figcaption { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.runs-group { display: grid; gap: 16px; padding-top: 12px; }
+h4.grp { font-size: 20px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.run { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 0; font-size: 13.5px; }
+.meta dt { font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; color: var(--muted); padding-top: 2px; }
+.meta dd { margin: 0; min-width: 0; }
+.media2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.gallery.vids { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+@media (max-width: 480px) { .objective { grid-template-columns: 1fr; } .media2, .gallery.vids { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="eyebrow">CS329Z · ChefBot · agent harness: exploration</div>
+  <h1>ChefBot exploration contributions</h1>
+  <p class="lede">A robot that cooks first has to know its kitchen: where every object is, and which of several like objects is which. We extended Olivia and Jack's agent harness so the robot builds that knowledge itself, from its own cameras, and we built the evals that check it did it right.</p>
+  <p class="caption">Status 28 October 2026. Code: <a href="https://github.com/otaylor2023/ChefBot/tree/explore-map">branch <code>explore-map</code></a> (pushed up to the cabinet and door work; later commits are local on Simone's Mac) and branch <code>explore-fixtures</code> (worktree <code>ChefBot-fixtures</code>, local). Paths below are relative to the repo.</p>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <a href="#concepts">Concepts</a>
+  <a href="#step1">1. Known kitchens</a>
+  <a href="#step2">2. Full kitchens</a>
+  <a href="#step3">3. Object memory</a>
+  <a href="#appendix">Appendix</a>
+</nav>
+
+<section id="concepts">
+  <h2>Concepts</h2>
+  <p>The work follows three goals, each building on the one before:</p>
+  <div class="goals">
+    <a class="goal" href="#step1"><span class="num">Step 1</span><b>Explore objects in a known kitchen</b><span>The robot knows the fixtures (counters, fridge, cabinets) and must find every loose object, with and without the ground truth detector.</span></a>
+    <a class="goal" href="#step2"><span class="num">Step 2</span><b>Explore a full kitchen</b><span>The robot knows nothing: it finds the fixtures too, and in the hardest version even builds its own floor map from depth.</span></a>
+    <a class="goal" href="#step3"><span class="num">Step 3</span><b>Remember objects across actions</b><span>One record per object, so the robot can tell five forks apart, knows which one stirred the eggs, and can find or group them later.</span></a>
+  </div>
+  <h3>Ideas shared by all three steps</h3>
+  <ul>
+    <li><b>Agent harness.</b> Each turn the LLM sees a fixed system prompt, the tool list, the last 8 tool calls with their results, and a TASK STATE block rebuilt every turn from the robot's own records. It answers with exactly one tool call (go_to, detect, align, open, close, pick, place...), which runs on the robot. We reused the loop unchanged and added prompts, tools, a step checker and detectors.</li>
+    <li><b>Ground truth vs camera.</b> The original <code>detect</code> read object names and positions from the simulator: perfect perception. We keep it only as a reference (the upper bound) and replace it with camera detectors that see only RGB and depth images.</li>
+    <li><b>No leaks.</b> The robot starts from a map without objects. The true map is built from the simulator only after the run, read only by the scorer. A run guard makes any ground truth call raise. We never filter by the task's object list.</li>
+    <li><b>Free first.</b> A scripted policy plays the LLM's role on a fixed route, so tools, detectors and scoring are tested at zero cost. Paid calls (Sonnet as a VLM) were capped and used sparingly.</li>
+    <li><b>Kitchens.</b> RoboCasa layouts 1, 7, 25 and 39 (<a href="#app-layouts">pictures in the appendix</a>). Layout 1 has 6 objects; the others have 14: egg and milk in the fridge, a bowl in the microwave, nine things on counters, a plate in a cabinet and a fork in a drawer.</li>
+  </ul>
+</section>
+
+<hr class="big">
+
+<section id="step1">
+  <div class="eyebrow">Step 1</div>
+  <h2>Explore objects in a known kitchen</h2>
+  <dl class="objective">
+    <dt>What</dt><dd>Starting from a map with the fixtures but no objects, find every loose object: its name, its position, and the fixture it is on or in, including inside the fridge, microwave, cabinets and drawers.</dd>
+    <dt>How</dt><dd>An exploration prompt and a coverage checker drive the robot to every fixture and behind every door; <code>detect</code> becomes open vocabulary and runs on camera images; each box becomes a 3D point from depth and is written into the robot's own map.</dd>
+    <dt>Code</dt><dd><code>chefbot/explore/</code> (<code>prompt.md</code>, <code>coverage.py</code>, <code>vision.py</code>, <code>owl.py</code>, <code>siglip.py</code>, <code>sam3.py</code>, <code>look.py</code>, <code>score.py</code>), entry point <code>chefbot/scripts/explore.py</code>, tool changes in <code>chefbot/agent/tools/nav.py</code>.</dd>
+  </dl>
+
+  <h3>How the agent does it: prompt and tools</h3>
+  <p>The exploration prompt is appended to Olivia's base prompt. It tells the agent to go_to each fixture, call detect() with no classes (which looks for all ~500 RoboCasa object names), open every door, look inside, close it, and cover both ends of long counters. <code>complete</code> lists what is left; the run ends with <code>finish</code>. Pick and place are not offered, so nothing is moved. Everything detect finds is written into the KITCHEN block of TASK STATE for the next turn.</p>
+  <details>
+    <summary>The exploration prompt, verbatim</summary>
+<pre>EXPLORING THE KITCHEN (this run)
+- This run comes before any cooking. The map you were given has the kitchen's fixtures
+  (MAP PLACES) but none of its loose objects: food, cookware, utensils, dishes, bottles.
+  Your job is to find all of them, so later tasks start from a complete map. Do not pick,
+  place or move anything.
+- Look at every fixture in MAP PLACES (burners are part of the stove: the stove covers
+  them). For each one: go_to it, then detect() with no classes: with no classes it looks
+  for every kind of thing it knows. Everything detect finds is written into KITCHEN for
+  you; you do not record it yourself.
+- Fixtures with a door (fridge, microwave, dishwasher, oven, cabinets, drawers) hide what
+  is inside. For each: detect its handle (e.g. detect(["fridge handle"])), align to the
+  handle, open it, detect() again to see inside, then close it before moving on. An open
+  door often swings its handle out of view: then detect the fixture itself
+  (detect(["fridge"])), align to it and close it by its own name (close("fridge")).
+- A long counter may not be fully in view from one spot: complete names the part you
+  have not seen; go_to an object you found near that part and detect() again from there.
+- complete(step) tells you which fixtures you have not looked at or into yet, and which
+  doors you left open. Keep going until it passes, then finish(summary) with a short list
+  of what you found where.</pre>
+  </details>
+  <p>Tools we added or changed for this: open vocabulary <code>detect</code>; <code>go_to</code> with <code>part</code> and <code>along</code> for long counters; closing a door by the fixture's name; doors that stop part way are "ajar" and stop blocking paths once closed; a re-seen object joins its map entry within 0.3 m; repeats get fresh names (<code>fork_1</code>, <code>fork_2</code>); and the map is saved as <code>explored_map.yaml</code>.</p>
+
+  <h3>Models we implemented</h3>
+  <p>All plug into the harness's <code>Detector</code> interface. A camera detector gives names and boxes; depth under the box gives the 3D point; edge, footprint and height filters drop junk; sightings are tracked across views and names voted per spot.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>model</th><th>what it does</th><th>cost</th></tr></thead>
+    <tbody>
+      <tr><td><b>Exact detector</b> (reference)</td><td>Reads the simulator, filtered by the camera's field of view and raycasts. Perfect names and positions; limited only by where the route goes.</td><td class="n">free</td></tr>
+      <tr><td><b>VLM detector</b> <code>vision.py</code></td><td>One Sonnet call per picture: "list every loose object, not the fixtures, name it from this catalogue, give a tight box, JSON only". Names normalized by synonyms and plurals; spending cap; a nearly identical view reuses the last answer.</td><td class="n">about $0.004 per picture</td></tr>
+      <tr><td><b>OWLv2</b> <code>owl.py</code></td><td>Open vocabulary box detector (<code>google/owlv2-base-patch16-ensemble</code>) on the Mac GPU, queried with every catalogue name, threshold 0.2.</td><td class="n">free, 1.6 s per picture</td></tr>
+      <tr><td><b>OWLv2 + SigLIP 2 hybrid</b> <code>siglip.py</code></td><td>OWLv2's boxes; SigLIP 2 renames boxes under 1,000 px by comparing the crop with the word list. Near synonyms count as one name (<code>aliases.py</code>).</td><td class="n">free</td></tr>
+      <tr><td><b>SAM 3 checker</b> <code>sam3.py</code></td><td>For small or low score boxes, SAM 3 is prompted with SigLIP 2's top 3 names plus OWLv2's; the name whose mask best covers the box wins.</td><td class="n">free, about 20 s per picture</td></tr>
+      <tr><td><b>SAM 2.1 masks</b></td><td>Depth from the object's mask instead of the box centre, so the point lands on the object and not behind it (offline test).</td><td class="n">free</td></tr>
+      <tr><td><b>Close looks</b> <code>look.py</code></td><td>Not a model but a new action: the wrist camera goes about 0.32 m from each uncertain object; that view's name counts three times.</td><td class="n">free, about 50% more time</td></tr>
+    </tbody>
+  </table></div>
+  <p class="see">Which camera each run used: <a href="#app-cameras">appendix, cameras</a>.</p>
+
+  <h3>Evals we built</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>eval</th><th>what it checks</th><th>code</th></tr></thead>
+    <tbody>
+      <tr><td><b>Map scorer</b></td><td>Right name, right fixture, position within 0.15 m. Real objects the true map leaves out (a knife block) are listed as extra finds, not failures.</td><td><code>explore/score.py</code></td></tr>
+      <tr><td><b>Position accuracy</b></td><td>Per object: xy, 3D and height error; median and p90; share within 5, 10, 15 cm; right fixture. Regression bounds on copies of 12 real runs.</td><td><code>explore/accuracy.py</code></td></tr>
+      <tr><td><b>Root cause replay</b></td><td>Replays each run pixel for pixel and sorts every one of 1,085 object sightings: never visible, wrong name, lost when merging, too few pixels, cut by the image edge.</td><td><code>explore/rootcause.py</code></td></tr>
+      <tr><td><b>Naming benchmark</b></td><td>758 real sightings from saved pictures; every model scored on the same set, by object size in pixels. No simulator, no cost.</td><td><code>explore/naming_bench.py</code></td></tr>
+      <tr><td><b>Review videos and failure gallery</b></td><td>For every run: each picture with truth overlaid after the run, and the best view of each miss with its size and distance.</td><td><code>explore/report.py</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Results compared with ground truth</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>objects found</th><th>exact (ground truth)</th><th>VLM</th><th>OWLv2</th><th>best free</th><th>best free + close looks</th></tr></thead>
+    <tbody>
+      <tr><td><a href="#runs-1">layout 1</a> (6)</td><td class="n">6/6</td><td class="n">6/6</td><td class="n">5/6</td><td class="n">not run</td><td class="n">not run</td></tr>
+      <tr><td><a href="#runs-7">layout 7</a> (14)</td><td class="n">13/14</td><td class="n">10/14 *</td><td class="n">9/14</td><td class="n">10/14</td><td class="n">11/14</td></tr>
+      <tr><td><a href="#runs-25">layout 25</a> (14)</td><td class="n">12/14</td><td class="n">7/14 *</td><td class="n">6/14</td><td class="n">not run</td><td class="n">not run</td></tr>
+      <tr><td><a href="#runs-39">layout 39</a> (14)</td><td class="n">12/14</td><td class="n">8/14 *</td><td class="n">6/14</td><td class="n">10/14</td><td class="n">10/14</td></tr>
+      <tr><td>median position error</td><td class="n">0.1 cm</td><td class="n">3.8 cm</td><td class="n">3.6 to 5.9 cm</td><td class="n">2.2 to 2.8 cm</td><td class="n">1.9 to 2.0 cm</td></tr>
+      <tr><td>named right, 758 sightings</td><td class="n">100%</td><td class="n">78% (86% with aliases)</td><td class="n">43%</td><td class="n">63%</td><td class="n"></td></tr>
+    </tbody>
+  </table></div>
+  <p class="caption">"Best free" = OWLv2 + name vote + SigLIP 2 hybrid + aliases, all local. * The VLM runs on layouts 7, 25, 39 used the earlier route (no cabinets or drawers, arm in front of the fridge) and were not repeated, to save about $0.66.</p>
+
+  <div class="two">
+    <div>
+      <h4 class="ok">What worked</h4>
+      <ul>
+        <li>The route and tools reach almost everything: with ground truth perception the robot finds 13/14 on layout 7. Only one drawer fork and one stuck cabinet are out of reach.</li>
+        <li>With a camera, what is found is placed well: 2 to 4 cm median, almost always within 15 cm, heights within about 1 cm.</li>
+        <li>The VLM is the best namer: 91 to 100% right on objects over 1,000 px. Layout 1 is 6/6 for about $0.05.</li>
+        <li>The name vote was the cheapest big win: OWLv2 false finds 22 to 9 on layout 7, for free.</li>
+        <li>Close looks with the wrist camera added the spoon on layout 7 and cut the median error to 2.0 cm.</li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="ko">What did not</h4>
+      <ul>
+        <li>Small objects: under about 300 px (an egg or spoon at 1.4 m) they are rarely kept. <a href="#run-2026-10-20_144100">Example: egg behind the arm</a>.</li>
+        <li>Near synonyms: milk called "bottled water" by every model, even up close. <a href="#run-2026-10-26_150553">Example</a>.</li>
+        <li>OWLv2's naming: egg as "bar soap", lemon as "pear", many false finds on fixture parts. <a href="#run-2026-10-25_175806">Example</a>.</li>
+        <li>Going closer or zooming did not help OWLv2: with it the limit is the model, not the view.</li>
+        <li>SAM 3 names best (5% wrong) but is 23 times slower and swapped one gain for one loss (spoon found, apple called "cherry"). <a href="#run-2026-10-26_121527">Example</a>.</li>
+        <li>The pan is always 10 to 14 cm off, even for the exact detector: the true map stores its body origin, near the handle.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="see">Full runs, videos, maps and failure pictures: <a href="#app-runs">appendix A2</a>. The explored map was also used to move objects around: <a href="#app-rearrange">appendix C</a>.</p>
+</section>
+
+<hr class="big">
+
+<section id="step2">
+  <div class="eyebrow">Step 2</div>
+  <h2>Explore a full kitchen</h2>
+  <dl class="objective">
+    <dt>What</dt><dd>Start with no fixtures on the map, find and name the sink, stove, fridge, counters and appliances (location, facing, footprint, burners), then find the objects on that self-made map.</dd>
+    <dt>How</dt><dd>Stage 1 keeps the floor grid and visits viewpoints along every obstacle; Stage 2 starts from nothing and builds the grid from depth with frontier exploration. Fixtures come from OWLv2 boxes plus one Sonnet label check each.</dd>
+    <dt>Code</dt><dd>Branch <code>explore-fixtures</code>: <code>chefbot/explore/fixture_explorer.py</code>, <code>fixture_geometry.py</code>, <code>grid_builder.py</code> (DepthGrid, ExplorePlanner, FrontierExplorer), <code>fixture_score.py</code>, <code>leak_guard.py</code>; entry point <code>discover_fixtures.py</code> (<code>--build-grid</code> for Stage 2).</dd>
+  </dl>
+
+  <h3>Models we implemented</h3>
+  <ul>
+    <li><b>Fixture detector:</b> OWLv2 with fixture words on three cameras per stop; depth points inside each box are snapped to the grid to give a footprint; views of the same fixture are fused; facing from the face normal seen in depth. One Sonnet check per fused fixture, on a crop with the box drawn in red (7 to 11 calls, under $0.01 per kitchen).</li>
+    <li><b>Burners:</b> OWLv2 "stove burner" boxes on the cooktop from three stand points.</li>
+    <li><b>Grid from depth (Stage 2):</b> every depth image becomes occupied or free evidence; A* plans through unknown cells at 3 times the cost; the robot drives to the cheapest frontier and looks around until none is left.</li>
+    <li><b>Objects:</b> the VLM detector from step 1, with fixtures taken from the robot's own discovered map.</li>
+  </ul>
+
+  <h3>Evals we built</h3>
+  <ul>
+    <li><b>Fixture score:</b> discovered fixtures matched to true ones by type and distance (Hungarian), then label, location error, facing error and footprint IoU. Pass bar: every fixture found and labeled, within 0.15 m, facing exact.</li>
+    <li><b>Grid score:</b> IoU of the built grid against the true grid, free and occupied.</li>
+    <li><b>Usefulness:</b> go_to every discovered fixture and check the robot ends within reach of the true one; then rerun object search on the discovered map and compare with the true map.</li>
+    <li><b>Leak guard:</b> calling the ground truth detector, the map builders, or opening a semantic map file raises. 0 trips in every run.</li>
+  </ul>
+
+  <h3>Results compared with ground truth</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>layout</th><th>Stage 1 (grid given)</th><th>Stage 2 (grid from depth)</th><th>objects, true map</th><th>objects, discovered map</th></tr></thead>
+    <tbody>
+      <tr><td><a href="#fix-1">1</a></td><td>9/9 fixtures, <b>PASS</b></td><td>9/9, free IoU 0.97, <b>PASS</b></td><td class="n">5/6</td><td class="n">6/6</td></tr>
+      <tr><td><a href="#fix-7">7</a></td><td>12/18 fixtures</td><td>12/18, free IoU 0.93</td><td class="n">11/12</td><td class="n">11/12</td></tr>
+      <tr><td><a href="#fix-25">25</a></td><td>14/16 fixtures</td><td>14/16, free IoU 0.94</td><td class="n">7/12</td><td class="n">7/12</td></tr>
+      <tr><td><a href="#fix-39">39</a></td><td>12/12 fixtures, <b>PASS</b></td><td>12/12, free IoU 0.94, <b>PASS</b></td><td class="n">9/12</td><td class="n">8/12</td></tr>
+    </tbody>
+  </table></div>
+  <p class="caption">Ground truth here is the true fixture map, which step 1 starts from. Object columns use the VLM detector on both maps (layouts 7, 25, 39 without the plate and fork, which neither map has). The object search on the discovered map was not repeated with the exact detector in the final runs. Total VLM spend for all of step 2: $1.55.</p>
+
+  <div class="two">
+    <div>
+      <h4 class="ok">What worked</h4>
+      <ul>
+        <li>Layouts 1 and 39 pass in both stages: every fixture found, labeled, within 0.15 m, facing exact.</li>
+        <li>All burners found in all 8 runs, within 3 cm.</li>
+        <li>The discovered map is as useful as the true one for finding objects (6 vs 5, 11 vs 11, 7 vs 7, 8 vs 9).</li>
+        <li>Stage 2 leaves no true free floor unknown; go_to reaches the true fixture almost every time.</li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="ko">What did not</h4>
+      <ul>
+        <li>Corner counter pieces (4 on layout 7, 2 on 25) and one seamless slab cannot be told apart in the images.</li>
+        <li>Fridge depth is the weakest number: 0.17 m off on layout 7 (OWLv2 boxes only its handles), 0.26 m on layout 25 in Stage 2.</li>
+        <li>Layout 7 Stage 2: Sonnet once calls the toaster oven a microwave; the toaster's facing is 90 degrees off.</li>
+        <li>Stage 2 is slow: 8 to 13 minutes per kitchen, against 2 to 7 for Stage 1.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="see">Videos of all 8 discovery runs, with cameras and per layout notes: <a href="#app-fixtures">appendix B</a>.</p>
+</section>
+
+<hr class="big">
+
+<section id="step3">
+  <div class="eyebrow">Step 3</div>
+  <h2>Remember objects across actions</h2>
+  <dl class="objective">
+    <dt>What</dt><dd>Keep a record per object so the robot can tell like objects apart (five forks), remember what each was used for and its state (dirty, full, used up), and find or group them by category, use or plan.</dd>
+    <dt>How</dt><dd>A dict per instance next to the semantic map, filled only from the robot's own tool calls and detections; the tools log every use automatically; three new agent tools query it; it is saved per run and can be loaded into the next.</dd>
+    <dt>Code</dt><dd><code>chefbot/agent/world/objects.py</code> (ObjectMemory), <code>categories.yaml</code>, hooks in <code>agent/tools/nav.py</code> and <code>manip.py</code>, tools in <code>agent/tools/registry.py</code>; tests <code>chefbot/tests/agent/test_objects.py</code> and <code>test_object_confusion.py</code>.</dd>
+  </dl>
+
+  <h3>How it was built</h3>
+  <ul>
+    <li><b>Identity.</b> Each instance keeps its map name (<code>fork_1</code> to <code>fork_5</code>) through picks and places. A new sighting goes to the instance with the lowest cost: distance in metres plus 0.3 m times how unlike it looks. The look is a SigLIP 2 image embedding averaged over sightings, plus attributes such as colour when the detector gives them.</li>
+    <li><b>Uses.</b> Every pick, place, lower_into, stir, squeeze and pour is logged on both objects (<code>stirred</code> on the fork, <code>stirred_in</code> on the bowl), with time, plan step and dish.</li>
+    <li><b>States.</b> From each object's category: clean or dirty, empty to full, raw to used up. Some update on their own: a fork that stirs becomes dirty; pouring empties one container and fills the other; a cracked egg is used up and joins the bowl's contents.</li>
+    <li><b>Plans.</b> An object can be set aside for a later step and ingredient, and released when done.</li>
+  </ul>
+  <details>
+    <summary>One record, as saved</summary>
+<pre>fork_1:
+  label: fork
+  category: cutlery
+  attributes: {color: red}       # what tells it from the other forks
+  signature: [...]               # SigLIP 2 look, mean of its sightings
+  last_xy: [2.9, 0.3]
+  last_where: counter_1          # or "gripper", or e.g. bowl
+  states:
+    clean: {value: dirty, source: you, t: 60}
+  uses:
+  - {t: 42, action: picked,       other: counter_1, step: s2, recipe: Scrambled eggs}
+  - {t: 55, action: lowered_into, other: bowl,      step: s2, recipe: Scrambled eggs}
+  - {t: 60, action: stirred,      other: bowl,      step: s2, recipe: Scrambled eggs}
+  plans: []                      # e.g. {step: s5, ingredient: eggs} when set aside</pre>
+  </details>
+
+  <h3>How it is used</h3>
+  <ul>
+    <li><b>In the prompt:</b> the KITCHEN block shows a short tag after an object once something is known, for example <code>fork_1 [dirty; for s5 (eggs)]</code>. Defaults are hidden so the prompt does not grow.</li>
+    <li><b>Agent tools:</b> <code>find_objects</code> (by category, name, state, use, dish, step, or "not set aside"), <code>object_info</code> (full history of one object), <code>note_object</code> (set a state, set aside for a step, add a note).</li>
+    <li><b>Across runs:</b> saved as <code>runs/&lt;run&gt;/object_memory.yaml</code>, loaded with <code>--objects</code>.</li>
+  </ul>
+
+  <h3>How effective it is: the confusion tests</h3>
+  <p>Five forks, each with a hidden true identity; moves meant to mix them up; then one fork asked for by name or by use. The test checks which fork the robot ends up holding. Each case runs with identical forks and with forks that look different. Free, no LLM or VLM.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>case</th><th>identical forks</th><th>different looks</th></tr></thead>
+    <tbody>
+      <tr><td>Two forks put down side by side, then one asked for</td><td>right</td><td>right</td></tr>
+      <tr><td>The fork that stirred is put back in the row; "the fork that stirred" asked for</td><td>right</td><td>right</td></tr>
+      <tr><td>Twelve moves between two counters, then each fork asked for by name</td><td>right</td><td>right</td></tr>
+      <tr><td>A person shifts all five forks while the robot looks away</td><td><b>wrong</b></td><td>right</td></tr>
+      <tr><td>A fork removed and a new one left elsewhere</td><td>new one gets its own name (fork_6)</td><td>same</td></tr>
+      <tr><td>Memory saved and loaded into a new run; "the fork that stirred" asked for</td><td>right</td><td>right</td></tr>
+    </tbody>
+  </table></div>
+  <div class="two">
+    <div>
+      <h4 class="ok">What worked</h4>
+      <ul>
+        <li>Right fork in 6 of 6 cases with different looks, 5 of 6 with identical forks.</li>
+        <li>The tests found and fixed three bugs: a new detection id could collide with a map name and hide an object; two things placed on one counter were both mapped at its middle (place now reports where the gripper let go); appearance weighed too little to re-find a fork moved far.</li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="ko">What did not, or is not done</h4>
+      <ul>
+        <li>Identical forks swapped out of view cannot be told apart by any camera; the memory then follows position and logs <code>seen_moved</code>.</li>
+        <li>Not yet run in the simulator; appearance thresholds still need tuning on real SigLIP 2 crops. The bug fix patch is not yet on the Mac.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="big">
+
+<section id="appendix">
+  <div class="eyebrow">Appendix</div>
+  <h2>Runs, videos, layouts and cameras</h2>
+
+  <h3 id="app-cameras">Cameras used</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>camera</th><th>where</th><th>used for</th></tr></thead>
+    <tbody>
+      <tr><td><code>robot0_frontview</code></td><td>shoulder, 640x480</td><td>Every picture on the earlier route (19 and 20 October runs), where the arm blocks part of the fridge.</td></tr>
+      <tr><td><code>robot0_agentview_left</code>, <code>_right</code></td><td>base, left and right</td><td>Current route: for each view, whichever of these and the frontview the arm blocks least. Fixture discovery: all three at every stop; the side two for burners.</td></tr>
+      <tr><td><code>robot0_eye_in_hand</code></td><td>wrist, 75 degree field of view</td><td>Close looks about 0.32 m from uncertain objects; Stage 2 depth for the grid.</td></tr>
+      <tr><td>none</td><td></td><td>The exact detector takes no pictures: it reads the simulator, filtered by the camera's view and raycasts.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="app-a">A. Step 1: object exploration</h3>
+  <h3 id="app-layouts">A1. The kitchens</h3><div class="layouts">
+<div class="lay" id="layout-1"><h4>Layout 1</h4><p>Default kitchen, one wall: 9 fixtures, 6 objects (egg in the fridge; mug, bowl, bottled water, pan, cutting board on counter_1).</p><div class="lay-imgs"><figure><img loading="lazy" src="media/layouts/layout001_top.png" alt="Layout 1 from above"><figcaption>from above</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout001_plan.png" alt="Layout 1 plan"><figcaption>plan from the start map</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout001_view1.png" alt="Layout 1 angled view"><figcaption>angled view</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout001_view2.png" alt="Layout 1 other side"><figcaption>other side</figcaption></figure></div></div>
+<div class="lay" id="layout-7"><h4>Layout 7</h4><p>U shape with an island: 18 fixtures (9 counters), 48 cabinets and drawers, 14 objects.</p><div class="lay-imgs"><figure><img loading="lazy" src="media/layouts/layout007_top.png" alt="Layout 7 from above"><figcaption>from above</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout007_plan.png" alt="Layout 7 plan"><figcaption>plan from the start map</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout007_view1.png" alt="Layout 7 angled view"><figcaption>angled view</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout007_view2.png" alt="Layout 7 other side"><figcaption>other side</figcaption></figure></div></div>
+<div class="lay" id="layout-25"><h4>Layout 25</h4><p>Galley and island: 16 fixtures (8 counters), 65 cabinets and drawers (10 above the camera), 14 objects; the microwave sits in a narrow galley.</p><div class="lay-imgs"><figure><img loading="lazy" src="media/layouts/layout025_top.png" alt="Layout 25 from above"><figcaption>from above</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout025_plan.png" alt="Layout 25 plan"><figcaption>plan from the start map</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout025_view1.png" alt="Layout 25 angled view"><figcaption>angled view</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout025_view2.png" alt="Layout 25 other side"><figcaption>other side</figcaption></figure></div></div>
+<div class="lay" id="layout-39"><h4>Layout 39</h4><p>Island cooktop, wall oven and toaster oven: 12 fixtures, 51 cabinets and drawers, 14 objects.</p><div class="lay-imgs"><figure><img loading="lazy" src="media/layouts/layout039_top.png" alt="Layout 39 from above"><figcaption>from above</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout039_plan.png" alt="Layout 39 plan"><figcaption>plan from the start map</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout039_view1.png" alt="Layout 39 angled view"><figcaption>angled view</figcaption></figure><figure><img loading="lazy" src="media/layouts/layout039_view2.png" alt="Layout 39 other side"><figcaption>other side</figcaption></figure></div></div>
+</div>
+<h3 id="app-runs">A2. Every run, with its video, map and failure pictures</h3>
+<p class="caption">Each failure picture is the frame where that object was best visible, with its size in pixels and distance. Jump to a layout: <a href="#runs-1">layout 1</a> · <a href="#runs-7">layout 7</a> · <a href="#runs-25">layout 25</a> · <a href="#runs-39">layout 39</a></p>
+<div id="runs-1" class="runs-group"><h4 class="grp">Layout 1</h4>
+<article class="run" id="run-2026-10-25_145153">
+<h4>Layout 1, exact (ground truth)</h4>
+<dl class="meta">
+<dt>result</dt><dd>6/6 found, 0 false finds</dd>
+<dt>route</dt><dd>default task, no storage</dd>
+<dt>cameras</dt><dd>no pictures: reads the simulator, filtered by the camera&#x27;s field of view and raycasts</dd>
+<dt>run</dt><dd><code>runs/2026-10-25_145153_explore_robocasa_scripted_s0</code></dd>
+</dl>
+<div class="media2">
+<figure><img loading="lazy" src="media/explore/2026-10-25_145153_map.png" alt="True and found positions, layout 1"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-19_184125">
+<h4>Layout 1, VLM</h4>
+<dl class="meta">
+<dt>result</dt><dd>6/6 found, 2 false finds (real knives in a knife block)</dd>
+<dt>route</dt><dd>earlier route</dd>
+<dt>cameras</dt><dd>robot0_frontview (shoulder, 640x480) only; the arm blocks part of the fridge</dd>
+<dt>run</dt><dd><code>runs/2026-10-19_184125_explore_robocasa_scripted_s0</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-19_184125.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-19_184125_map.png" alt="True and found positions, layout 1"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-19_184125_bowl.jpg" alt="bowl: found but 11.5 cm off; best view picture 10, 3,548 px, 1.46 m"><figcaption>bowl: found but 11.5 cm off; best view picture 10, 3,548 px, 1.46 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-19_184125_pan.jpg" alt="pan: found but 12.9 cm off; best view picture 2, 3,176 px, 1.46 m"><figcaption>pan: found but 12.9 cm off; best view picture 2, 3,176 px, 1.46 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-25_145221">
+<h4>Layout 1, OWLv2</h4>
+<dl class="meta">
+<dt>result</dt><dd>5/6 found, 5 false finds</dd>
+<dt>route</dt><dd>default task</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view</dd>
+<dt>run</dt><dd><code>runs/2026-10-25_145221_explore_robocasa_scripted_s0</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-25_145221.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_145221_map.png" alt="True and found positions, layout 1"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-25_145221_egg.jpg" alt="egg: missed, visible but too few pixels; best view picture 7, 246 px, 1.45 m"><figcaption>egg: missed, visible but too few pixels; best view picture 7, 246 px, 1.45 m</figcaption></figure>
+</div>
+</article>
+</div>
+<div id="runs-7" class="runs-group"><h4 class="grp">Layout 7</h4>
+<article class="run" id="run-2026-10-25_145308">
+<h4>Layout 7, exact (ground truth)</h4>
+<dl class="meta">
+<dt>result</dt><dd>13/14 found, 0 false finds; fork in drawer_4 never reached</dd>
+<dt>route</dt><dd>current route (cabinets and drawers opened)</dd>
+<dt>cameras</dt><dd>no pictures: reads the simulator, filtered by the camera&#x27;s field of view and raycasts</dd>
+<dt>run</dt><dd><code>runs/2026-10-25_145308_explore_robocasa_scripted_s0_layout007</code></dd>
+</dl>
+<div class="media2">
+<figure><img loading="lazy" src="media/explore/2026-10-25_145308_layout007_map.png" alt="True and found positions, layout 7"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-20_144100">
+<h4>Layout 7, VLM</h4>
+<dl class="meta">
+<dt>result</dt><dd>10/14 found, 8 false finds</dd>
+<dt>route</dt><dd>earlier route (no cabinets or drawers)</dd>
+<dt>cameras</dt><dd>robot0_frontview (shoulder, 640x480) only; the arm blocks part of the fridge</dd>
+<dt>run</dt><dd><code>runs/2026-10-20_144100_explore_robocasa_scripted_s0_layout007</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-20_144100_layout007.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144100_layout007_map.png" alt="True and found positions, layout 7"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-20_144100_layout007_banana.jpg" alt="banana: found but 12.5 cm off; best view picture 22, 123 px, 1.26 m"><figcaption>banana: found but 12.5 cm off; best view picture 22, 123 px, 1.26 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144100_layout007_bowl.jpg" alt="bowl: found but 10.6 cm off; picture 16, 2,466 px, 1.41 m"><figcaption>bowl: found but 10.6 cm off; picture 16, 2,466 px, 1.41 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144100_layout007_egg.jpg" alt="egg: missed, too few pixels behind the arm; picture 14, 136 px, 1.37 m"><figcaption>egg: missed, too few pixels behind the arm; picture 14, 136 px, 1.37 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-25_175806">
+<h4>Layout 7, OWLv2 baseline</h4>
+<dl class="meta">
+<dt>result</dt><dd>9/14 found, 19 false finds</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view</dd>
+<dt>run</dt><dd><code>runs/2026-10-25_175806_explore_robocasa_scripted_s0_layout007</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-25_175806_layout007.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_175806_layout007_map.png" alt="True and found positions, layout 7"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-25_175806_layout007_bowl.jpg" alt="bowl: found but 10.8 cm off; picture 16, 2,477 px, 1.53 m"><figcaption>bowl: found but 10.8 cm off; picture 16, 2,477 px, 1.53 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_175806_layout007_egg.jpg" alt="egg: called &quot;bar soap&quot;; picture 14, 240 px, 1.42 m"><figcaption>egg: called &quot;bar soap&quot;; picture 14, 240 px, 1.42 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_175806_layout007_lemon.jpg" alt="lemon: called &quot;pear&quot;; picture 16, 479 px, 1.45 m"><figcaption>lemon: called &quot;pear&quot;; picture 16, 479 px, 1.45 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_175806_layout007_milk.jpg" alt="milk: called &quot;bottled water&quot;; picture 14, 846 px, 1.43 m"><figcaption>milk: called &quot;bottled water&quot;; picture 14, 846 px, 1.43 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_175806_layout007_plate.jpg" alt="plate: missed, 61 px in the cabinet at 2.07 m"><figcaption>plate: missed, 61 px in the cabinet at 2.07 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-26_110513">
+<h4>Layout 7, best free: OWLv2 + name vote + SigLIP 2 hybrid + aliases</h4>
+<dl class="meta">
+<dt>result</dt><dd>10/14 found, 10 false finds</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view</dd>
+<dt>run</dt><dd><code>runs/2026-10-26_110513_explore_robocasa_scripted_s0_layout007</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-26_110513_layout007.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_110513_layout007_map.png" alt="True and found positions, layout 7"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-26_110513_layout007_bowl.jpg" alt="bowl: found but 10.8 cm off; picture 16, 2,477 px, 1.53 m"><figcaption>bowl: found but 10.8 cm off; picture 16, 2,477 px, 1.53 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_110513_layout007_milk.jpg" alt="milk: called &quot;bottled water&quot;; picture 14, 846 px, 1.43 m"><figcaption>milk: called &quot;bottled water&quot;; picture 14, 846 px, 1.43 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_110513_layout007_pan.jpg" alt="pan: found but 13.6 cm off (body origin is toward the handle); picture 22, 3,622 px, 1.23 m"><figcaption>pan: found but 13.6 cm off (body origin is toward the handle); picture 22, 3,622 px, 1.23 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_110513_layout007_plate.jpg" alt="plate: missed, 61 px at 2.07 m"><figcaption>plate: missed, 61 px at 2.07 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_110513_layout007_spoon.jpg" alt="spoon: named right, then lost when merged as &quot;banana&quot;; picture 36, 656 px, 1.04 m"><figcaption>spoon: named right, then lost when merged as &quot;banana&quot;; picture 36, 656 px, 1.04 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-26_150553">
+<h4>Layout 7, best free + close looks with the wrist camera</h4>
+<dl class="meta">
+<dt>result</dt><dd>11/14 found, 10 false finds; 36 close looks</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view; plus robot0_eye_in_hand (wrist) for close looks about 0.32 m away</dd>
+<dt>run</dt><dd><code>runs/2026-10-26_150553_explore_robocasa_scripted_s0_layout007</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-26_150553_layout007.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_150553_layout007_map.png" alt="True and found positions, layout 7"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-26_150553_layout007_bowl.jpg" alt="bowl: found but 11.0 cm off; picture 35, 2,475 px, 1.53 m"><figcaption>bowl: found but 11.0 cm off; picture 35, 2,475 px, 1.53 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_150553_layout007_milk.jpg" alt="milk: still called &quot;bottled water&quot;; picture 32, 845 px, 1.43 m"><figcaption>milk: still called &quot;bottled water&quot;; picture 32, 845 px, 1.43 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_150553_layout007_pan.jpg" alt="pan: 13.2 cm off even from the wrist camera at 0.27 m (67,224 px): a reference point issue, not perception"><figcaption>pan: 13.2 cm off even from the wrist camera at 0.27 m (67,224 px): a reference point issue, not perception</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_150553_layout007_plate.jpg" alt="plate: missed, 59 px at 2.07 m"><figcaption>plate: missed, 59 px at 2.07 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-26_121527">
+<h4>Layout 7, best free + SAM 3 checker (gentle)</h4>
+<dl class="meta">
+<dt>result</dt><dd>10/14 found, 11 false finds</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view</dd>
+<dt>run</dt><dd><code>runs/2026-10-26_121527_explore_robocasa_scripted_s0_layout007</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-26_121527_layout007.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_121527_layout007_map.png" alt="True and found positions, layout 7"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-26_121527_layout007_apple.jpg" alt="apple: SAM 3 picked &quot;cherry&quot;; picture 17, 340 px, 1.49 m"><figcaption>apple: SAM 3 picked &quot;cherry&quot;; picture 17, 340 px, 1.49 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_121527_layout007_bowl.jpg" alt="bowl: found but 10.8 cm off"><figcaption>bowl: found but 10.8 cm off</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_121527_layout007_milk.jpg" alt="milk: called &quot;bottled water&quot;"><figcaption>milk: called &quot;bottled water&quot;</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_121527_layout007_pan.jpg" alt="pan: 13.1 cm off"><figcaption>pan: 13.1 cm off</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_121527_layout007_plate.jpg" alt="plate: missed, 61 px at 2.07 m"><figcaption>plate: missed, 61 px at 2.07 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-26_115859">
+<h4>Layout 7, best free + SAM 3 checker (strict)</h4>
+<dl class="meta">
+<dt>result</dt><dd>9/14 found, 6 false finds; the lemon is dropped because no mask fits its box</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view</dd>
+<dt>run</dt><dd><code>runs/2026-10-26_115859_explore_robocasa_scripted_s0_layout007</code></dd>
+</dl>
+<div class="media2">
+<figure><img loading="lazy" src="media/explore/2026-10-26_115859_layout007_map.png" alt="True and found positions, layout 7"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+</article>
+</div>
+<div id="runs-25" class="runs-group"><h4 class="grp">Layout 25</h4>
+<article class="run" id="run-2026-10-25_150237">
+<h4>Layout 25, exact (ground truth)</h4>
+<dl class="meta">
+<dt>result</dt><dd>12/14 found, 0 false finds; microwave unreachable (bowl), fork in drawer_1</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>no pictures: reads the simulator, filtered by the camera&#x27;s field of view and raycasts</dd>
+<dt>run</dt><dd><code>runs/2026-10-25_150237_explore_robocasa_scripted_s0_layout025</code></dd>
+</dl>
+<div class="media2">
+<figure><img loading="lazy" src="media/explore/2026-10-25_150237_layout025_map.png" alt="True and found positions, layout 25"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-20_144336">
+<h4>Layout 25, VLM</h4>
+<dl class="meta">
+<dt>result</dt><dd>7/14 found, 1 false find</dd>
+<dt>route</dt><dd>earlier route</dd>
+<dt>cameras</dt><dd>robot0_frontview (shoulder, 640x480) only; the arm blocks part of the fridge</dd>
+<dt>run</dt><dd><code>runs/2026-10-20_144336_explore_robocasa_scripted_s0_layout025</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-20_144336_layout025.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144336_layout025_map.png" alt="True and found positions, layout 25"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-20_144336_layout025_apple.jpg" alt="apple: called &quot;tomato&quot;, then dropped at the image edge; picture 17, 363 px, 1.65 m"><figcaption>apple: called &quot;tomato&quot;, then dropped at the image edge; picture 17, 363 px, 1.65 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144336_layout025_cup.jpg" alt="cup: 10.8 cm off and called &quot;mug&quot;; picture 11, 220 px, 2.96 m"><figcaption>cup: 10.8 cm off and called &quot;mug&quot;; picture 11, 220 px, 2.96 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144336_layout025_milk.jpg" alt="milk: called &quot;bottled water&quot;; picture 13, 898 px, 1.47 m"><figcaption>milk: called &quot;bottled water&quot;; picture 13, 898 px, 1.47 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144336_layout025_mug.jpg" alt="mug: seen, lost when the map merged names; picture 18, 895 px, 1.34 m"><figcaption>mug: seen, lost when the map merged names; picture 18, 895 px, 1.34 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144336_layout025_pan.jpg" alt="pan: found but 13.1 cm off; picture 10, 2,978 px, 1.42 m"><figcaption>pan: found but 13.1 cm off; picture 10, 2,978 px, 1.42 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-25_181121">
+<h4>Layout 25, OWLv2 baseline</h4>
+<dl class="meta">
+<dt>result</dt><dd>6/14 found, 9 false finds</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view</dd>
+<dt>run</dt><dd><code>runs/2026-10-25_181121_explore_robocasa_scripted_s0_layout025</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-25_181121_layout025.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_181121_layout025_map.png" alt="True and found positions, layout 25"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-25_181121_layout025_cup.jpg" alt="cup: called &quot;measuring cup&quot;; picture 19, 346 px, 2.31 m"><figcaption>cup: called &quot;measuring cup&quot;; picture 19, 346 px, 2.31 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_181121_layout025_egg.jpg" alt="egg: called &quot;bar soap&quot;; picture 13, 228 px, 1.48 m"><figcaption>egg: called &quot;bar soap&quot;; picture 13, 228 px, 1.48 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_181121_layout025_lemon.jpg" alt="lemon: called &quot;sponge&quot;; picture 18, 286 px, 1.94 m"><figcaption>lemon: called &quot;sponge&quot;; picture 18, 286 px, 1.94 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_181121_layout025_milk.jpg" alt="milk: called &quot;bottled water&quot;; picture 13, 825 px, 1.49 m"><figcaption>milk: called &quot;bottled water&quot;; picture 13, 825 px, 1.49 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_181121_layout025_plate.jpg" alt="plate: visible in the open cabinet but not named; picture 52, 955 px, 1.79 m"><figcaption>plate: visible in the open cabinet but not named; picture 52, 955 px, 1.79 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_181121_layout025_spoon.jpg" alt="spoon: called &quot;fork&quot;; picture 17, 116 px, 1.55 m"><figcaption>spoon: called &quot;fork&quot;; picture 17, 116 px, 1.55 m</figcaption></figure>
+</div>
+</article>
+</div>
+<div id="runs-39" class="runs-group"><h4 class="grp">Layout 39</h4>
+<article class="run" id="run-2026-10-25_151243">
+<h4>Layout 39, exact (ground truth)</h4>
+<dl class="meta">
+<dt>result</dt><dd>12/14 found, 0 false finds; fork in drawer_3, plate in a cabinet it could not open</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>no pictures: reads the simulator, filtered by the camera&#x27;s field of view and raycasts</dd>
+<dt>run</dt><dd><code>runs/2026-10-25_151243_explore_robocasa_scripted_s0_layout039</code></dd>
+</dl>
+<div class="media2">
+<figure><img loading="lazy" src="media/explore/2026-10-25_151243_layout039_map.png" alt="True and found positions, layout 39"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-20_144626">
+<h4>Layout 39, VLM</h4>
+<dl class="meta">
+<dt>result</dt><dd>8/14 found, 2 false finds</dd>
+<dt>route</dt><dd>earlier route</dd>
+<dt>cameras</dt><dd>robot0_frontview (shoulder, 640x480) only; the arm blocks part of the fridge</dd>
+<dt>run</dt><dd><code>runs/2026-10-20_144626_explore_robocasa_scripted_s0_layout039</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-20_144626_layout039.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144626_layout039_map.png" alt="True and found positions, layout 39"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-20_144626_layout039_bowl.jpg" alt="bowl: called &quot;bread&quot;; picture 10, 668 px, 1.46 m"><figcaption>bowl: called &quot;bread&quot;; picture 10, 668 px, 1.46 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144626_layout039_cup.jpg" alt="cup: found but 16.3 cm off; picture 11, 705 px, 1.49 m"><figcaption>cup: found but 16.3 cm off; picture 11, 705 px, 1.49 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144626_layout039_milk.jpg" alt="milk: called &quot;bottled drink&quot;; picture 8, 1,096 px, 1.34 m"><figcaption>milk: called &quot;bottled drink&quot;; picture 8, 1,096 px, 1.34 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-20_144626_layout039_pan.jpg" alt="pan: missed, 83 px at 1.24 m"><figcaption>pan: missed, 83 px at 1.24 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-25_182428">
+<h4>Layout 39, OWLv2 baseline</h4>
+<dl class="meta">
+<dt>result</dt><dd>6/14 found, 20 false finds</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view</dd>
+<dt>run</dt><dd><code>runs/2026-10-25_182428_explore_robocasa_scripted_s0_layout039</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-25_182428_layout039.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_182428_layout039_map.png" alt="True and found positions, layout 39"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-25_182428_layout039_bowl.jpg" alt="bowl: called &quot;cutting board&quot;; picture 10, 1,363 px, 1.59 m"><figcaption>bowl: called &quot;cutting board&quot;; picture 10, 1,363 px, 1.59 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_182428_layout039_egg.jpg" alt="egg: called &quot;bar soap&quot;; picture 8, 256 px, 1.39 m"><figcaption>egg: called &quot;bar soap&quot;; picture 8, 256 px, 1.39 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_182428_layout039_lemon.jpg" alt="lemon: called &quot;avocado&quot;; picture 11, 444 px, 1.56 m"><figcaption>lemon: called &quot;avocado&quot;; picture 11, 444 px, 1.56 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_182428_layout039_milk.jpg" alt="milk: called &quot;bottled water&quot;; picture 8, 1,044 px, 1.34 m"><figcaption>milk: called &quot;bottled water&quot;; picture 8, 1,044 px, 1.34 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_182428_layout039_mug.jpg" alt="mug: called &quot;straw&quot;; picture 81, 803 px, 1.39 m"><figcaption>mug: called &quot;straw&quot;; picture 81, 803 px, 1.39 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-25_182428_layout039_spoon.jpg" alt="spoon: called &quot;scissors&quot;; picture 16, 341 px, 1.36 m"><figcaption>spoon: called &quot;scissors&quot;; picture 16, 341 px, 1.36 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-26_150340">
+<h4>Layout 39, best free: OWLv2 + name vote + SigLIP 2 hybrid + aliases</h4>
+<dl class="meta">
+<dt>result</dt><dd>10/14 found, 8 false finds</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view</dd>
+<dt>run</dt><dd><code>runs/2026-10-26_150340_explore_robocasa_scripted_s0_layout039</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-26_150340_layout039.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_150340_layout039_map.png" alt="True and found positions, layout 39"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-26_150340_layout039_bowl.jpg" alt="bowl in the microwave: called &quot;cutting board&quot;; picture 10, 1,363 px, 1.59 m"><figcaption>bowl in the microwave: called &quot;cutting board&quot;; picture 10, 1,363 px, 1.59 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_150340_layout039_milk.jpg" alt="milk: called &quot;bottled water&quot;; picture 8, 1,044 px, 1.34 m"><figcaption>milk: called &quot;bottled water&quot;; picture 8, 1,044 px, 1.34 m</figcaption></figure>
+</div>
+</article>
+<article class="run" id="run-2026-10-26_150618">
+<h4>Layout 39, best free + close looks with the wrist camera</h4>
+<dl class="meta">
+<dt>result</dt><dd>10/14 found, 8 false finds; 25 close looks</dd>
+<dt>route</dt><dd>current route</dd>
+<dt>cameras</dt><dd>least blocked of robot0_frontview, robot0_agentview_left, robot0_agentview_right per view; plus robot0_eye_in_hand (wrist) for close looks about 0.32 m away</dd>
+<dt>run</dt><dd><code>runs/2026-10-26_150618_explore_robocasa_scripted_s0_layout039</code></dd>
+</dl>
+<div class="media2">
+<figure><video controls preload="none" playsinline src="media/explore/2026-10-26_150618_layout039.mp4"></video><figcaption>Review video: every picture the detector took. Green = found and named right, orange = wrong name, red = missed, blue = the detector's own boxes. Truth is drawn only after the run.</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_150618_layout039_map.png" alt="True and found positions, layout 39"><figcaption>Map: true positions (dots) and found positions (x), joined by the error.</figcaption></figure>
+</div>
+<div class="gallery">
+<figure><img loading="lazy" src="media/explore/2026-10-26_150618_layout039_bowl.jpg" alt="bowl: still called &quot;cutting board&quot; up close; picture 15, 1,363 px, 1.59 m"><figcaption>bowl: still called &quot;cutting board&quot; up close; picture 15, 1,363 px, 1.59 m</figcaption></figure>
+<figure><img loading="lazy" src="media/explore/2026-10-26_150618_layout039_milk.jpg" alt="milk: still called &quot;bottled water&quot;; picture 12, 1,044 px, 1.34 m"><figcaption>milk: still called &quot;bottled water&quot;; picture 12, 1,044 px, 1.34 m</figcaption></figure>
+</div>
+</article>
+</div>
+
+  <h3 id="app-fixtures">B. Step 2: fixture discovery videos</h3>
+  <p>Both stages run with <b>robot0_agentview_left, robot0_agentview_right and robot0_frontview</b> at every stop (burners: the two side cameras on the cooktop). Stage 2 also builds the grid from the depth of all four cameras, the wrist camera included, with the robot's own body masked out.</p>
+<p class="caption">Video, left: each camera image with OWLv2's boxes (thick = kept as a fixture sighting), the fixture it joined and Sonnet's verdict. Right: top down map with the robot's path and the fixtures fused so far; in Stage 2 the grid as it is built (white free, dark occupied, gray unknown). Then each Sonnet check, then the final map with per fixture error. Green dashed true footprints are drawn only after the run.</p>
+<article class="run" id="fix-1"><h4>Layout 1</h4><p>PASS both stages.</p><div class="media2"><figure><video controls preload="none" playsinline src="media/fixtures/layout001_stage1_grid_given.mp4"></video><figcaption>Stage 1, grid given: 9/9 fixtures, burners 4/4, go_to 9/9</figcaption></figure><figure><video controls preload="none" playsinline src="media/fixtures/layout001_stage2_grid_from_depth.mp4"></video><figcaption>Stage 2, grid built from depth: 9/9, free IoU 0.97, go_to 9/9</figcaption></figure></div></article>
+<article class="run" id="fix-7"><h4>Layout 7</h4><p>4 corner counter pieces and 2 counters on one seamless slab are missed; fridge 0.17 m off (OWLv2 boxes only its handles); in Stage 2 Sonnet once calls the toaster oven a microwave and the toaster&#x27;s facing is 90 degrees off.</p><div class="media2"><figure><video controls preload="none" playsinline src="media/fixtures/layout007_stage1_grid_given.mp4"></video><figcaption>Stage 1, grid given: 12/18 (11 within 0.15 m), burners 5/5, go_to 12/13</figcaption></figure><figure><video controls preload="none" playsinline src="media/fixtures/layout007_stage2_grid_from_depth.mp4"></video><figcaption>Stage 2, grid built from depth: 12/18 (10 within 0.15 m), free IoU 0.93, go_to 11/13</figcaption></figure></div></article>
+<article class="run" id="fix-25"><h4>Layout 25</h4><p>2 corner pieces missed; fridge 0.26 m off in Stage 2 (seen mostly from the side); go_to into the galley microwave fails on the true map too.</p><div class="media2"><figure><video controls preload="none" playsinline src="media/fixtures/layout025_stage1_grid_given.mp4"></video><figcaption>Stage 1, grid given: 14/16, burners 6/6, go_to 13/14</figcaption></figure><figure><video controls preload="none" playsinline src="media/fixtures/layout025_stage2_grid_from_depth.mp4"></video><figcaption>Stage 2, grid built from depth: 14/16 (13 within 0.15 m), free IoU 0.94, go_to 14/14</figcaption></figure></div></article>
+<article class="run" id="fix-39"><h4>Layout 39</h4><p>PASS both stages; the wall oven door opened by its fixture is not always closed again.</p><div class="media2"><figure><video controls preload="none" playsinline src="media/fixtures/layout039_stage1_grid_given.mp4"></video><figcaption>Stage 1, grid given: 12/12, burners 5/5, go_to 12/12</figcaption></figure><figure><video controls preload="none" playsinline src="media/fixtures/layout039_stage2_grid_from_depth.mp4"></video><figcaption>Stage 2, grid built from depth: 12/12, free IoU 0.94, go_to 12/12</figcaption></figure></div></article>
+
+  <h3 id="app-rearrange">C. Using the explored map: rearranging objects (layout 7)</h3>
+  <p>These runs use the explored map for a first real job: pick objects up, put them on another counter, look again, and check the map is still right. They were recorded on 25 and 26 October, before the pick and place fixes of 27 October (which took the exact map run from 3 of 6 to 5 of 8 moves).</p><div class="gallery vids">
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_gt_map.mp4"></video><figcaption>Map from the exact detector exploration; ground truth detection during moves; random objects (first run).</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_vlm_map.mp4"></video><figcaption>Map from the VLM exploration; ground truth detection; random objects.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_owl_map.mp4"></video><figcaption>Map from the OWLv2 exploration; ground truth detection; random objects.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_fixed_layout7_gt_map.mp4"></video><figcaption>Same 8 objects to the same targets for every map. Exact map, ground truth detection.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_fixed_layout7_vlm_map.mp4"></video><figcaption>Same 8 objects. VLM map, ground truth detection.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_fixed_layout7_owl_map.mp4"></video><figcaption>Same 8 objects. OWLv2 map, ground truth detection.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_gt_map_vlm_detect.mp4"></video><figcaption>Same 8 objects. Exact map, VLM detection during moves: 4 of 8.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_vlm_map_vlm_detect.mp4"></video><figcaption>Same 8 objects. VLM map, VLM detection: 5 of 8, the best realistic pair.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_owl_map_vlm_detect.mp4"></video><figcaption>Same 8 objects. OWLv2 map, VLM detection: 3 of 8.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_gt_map_owl_detect.mp4"></video><figcaption>Same 8 objects. Exact map, OWLv2 detection: 3 of 8.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_vlm_map_owl_detect.mp4"></video><figcaption>Same 8 objects. VLM map, OWLv2 detection: 4 of 8.</figcaption></figure>
+<figure><video controls preload="none" playsinline src="media/rearrange/rearrange_layout7_owl_map_owl_detect.mp4"></video><figcaption>Same 8 objects. OWLv2 map, OWLv2 detection: 3 of 8.</figcaption></figure>
+</div>
+</section>
+</div>
+
+</body>
+</html>
