@@ -25,12 +25,14 @@ import time
 from pathlib import Path
 
 from chefbot.autoresearch import config as C
-from chefbot.autoresearch import lab_server, robots, skills
-from chefbot.autoresearch.episode import INTERFACES, LIMITS, sandbox_kind
-from chefbot.autoresearch.models import load_env
+from chefbot.autoresearch import lab_server
+from chefbot import embodiments, skills
+from chefbot.runtime.episode import INTERFACES, LIMITS, sandbox_kind
+from chefbot.runtime.models import load_env
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[1]
+PACKAGE = HERE.parent
+REPO = PACKAGE.parent
 RUNS = Path(os.environ.get("CHEFBOT_RUNS", REPO / "runs"))  # lab runs and evals; gitignored
 MAX_SESSIONS = 400
 WRAP_UP_MIN = 40
@@ -50,7 +52,7 @@ def brief(cfg: C.LabConfig, hours: float, usage_cap: float, sandbox: str, web_se
         prior = "## Prior work\n\n" + cfg.start_from.get("note", "A previous research session's skill is in `prior/`.").strip() + "\n\n"
     for k, v in {"{HOURS}": f"{hours:g}", "{USAGE_CAP}": f"{usage_cap:g}", "{MODEL_USD}": f"{cfg.model_usd:g}", "{LIMITS}": json.dumps(LIMITS),
                  "{VAL_SUBMISSIONS}": str(cfg.val_submissions), "{SANDBOX}": sandbox, "{WEB}": WEB_TEXT if web_search else "",
-                 "{ROBOT}": robots.load(cfg.robot).brief, "{PRIOR}": prior}.items():  # fmt: skip
+                 "{ROBOT}": embodiments.load(cfg.robot).brief, "{PRIOR}": prior}.items():  # fmt: skip
         text = text.replace(k, v)
     return text
 
@@ -70,7 +72,7 @@ def setup_workspace(cfg: C.LabConfig, ws: Path, text: str) -> None:
             shutil.copy(prior.dir / "REPORT.md", ws / "prior" / "REPORT.md")
     (ws / "AGENTS.md").write_text(text)
     if not (ws / "skills" / "example").exists():
-        shutil.copytree(HERE / "templates" / (cfg.example or "example_pick"), ws / "skills" / "example")
+        shutil.copytree(PACKAGE / "labs" / "templates" / (cfg.example or "example_pick"), ws / "skills" / "example")
     if not (ws / "research_log.md").exists():
         (ws / "research_log.md").write_text("# Research log\n\n")
     (ws / ".gitignore").write_text("runs/\n.lab/\n__pycache__/\n")
@@ -99,7 +101,7 @@ def hide_prefix(hide: list[str], workspace: Path) -> list[str]:
 
 def default_hide() -> list[str]:
     """What the researcher must not see in this repo: the lab's setups and suites (val and test), other runs, the keys."""
-    return [str(HERE / "setups"), str(HERE / "suites"), str(RUNS), str(REPO / ".env")]
+    return [str(PACKAGE / "setups"), str(PACKAGE / "suites"), str(RUNS), str(REPO / ".env")]
 
 
 def codex_cmd(model: str, effort: str, sandbox: str, resume: str | None, prompt: str, search: bool = False, network: bool = False) -> list[str]:
@@ -137,9 +139,9 @@ def main() -> int:
     args = ap.parse_args()
     load_env(REPO / ".env")
     args.vision_url = args.vision_url or os.environ.get("VISION_URL")
-    from chefbot.autoresearch.objects import lab as OL
+    from chefbot.autoresearch.generator_lab import lab as OL
 
-    objects = OL.kind(args.lab) == "object"  # an object-creation lab (a generator), not a skill lab
+    objects = OL.kind(args.lab) == "generator"  # a generator lab (assets or scenes), not a skill lab
     cfg = OL.load(args.lab) if objects else C.load(args.lab)
     final = OL.FINAL if objects else "skills/final"
     hours = args.hours or float(cfg.budgets.get("hours", 3))
@@ -180,7 +182,7 @@ def main() -> int:
         host, rws = args.remote.split(":", 1)
         lab = Relay(ws, host, rws)
     elif objects:
-        lab = OL.ObjectLab(cfg, root, args.jobs)
+        lab = OL.GeneratorLab(cfg, root, args.jobs)
         os.chmod(private, 0o700)
         lab.deadline = deadline
     else:

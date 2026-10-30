@@ -1,6 +1,6 @@
 """Run tasks several times in the symbolic kitchen and tabulate the results.
 
-    python -m chefbot.scripts.eval_agent                                 # every task in chefbot/tasks, 1 run each
+    python -m chefbot.scripts.eval_agent                                 # every job in chefbot/jobs, 1 run each
     python -m chefbot.scripts.eval_agent --tasks fried_egg breakfast --runs 3 --jobs 4
     python -m chefbot.scripts.eval_agent --summarize runs/eval_2026-10-15_1800   # re-read an eval's runs
 
@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-TASKS = REPO / "chefbot" / "tasks"
+TASKS = REPO / "chefbot" / "jobs"
 
 
 def run_one(task: Path, seed: int, out: Path, extra: list[str]) -> dict:
@@ -68,7 +68,7 @@ def _clock(t: float) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate the agent on tasks in the symbolic kitchen.")
-    parser.add_argument("--tasks", nargs="*", help="task names (default: every file in chefbot/tasks)")
+    parser.add_argument("--tasks", nargs="*", help="task names (default: every file in chefbot/jobs)")
     parser.add_argument("--runs", type=int, default=1, help="runs per task (seeds 0..runs-1)")
     parser.add_argument("--jobs", type=int, default=4, help="runs in parallel")
     parser.add_argument("--model")

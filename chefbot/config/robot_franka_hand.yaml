@@ -2,7 +2,7 @@
 # Pair it with an env config whose `gripper` is franka_hand (the autoresearch labs do).
 #
 # The sim hand's pads are centered 0.093 m out from the flange (0.085-0.101) and open to 0.077 m;
-# config/grippers/franka_hand.yaml is the real hand's (TCP 0.1034, open 0.08).
+# embodiments/grippers/franka_hand.yaml is the real hand's (TCP 0.1034, open 0.08).
 extends: robot.yaml
 
 hardware:

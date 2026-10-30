@@ -1,7 +1,7 @@
 """Run the agent on a task (AGENT_SPEC §12).
 
-    python -m chefbot.scripts.run_agent --task chefbot/tasks/fried_egg.yaml
-    python -m chefbot.scripts.run_agent --task chefbot/tasks/breakfast.yaml --seed 3 --model anthropic/claude-opus-5.5
+    python -m chefbot.scripts.run_agent --task chefbot/jobs/fried_egg.yaml
+    python -m chefbot.scripts.run_agent --task chefbot/jobs/breakfast.yaml --seed 3 --model anthropic/claude-opus-5.5
 
 `--env symbolic` (default) runs in the symbolic kitchen: no simulator, same
 agent, tools and run log. Writes runs/<date>_<task>_s<seed>/ with report.html,

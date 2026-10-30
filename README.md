@@ -14,13 +14,31 @@ agent  (chefbot/agent)   tools, semantic map, detections, nearby view, held obje
   |  RobotAPI + Detector  (in-process, or RemoteRobot over a websocket)
 robot  (chefbot/robot)   grid, A*, standoff poses, base control, arm IK and control, pick / place / open
   |  Env + GraspProposer, PlacementProposer, FixtureActuator  (always in-process)
-envs   (chefbot/envs)    robocasa, symbolic; real (a client of the onboard server); isaac is a placeholder
+environments (chefbot/environments)  robocasa, symbolic; real (a client of the onboard server); isaac is a placeholder
   |  websocket (interface/transport/onboard.py)
 onboard (chefbot/onboard) on the robot computer: the drivers' state and commands over Redis, cameras, watchdog
 ```
 
-The arm and gripper are config (`config/arms/`, `config/grippers/`), picked in
+The arm and gripper are config (`embodiments/arms/`, `embodiments/grippers/`), picked in
 `config/robot.yaml` (`hardware:`); `config/robot_real.yaml` is the real robot.
+
+Skills and the labs that make them follow agentic-skills-exploration's split, one folder per concept:
+
+| Folder | What it holds |
+|---|---|
+| `embodiments/` | What the robot physically is: one folder per robot (`robot.yaml`, cameras, brief), arms and grippers as config, the whole-body controller, speed profiles |
+| `environments/` | Worlds behind the `Env` interface: `robocasa/` (kitchens, and `host.py`, the simulated episode host), `symbolic/`, `real/` |
+| `tasks/` | Task types (`pick_up`): how a kind of task starts, what it measures, how it is scored |
+| `setups/` | A scene plus its randomization, attributes and the named tasks it offers (generated) |
+| `suites/` | Frozen (setup, task, seeds) lists and dev/val/test suite sets |
+| `skills/` | Registered skills: programs the robot runs, with manifests |
+| `runtime/` | Runs a skill: the sandbox and protocol (`episode.py`), workers, metered models, the vision server |
+| `interface/` | `Env`, types, transport, and `skill_api.py`: the skill-side robot API (`chefbot-v1`) |
+| `generators/` | Families of generated things (`tongs/`): contract, checks, judge rubrics, example generator |
+| `evals/` | A skill on a suite (`evaluate.py`); a generator on fresh seeds (`generators.py`) |
+| `autoresearch/` | Lab mechanics: `./lab`, the research loop, relay, register; `generator_lab/` for generator labs |
+| `labs/` | Lab configs, briefs and example skills |
+| `jobs/` | The cooking agent's jobs (`fried_egg.yaml`, ...): goal, plan and success conditions |
 
 Tools: `go_to`, `detect`, `nearby`, `align`, `pick`, `place`, `open`, `close`,
 `holding`, `wait`, `get_status`, `stop`, `get_pose`. The workflow they are built
@@ -54,7 +72,7 @@ pip install -e ".[robot,dev]"
 python -m chefbot.scripts.demo_nav --env robocasa
 
 # Same trace with the agent talking to the robot layer over a websocket
-python -m chefbot.envs.robocasa.serve                              # terminal 1
+python -m chefbot.environments.robocasa.serve                              # terminal 1
 python -m chefbot.scripts.demo_nav --remote ws://127.0.0.1:8765    # terminal 2
 
 # Manipulation trace: open the fridge, take the egg out, close it, put the egg
@@ -67,7 +85,7 @@ python -m chefbot.scripts.demo_manip --remote ws://127.0.0.1:8765  # against a r
 python -m chefbot.scripts.record_rollout --trace tour --layout 2 --style 2
 
 # Rebuild a kitchen's map files (maps/robocasa_layoutNNN_styleNNN/)
-python -m chefbot.envs.robocasa.build_map --layout 2 --style 2
+python -m chefbot.environments.robocasa.build_map --layout 2 --style 2
 ```
 
 Using the tools from an agent:
@@ -83,7 +101,7 @@ registry.dispatch("go_to", {"place": "stove"})     # -> ToolResult(success, erro
 ```
 
 `robot` and `detector` are any `RobotAPI` and `Detector`: the in-process pair
-from `chefbot.envs.robocasa.serve.build_stack()`, or `RemoteRobot(url)` and
+from `chefbot.environments.robocasa.serve.build_stack()`, or `RemoteRobot(url)` and
 `RemoteDetector(url)`.
 
 ## The real robot (tidybot01)
@@ -93,7 +111,7 @@ for the arm, Franka's gripper driver, the hb1 base driver, mocap), on the robot
 computer's Redis. `chefbot/onboard` runs there: a thin server in front of them
 that streams state, passes commands through, grabs camera frames on request, and
 holds the robot if its client goes quiet. The robot layer runs on the laptop
-against `envs/real`'s `RealEnv`, which uses `Env.set_base_target` (the base
+against `environments/real`'s `RealEnv`, which uses `Env.set_base_target` (the base
 drives to poses itself) and `Env.set_arm_pose_target` (straight lines go to the
 arm's Cartesian controller; our IK still plans and checks them).
 
@@ -104,13 +122,13 @@ python -m chefbot.onboard.check                 # read-only: which drivers are u
 
 # laptop
 ssh -L 8765:localhost:8765 tidybot01
-python -m chefbot.envs.real.check               # read-only: state, and the arm controller's point vs config
+python -m chefbot.environments.real.check               # read-only: state, and the arm controller's point vs config
 ```
 
 Not yet: the real kitchen's map, real grasp / placement proposers and fixture
 actuator, contact sensing, camera mounts (TODO markers in the configs).
 
-## Autoresearch labs (chefbot/autoresearch)
+## Autoresearch labs (chefbot/autoresearch, chefbot/labs)
 
 A researcher agent (Codex) writes a robot skill, a sandboxed Python program,
 against a lab's dev scenes through `./lab`. It scores on held-out val scenes a
@@ -124,24 +142,24 @@ two others, arm only. Its kitchens and object categories are split
 dev/val/test, and val and test are never seen in dev.
 
 ```sh
-python -m chefbot.autoresearch.suites.check robocasa_pick       # every scene starts at each seed (no skill)
+python -m chefbot.suites.check robocasa_pick       # every scene starts at each seed (no skill)
 python -m chefbot.autoresearch.lab_server robocasa_pick --root runs/labs/try    # a lab to drive by hand: cd .../workspace; ./lab -h
 python -m chefbot.autoresearch.research robocasa_pick --hours 4 # a research run (Codex; GEMINI_API_KEY in .env)
 python -m chefbot.autoresearch.register runs/labs/<run> --version run1_v1
-python -m chefbot.autoresearch.evaluate --skill pick_up/run1_v1 --suite robocasa_pick/test
+python -m chefbot.evals.evaluate --skill pick_up/run1_v1 --suite robocasa_pick/test
 ```
 
 Skills may call Gemini (metered, with budgets) and the vision models
-(`chefbot/autoresearch/vision_server.py`, in its own env with torch +
+(`chefbot/runtime/vision_server.py`, in its own env with torch +
 transformers; set `VISION_URL`). The example skill uses detection, so it needs
 the server. Runs go to `runs/` (`CHEFBOT_RUNS` to put them elsewhere: it is in
 iCloud here). On macOS skills run under `sandbox-exec` plus an in-process guard
 (no network, no subprocesses, nothing of the repo); Codex is not walled off from
 the repo on macOS (`--hide` needs Linux), so the brief asks it not to look.
 
-**Object-creation labs** (`chefbot/autoresearch/objects`, labs with `kind: object`) work the same way, but the
-researcher writes a *generator*: given a seed, a MuJoCo model of one object in a family
-(`objects/families/<family>/contract.md`), so that seeds give a realistic variety. `./lab build` generates assets
+**Generator labs** (`chefbot/autoresearch/generator_lab`, labs with `kind: generator`) work the same way, but the
+researcher writes a *generator*: given a seed, a MuJoCo model of one thing in a family
+(`chefbot/generators/<family>/contract.md`), so that seeds give a realistic variety. `./lab build` generates assets
 (sandboxed), runs physics checks (squeeze, release, pinch-and-hold, settling on a counter, the Franka Hand's fit,
 declared vs measured length, mass, opening and closing force) and renders them; `./lab judge` has Claude score the
 renders against photos of real products; `./lab val` does both on fresh seeds with a held-out rubric and
@@ -150,7 +168,8 @@ account (`CLAUDE_JUDGE_TOKEN`, from `claude setup-token`); the reference photos 
 (`CHEFBOT_REFS`); the generator's Python is `GEN_PYTHON` (trimesh, manifold3d, CoACD, build123d, mujoco).
 
 ```sh
-python -m chefbot.autoresearch.objects.lab tongs_gen --root runs/labs/try    # a lab to drive by hand
+python -m chefbot.autoresearch.generator_lab.lab tongs_gen --root runs/labs/try    # a lab to drive by hand
+python -m chefbot.evals.generators runs/labs/<run>                                 # test: fresh seeds, held-out judge, rating page
 python -m chefbot.autoresearch.research tongs_gen --hide default --web-search --codex-network   # a research run (Linux)
 ```
 
@@ -162,7 +181,7 @@ and every run leaves a reviewable log.
 
 ```sh
 # One task in the symbolic kitchen (no simulator): live action log, then a summary
-python -m chefbot.scripts.run_agent --task chefbot/tasks/fried_egg.yaml
+python -m chefbot.scripts.run_agent --task chefbot/jobs/fried_egg.yaml
 # Every task (or some) several times, in parallel; prints success rates and cost
 python -m chefbot.scripts.eval_agent --runs 3 --jobs 4
 python -m chefbot.scripts.eval_agent --tasks breakfast fried_egg_pause --runs 5
@@ -170,12 +189,12 @@ python -m chefbot.scripts.eval_agent --tasks breakfast fried_egg_pause --runs 5
 python -m chefbot.scripts.view_run runs/<run> --text
 ```
 
-`chefbot/envs/symbolic/` is an env like RoboCasa but without physics: fixtures
+`chefbot/environments/symbolic/` is an env like RoboCasa but without physics: fixtures
 along the walls, objects on or in things, doors, burners and appliances, a cook
 model, motions that take time, and a detector that cannot see into a closed
 fridge. The agent reaches it only through `RobotAPI`, `Detector`, `Clock` and
 `Observer`, so everything the agent does in RoboCasa it can do here first, on
-longer and messier tasks. Task files (`chefbot/tasks/*.yaml`) hold the plan and
+longer and messier tasks. Task files (`chefbot/jobs/*.yaml`) hold the plan and
 a `symbolic:` section: the scene, injected failure rates (grasp, place, nav,
 missed detections), disturbances (things changing behind the agent's back, at a
 time, a step status or after a tool call), and the ground-truth rules a run is
@@ -215,7 +234,7 @@ trigger (an egg cracker cracks the egg into what it is over; an electric whisk
 runs while squeezed), `stir` with a spoon (mixes in a bowl, scrambles eggs in
 a hot pan), `pour` the held container's contents.
 
-**Time** in the symbolic kitchen is semi-realistic (`envs/symbolic/timing.yaml`;
+**Time** in the symbolic kitchen is semi-realistic (`environments/symbolic/timing.yaml`;
 a task can override it under `symbolic: {timing: ...}`): the robot drives at
 0.35 m/s, a pick takes ~25 s, a look ~2 s; an egg fries in ~3 min, toast in
 ~2.5. Tool results say how long each call took. Long tasks raise their own run
@@ -251,7 +270,7 @@ success rates (`-s` shows them); deselect it with `-k "not rates"`.
 What is real and what is faked: arm motion, IK, the gripper and contact are
 simulated physics driven by env-agnostic code in `chefbot/robot`. The faked parts
 are perception (where an object is, how to grasp it, where to put it: the
-ground-truth proposers in `chefbot/envs/robocasa`) and opening fixtures, which
+ground-truth proposers in `chefbot/environments/robocasa`) and opening fixtures, which
 sets the door joint directly (`scripted: true` in the tool result).
 
 Answers to the spec's open questions (§12):
@@ -260,7 +279,7 @@ Answers to the spec's open questions (§12):
    but that model is not usable: its fingers jam on their own linkage at a gap of
    about 6 cm (an egg or a bottle cannot be gripped) and the linkage goes unstable
    on repeated closes. The sim uses MuJoCo Menagerie's 2F-85 instead, ported to a
-   robosuite gripper (`envs/robocasa/gripper.py`, `assets/robotiq_2f85/`): real
+   robosuite gripper (`environments/robocasa/gripper.py`, `assets/robotiq_2f85/`): real
    4-bar linkage, 85 mm stroke, closes fully. Its grip site is 0.155 m past the
    flange, turned -45 degrees about the approach axis (`tcp` in `robot.yaml`).
 2. **`arm_in_contact`.** Cheap, from the MuJoCo contact list: arm links 2-7, the
@@ -268,7 +287,7 @@ Answers to the spec's open questions (§12):
    never count, and neither does contact with an object touching both pads (the
    held object). `base_in_contact` is now the mobile base only.
 3. **Handles.** RoboCasa objects are single bodies with no handle sites. Two
-   steps: `envs/robocasa/handles.py` `detect_handle` finds which of a pan's
+   steps: `environments/robocasa/handles.py` `detect_handle` finds which of a pan's
    points are its handle (a thin run at one end of the long axis; the stand-in
    for a part segmentation model such as SAM), and `chefbot/grasping/handle.py`
    `handle_grasps` decides where to hold it: 4.5 cm out from the body, where the

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from chefbot.autoresearch import setups
+from chefbot import setups
 
 RATES = ("success",)
 MEANS = ("lift_cm", "max_lift_cm", "robot_time_s", "sim_s", "think_s", "model_s", "model_usd", "wall_s")

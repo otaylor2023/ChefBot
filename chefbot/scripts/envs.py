@@ -38,7 +38,7 @@ class EnvRun:
 
 
 def symbolic(task_path: Path, seed: int, noise: str) -> EnvRun:
-    from chefbot.envs.symbolic.scenario import Scenario
+    from chefbot.environments.symbolic.scenario import Scenario
 
     sc = Scenario.load(task_path, seed, noise)
 
@@ -55,14 +55,14 @@ def symbolic(task_path: Path, seed: int, noise: str) -> EnvRun:
 
 
 def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
-    from chefbot.envs.robocasa.build_map import GRID_FILE, SEMANTIC_MAP_FILE, build_map
-    from chefbot.envs.robocasa.config import RoboCasaConfig
-    from chefbot.envs.robocasa.env import RoboCasaEnv
-    from chefbot.envs.robocasa.kitchen_state import RoboCasaClock, RoboCasaKitchen, RoboCasaObserver
-    from chefbot.envs.robocasa.serve import RoboCasaStack, wire_stack
-    from chefbot.envs.success import check_success
-    from chefbot.envs.symbolic.scenario import load_yaml
-    from chefbot.envs.symbolic.world import Timing
+    from chefbot.environments.robocasa.build_map import GRID_FILE, SEMANTIC_MAP_FILE, build_map
+    from chefbot.environments.robocasa.config import RoboCasaConfig
+    from chefbot.environments.robocasa.env import RoboCasaEnv
+    from chefbot.environments.robocasa.kitchen_state import RoboCasaClock, RoboCasaKitchen, RoboCasaObserver
+    from chefbot.environments.robocasa.serve import RoboCasaStack, wire_stack
+    from chefbot.environments.success import check_success
+    from chefbot.environments.symbolic.scenario import load_yaml
+    from chefbot.environments.symbolic.world import Timing
     from chefbot.robot.config import RobotConfig
 
     task = load_yaml(task_path)
@@ -87,7 +87,7 @@ def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
         return check_success(rules, kitchen.describe().splitlines(), tools_called)
 
     def on_limit() -> None:
-        from chefbot.envs.robocasa.appliances import burners, set_burner
+        from chefbot.environments.robocasa.appliances import burners, set_burner
         import numpy as np
 
         with env.lock:

@@ -3,7 +3,7 @@ of simulator worker processes (each keeps its last kitchen loaded), with the lab
 
     dev   the researcher's items: full results (video, trace with the task's ground-truth measurements, logs)
     val   held-out items: only aggregate scores go back; at most `submissions` per lab
-    test  never reachable from here: run by us after the lab (python -m chefbot.autoresearch.evaluate)
+    test  never reachable from here: run by us after the lab (python -m chefbot.evals.evaluate)
 
 Layout of a lab run (runs/labs/<id>/): workspace/ (the researcher's), private/ (ledger, val results, logs: not the
 researcher's), snapshots/ (every skill version as it ran, readable by the skill's sandbox user).
@@ -23,7 +23,9 @@ import uuid
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from chefbot.autoresearch import setups, suites, worker
+from chefbot import setups, suites
+
+from chefbot.runtime import worker
 from chefbot.autoresearch.config import LabConfig
 from chefbot.autoresearch.summary import summarize
 
@@ -229,7 +231,7 @@ class Lab(IpcServer):
             return {"jobs": [{"job": k, "kind": j["kind"], "skill": j["skill"], "done": sum(f.done() for f in j["futures"]),
                               "total": len(j["futures"])} for k, j in self.jobs.items()]}  # fmt: skip
         if cmd == "budget":
-            from chefbot.autoresearch.models import Ledger
+            from chefbot.runtime.models import Ledger
 
             spent = Ledger(Path(self.ledger[0]), self.ledger[1]).spent()
             out = {"model_usd_spent": round(spent, 4), "model_usd_cap": self.ledger[1],
@@ -297,8 +299,8 @@ def main() -> int:
     import argparse
 
     from chefbot.autoresearch import config as C
-    from chefbot.autoresearch.episode import sandbox_kind
-    from chefbot.autoresearch.models import load_env
+    from chefbot.runtime.episode import sandbox_kind
+    from chefbot.runtime.models import load_env
     from chefbot.autoresearch.research import REPO, brief, setup_workspace
 
     ap = argparse.ArgumentParser()

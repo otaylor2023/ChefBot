@@ -1,7 +1,7 @@
 """Robot-layer configuration (robot.yaml), with the arm and gripper it names.
 
 robot.yaml picks the hardware (`hardware: {arm, gripper}`), described in
-config/arms/<arm>.yaml and config/grippers/<gripper>.yaml. A config may extend
+embodiments/arms/<arm>.yaml and embodiments/grippers/<gripper>.yaml. A config may extend
 another (`extends: robot.yaml`): maps merge key by key, anything else replaces.
 """
 
@@ -14,13 +14,14 @@ from pathlib import Path
 import yaml
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+EMBODIMENTS_DIR = CONFIG_DIR.parent / "embodiments"  # arms/ and grippers/: the hardware, as config
 DEFAULT_PATH = CONFIG_DIR / "robot.yaml"
 REAL_PATH = CONFIG_DIR / "robot_real.yaml"
 
 
 @dataclass(frozen=True)
 class ArmSpec:
-    """An arm's kinematics, as the IK uses it (config/arms/<arm>.yaml `kinematics`)."""
+    """An arm's kinematics, as the IK uses it (embodiments/arms/<arm>.yaml `kinematics`)."""
 
     mjcf: str = "fr3_kinematics.xml"  # in robot/kinematics/assets
     flange_body: str = "fr3_link7"
@@ -81,7 +82,7 @@ class RobotConfig:
     tcp_xyz: tuple[float, float, float] = (0.0, 0.0, 0.16)
     tcp_yaw: float = 0.0
     joint_limits: tuple | None = None  # n x (low, high); None: the arm model's own
-    # Hardware (config/arms, config/grippers)
+    # Hardware (embodiments/arms, embodiments/grippers)
     arm_name: str = "fr3"
     gripper_name: str = "robotiq_2f85"
     arm: ArmSpec = field(default_factory=ArmSpec)
@@ -162,8 +163,8 @@ class RobotConfig:
     def load(cls, path: str | Path | None = None) -> "RobotConfig":
         raw = load_raw(path or DEFAULT_PATH)
         hardware = raw["hardware"]
-        arm_raw = yaml.safe_load((CONFIG_DIR / "arms" / f"{hardware['arm']}.yaml").read_text())
-        gripper = yaml.safe_load((CONFIG_DIR / "grippers" / f"{hardware['gripper']}.yaml").read_text())
+        arm_raw = yaml.safe_load((EMBODIMENTS_DIR / "arms" / f"{hardware['arm']}.yaml").read_text())
+        gripper = yaml.safe_load((EMBODIMENTS_DIR / "grippers" / f"{hardware['gripper']}.yaml").read_text())
         mount, gains, limits = raw["arm_mount"], raw["gains"], raw["limits"]
         tol, standoff, ik = raw["tolerances"], raw["standoff"], raw["ik"]
         tcp, arm, skills, postures = gripper["tcp"], raw["arm"], raw["skills"], arm_raw["postures"]

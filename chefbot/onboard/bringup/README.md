@@ -22,7 +22,7 @@ git clone <ChefBot> ~/ChefBot && cd ~/ChefBot
    onboard server. Ctrl-C stops them all.
 
 Then, read-only, on the robot: `python -m chefbot.onboard.check` (which drivers are up, nothing moves).
-From the laptop: `ssh -L 8765:localhost:8765 tidybot01`, then `python -m chefbot.envs.real.check`.
+From the laptop: `ssh -L 8765:localhost:8765 tidybot01`, then `python -m chefbot.environments.real.check`.
 
 ## Safety
 

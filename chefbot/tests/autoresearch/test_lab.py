@@ -9,8 +9,12 @@ import numpy as np
 import pytest
 import yaml
 
-from chefbot.autoresearch import config, models, setups, suites
-from chefbot.autoresearch.episode import run_episode
+from chefbot.autoresearch import config
+
+from chefbot.runtime import models
+
+from chefbot import setups, suites
+from chefbot.runtime.episode import run_episode
 from chefbot.interface.types import Pose2D
 
 
@@ -150,7 +154,7 @@ def pick_parts():
 
 def test_every_lab_names_suites_and_setups_that_exist():
     for path in config.LABS.glob("*.yaml"):
-        if yaml.safe_load(path.read_text()).get("kind") == "object":  # object labs: test_objects.py
+        if yaml.safe_load(path.read_text()).get("kind") == "generator":  # generator labs: test_generators.py
             continue
         cfg = config.load(str(path))
         for part in cfg.suites:

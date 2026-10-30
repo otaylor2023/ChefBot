@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from chefbot.envs.robocasa.handles import detect_handle
+from chefbot.environments.robocasa.handles import detect_handle
 from chefbot.grasping.handle import GRIP_FROM_BODY, handle_grasps
 
 FLOOR = 0.9

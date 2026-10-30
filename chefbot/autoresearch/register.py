@@ -17,7 +17,7 @@ from pathlib import Path
 import yaml
 
 from chefbot.autoresearch import config as C
-from chefbot.autoresearch import skills
+from chefbot import skills
 
 
 def models_in(code: str) -> dict:
@@ -62,7 +62,7 @@ def main() -> None:
                 "speed": "normal", "models": models_in(code), "assumes": "the start rule of its lab's task",
                 "provenance": {"lab": cfg.name, "run": a.run.name, "suite": cfg.suite("dev").split("/")[0], "test": "not tested", "report": "REPORT.md"}}  # fmt: skip
     (dst / "skill.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    print(f"registered {dst.relative_to(skills.ROOT)}; test it: python -m chefbot.autoresearch.evaluate --skill {cfg.goal['skill']}/{a.version} "
+    print(f"registered {dst.relative_to(skills.ROOT)}; test it: python -m chefbot.evals.evaluate --skill {cfg.goal['skill']}/{a.version} "
           f"--suite {cfg.suite('test')}")  # fmt: skip
 
 

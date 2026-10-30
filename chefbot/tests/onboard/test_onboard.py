@@ -7,7 +7,7 @@ import time
 import numpy as np
 import pytest
 
-from chefbot.envs.real.env import RealEnv, RobotHalted
+from chefbot.environments.real.env import RealEnv, RobotHalted
 from chefbot.interface.types import Pose2D
 from chefbot.onboard import keys as K
 from chefbot.onboard.frames import BaseFrames, compose

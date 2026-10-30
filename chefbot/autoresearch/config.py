@@ -20,7 +20,7 @@ from pathlib import Path
 
 import yaml
 
-LABS = Path(__file__).resolve().parent / "labs"
+LABS = Path(__file__).resolve().parents[1] / "labs"
 
 
 @dataclass

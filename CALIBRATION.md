@@ -70,12 +70,12 @@ pole camera's pose. It inherits the wrist calibration's error, so it is the chec
 
 ## Code (to build)
 
-`chefbot/envs/real/calibrate.py`, on the laptop (needs `opencv-contrib-python` there, nothing new on the robot):
+`chefbot/environments/real/calibrate.py`, on the laptop (needs `opencv-contrib-python` there, nothing new on the robot):
 
 ```sh
-python -m chefbot.envs.real.calibrate wrist   # board on the table
-python -m chefbot.envs.real.calibrate pole    # board on the flange bracket
-python -m chefbot.envs.real.calibrate check   # the verification moves
+python -m chefbot.environments.real.calibrate wrist   # board on the table
+python -m chefbot.environments.real.calibrate pole    # board on the flange bracket
+python -m chefbot.environments.real.calibrate check   # the verification moves
 ```
 
 - Collect: pose list -> confirm -> move -> settle -> frame + joints, saved under `runs/calibration/<time>/`

@@ -29,8 +29,8 @@ import numpy as np
 from chefbot.agent.config import AgentConfig
 from chefbot.agent.tools.registry import ToolRegistry
 from chefbot.agent.world.map import WorldMap
-from chefbot.envs.robocasa.config import RoboCasaConfig
-from chefbot.envs.robocasa.serve import RoboCasaStack, build_stack
+from chefbot.environments.robocasa.config import RoboCasaConfig
+from chefbot.environments.robocasa.serve import RoboCasaStack, build_stack
 from chefbot.interface.types import MotionStatus, Pose2D, ToolResult
 from chefbot.scripts.demo_manip import manip_trace
 from chefbot.scripts.demo_nav import TRACE as DEMO_TRACE
@@ -188,7 +188,7 @@ class Recorder:
         return int(off_x + col * scale), int(off_y + (top - row) * scale)  # +y up
 
     def _draw_map_base(self) -> tuple[np.ndarray, tuple[float, int, int, int]]:
-        from chefbot.envs.robocasa.build_map import GRID_FILE
+        from chefbot.environments.robocasa.build_map import GRID_FILE
         from chefbot.robot.nav.grid import OccupancyGrid
 
         raw = OccupancyGrid.load(self._raw_grid_path / GRID_FILE).occupied

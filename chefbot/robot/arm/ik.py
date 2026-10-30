@@ -1,4 +1,4 @@
-"""Arm kinematics and IK (mink on the arm's MJCF, config/arms/<arm>.yaml).
+"""Arm kinematics and IK (mink on the arm's MJCF, embodiments/arms/<arm>.yaml).
 
 One model serves reachability (position-only, NAV_SPEC §6.5) and execution
 (full pose), so "reachable" and "executable" agree. Everything here is in the
