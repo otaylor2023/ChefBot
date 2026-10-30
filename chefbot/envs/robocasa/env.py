@@ -24,7 +24,7 @@ from robosuite.utils.camera_utils import (
 )
 
 from chefbot.envs.robocasa.config import RoboCasaConfig
-from chefbot.envs.robocasa.gripper import PAD_GEOMS, register_gripper
+from chefbot.envs.robocasa.gripper import sim_gripper
 from chefbot.envs.robocasa.spawn import TASK_NAME, place_objects
 from chefbot.interface.env import Env
 from chefbot.interface.types import RGBD, EnvState, Pose2D, wrap_angle
@@ -46,10 +46,6 @@ _GRIPPER_PREFIX = "gripper0_right_"
 # Arm links that count for `arm_in_contact`. The first two links sit on the
 # base and never reach anything; the gripper body counts, its fingers do not.
 _ARM_CONTACT_BODIES = tuple(f"robot0_link{i}" for i in range(2, 8)) + ("robot0_right_hand",)
-_GRIPPER_CONTACT_GEOMS = ("base_mount_collision", "base_collision")
-# Pad geoms are 8 mm thick boxes: the gap between their faces is this much
-# less than the distance between their centers.
-_PAD_THICKNESS = 0.008
 # Below this commanded speed the friction feedforward fades out, so a zero
 # command means zero actuator effort. It has to be small: with the no-slip
 # solver on, joint friction is a hard threshold, and a slow final correction
@@ -72,7 +68,8 @@ def _release_gl_context() -> None:
 
 
 class RoboCasaEnv(Env):
-    """A RoboCasa kitchen with the default mobile Franka (PandaOmron).
+    """A RoboCasa kitchen with the default mobile Franka (PandaOmron), and the
+    gripper the config names (envs/robocasa/gripper.py).
 
     The base is holonomic: three velocity actuators on x / y slide joints and a
     yaw hinge. The base pose is the yaw joint's anchor, which is also the center
@@ -111,10 +108,11 @@ class RoboCasaEnv(Env):
         # Every sim access goes through this lock: the motion thread steps
         # physics while other threads read poses and run detection.
         self.lock = threading.RLock()
+        self.gripper = sim_gripper(cfg.gripper)
         self.suite = robosuite.make(
             env_name=TASK_NAME,
             robots=cfg.robot,
-            gripper_types=register_gripper(),
+            gripper_types=self.gripper.robosuite_name,
             controller_configs=controller_config,
             chef_objects=cfg.objects,
             layout_ids=cfg.layout,
@@ -173,10 +171,10 @@ class RoboCasaEnv(Env):
         arm_bodies = {model.body(name).id for name in _ARM_CONTACT_BODIES}
         self._arm_geoms = frozenset(
             g for g in range(model.ngeom) if int(model.geom_bodyid[g]) in arm_bodies
-        ) | {model.geom(_GRIPPER_PREFIX + name).id for name in _GRIPPER_CONTACT_GEOMS}
+        ) | {model.geom(_GRIPPER_PREFIX + name).id for name in self.gripper.body_geoms}
         self._pad_geoms = {
             side: frozenset(model.geom(_GRIPPER_PREFIX + name).id for name in names)
-            for side, names in PAD_GEOMS.items()
+            for side, names in self.gripper.pads.items()
         }
 
         arm_joints = [model.joint(name).id for name in _ARM_JOINTS]
@@ -268,6 +266,17 @@ class RoboCasaEnv(Env):
         if not self._render:
             raise RuntimeError("RoboCasaEnv was created with render=False; pass render=True for cameras")
         return self._render_thread.submit(self._render_rgbd, cam).result()
+
+    def render(self, cam: str, width: int, height: int) -> np.ndarray:
+        """An RGB image (H, W, 3) from `cam` at any size (videos). Do not call with `lock` held."""
+        if not self._render:
+            raise RuntimeError("RoboCasaEnv was created with render=False; pass render=True for cameras")
+
+        def rgb() -> np.ndarray:
+            with self.lock:
+                return np.ascontiguousarray(self.suite.sim.render(camera_name=cam, width=width, height=height)[::-1])
+
+        return self._render_thread.submit(rgb).result()
 
     def _render_rgbd(self, cam: str) -> RGBD:
         cfg = self.config
@@ -538,7 +547,7 @@ class RoboCasaEnv(Env):
     def _gripper_width(self) -> float:
         left, right = (next(iter(self._pad_geoms[side])) for side in ("left", "right"))
         gap = float(np.linalg.norm(self.data.geom_xpos[left] - self.data.geom_xpos[right]))
-        return max(0.0, gap - _PAD_THICKNESS)
+        return max(0.0, gap - self.gripper.pad_thickness)
 
     def _action(self) -> np.ndarray:
         """The robosuite action that realizes the commanded world-frame base velocity."""

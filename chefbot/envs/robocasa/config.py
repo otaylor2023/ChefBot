@@ -16,6 +16,7 @@ DEFAULT_PATH = PACKAGE_ROOT / "config" / "envs" / "robocasa.yaml"
 class RoboCasaConfig:
     task: str = "Kitchen"
     robot: str = "PandaOmron"
+    gripper: str = "robotiq_2f85"  # envs/robocasa/gripper.py: robotiq_2f85 | franka_hand
     layout: int = 1
     style: int = 1
     seed: int = 0
@@ -49,6 +50,7 @@ class RoboCasaConfig:
         config = cls(
             task=raw["task"],
             robot=raw["robot"],
+            gripper=raw.get("gripper", cls.gripper),
             layout=raw["layout"],
             style=raw["style"],
             seed=raw["seed"],

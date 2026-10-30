@@ -1,12 +1,16 @@
-"""Robotiq 2F-85 (MuJoCo Menagerie model) as a robosuite gripper.
+"""The sim robot's grippers (RoboCasaConfig.gripper): the Robotiq 2F-85 and the Franka Hand.
 
-robosuite ships its own `Robotiq85Gripper`, but that model's fingers jam on
-their own linkage at a ~6 cm gap and go unstable on repeated closes, so it
-cannot hold small objects. Menagerie's model has the real closed 4-bar linkage.
+Robotiq 2F-85: MuJoCo Menagerie's model as a robosuite gripper. robosuite ships
+its own `Robotiq85Gripper`, but that model's fingers jam on their own linkage at
+a ~6 cm gap and go unstable on repeated closes, so it cannot hold small objects.
+Menagerie's model has the real closed 4-bar linkage.
+
+Franka Hand: robosuite's own `PandaGripper`, the real FR3's gripper.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -60,3 +64,30 @@ def register_gripper() -> str:
     """Make the gripper available to `robosuite.make(gripper_types=...)`."""
     GRIPPER_MAPPING.setdefault(GRIPPER_NAME, Menagerie2F85Gripper)
     return GRIPPER_NAME
+
+
+@dataclass(frozen=True)
+class SimGripper:
+    """What the env needs to know about a gripper model (geom names unprefixed)."""
+
+    robosuite_name: str
+    pads: dict  # side -> the fingertip pads' collision geoms
+    body_geoms: tuple  # the gripper body's collision geoms: they count for arm contact, the fingers do not
+    pad_thickness: float  # the gap between the pads' faces is this much less than between their centers
+
+
+GRIPPERS = {
+    "robotiq_2f85": SimGripper(GRIPPER_NAME, PAD_GEOMS, ("base_mount_collision", "base_collision"), 0.008),
+    "franka_hand": SimGripper(
+        "PandaGripper", {"left": ("finger1_pad_collision",), "right": ("finger2_pad_collision",)}, ("hand_collision",), 0.008
+    ),
+}
+
+
+def sim_gripper(name: str) -> SimGripper:
+    """The gripper called `name` (config/grippers/<name>.yaml), registered with robosuite."""
+    if name not in GRIPPERS:
+        raise ValueError(f"no sim model for gripper {name!r}; have {sorted(GRIPPERS)}")
+    if name == "robotiq_2f85":
+        register_gripper()
+    return GRIPPERS[name]
