@@ -1,0 +1,6 @@
+description: 'RoboCasa pick: one named object on a counter among two others, arm only,
+  Panda + Franka Hand; val and test kitchens and object categories never in dev'
+suites:
+  dev: dev.yaml
+  val: val.yaml
+  test: test.yaml

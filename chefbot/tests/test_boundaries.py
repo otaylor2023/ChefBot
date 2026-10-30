@@ -121,6 +121,19 @@ def test_nothing_imports_the_onboard_package():
         assert violations(layer, ("chefbot.onboard",)) == [], layer
 
 
+def test_nothing_imports_the_autoresearch_lab():
+    # The lab is a harness around the robot: tools to make skills, not part of the robot stack.
+    for layer in ("agent", "robot", "interface", "envs", "grasping", "scripts", "onboard"):
+        assert violations(layer, ("chefbot.autoresearch",)) == [], layer
+
+
+def test_the_skill_api_is_standard_library_and_numpy():
+    # It is all a sandboxed skill gets: it runs in the skill's own interpreter, without ChefBot.
+    imported = imports_of(PACKAGE / "autoresearch" / "skill_api.py")
+    allowed = {"__future__", "json", "os", "sys", "threading", "time", "traceback", "uuid", "pathlib", "numpy", "main"}
+    assert {m.split(".")[0] for m in imported} <= allowed, imported
+
+
 def run_pytest_without(blocked: list[str], targets: list[str]) -> subprocess.CompletedProcess:
     """Run pytest in a fresh interpreter where importing `blocked` modules fails."""
     code = (

@@ -31,7 +31,8 @@ include = ["chefbot*"]
 
 [tool.setuptools.package-data]
 chefbot = ["config/**/*.yaml", "robot/kinematics/assets/**/*", "envs/robocasa/assets/**/*", "envs/real/config.yaml",
-           "onboard/config.yaml", "onboard/bringup/*"]
+           "onboard/config.yaml", "onboard/bringup/*", "autoresearch/**/*.yaml", "autoresearch/**/*.md",
+           "autoresearch/templates/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["chefbot/tests"]

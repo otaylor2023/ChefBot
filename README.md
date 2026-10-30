@@ -110,6 +110,35 @@ python -m chefbot.envs.real.check               # read-only: state, and the arm 
 Not yet: the real kitchen's map, real grasp / placement proposers and fixture
 actuator, contact sensing, camera mounts (TODO markers in the configs).
 
+## Autoresearch labs (chefbot/autoresearch)
+
+A researcher agent (Codex) writes a robot skill, a sandboxed Python program,
+against a lab's dev scenes through `./lab`. It scores on held-out val scenes a
+few times, and we score the result on test afterwards. This is
+agentic-skills-exploration's lab, ported onto ChefBot's RoboCasa env and IK,
+with the real robot's arm and hand: the Panda with the Franka Hand
+(`config/robot_franka_hand.yaml`; the env takes `gripper: franka_hand`).
+
+The first lab is `robocasa_pick`: pick up a named object from a counter among
+two others, arm only. Its kitchens and object categories are split
+dev/val/test, and val and test are never seen in dev.
+
+```sh
+python -m chefbot.autoresearch.suites.check robocasa_pick       # every scene starts at each seed (no skill)
+python -m chefbot.autoresearch.lab_server robocasa_pick --root runs/labs/try    # a lab to drive by hand: cd .../workspace; ./lab -h
+python -m chefbot.autoresearch.research robocasa_pick --hours 4 # a research run (Codex; GEMINI_API_KEY in .env)
+python -m chefbot.autoresearch.register runs/labs/<run> --version run1_v1
+python -m chefbot.autoresearch.evaluate --skill pick_up/run1_v1 --suite robocasa_pick/test
+```
+
+Skills may call Gemini (metered, with budgets) and the vision models
+(`chefbot/autoresearch/vision_server.py`, in its own env with torch +
+transformers; set `VISION_URL`). The example skill uses detection, so it needs
+the server. Runs go to `runs/` (`CHEFBOT_RUNS` to put them elsewhere: it is in
+iCloud here). On macOS skills run under `sandbox-exec` plus an in-process guard
+(no network, no subprocesses, nothing of the repo); Codex is not walled off from
+the repo on macOS (`--hide` needs Linux), so the brief asks it not to look.
+
 ## The agent loop (AGENT_SPEC.md)
 
 An LLM (OpenRouter; key in `OPENROUTER_API_KEY` or `.env`) works through a

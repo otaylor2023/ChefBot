@@ -1,0 +1,11 @@
+# Speed profiles, shared by every robot; a run picks one (default: the robot's control.speed).
+# Rates, not step sizes, so the controller gives the same motion at any tick rate:
+#   base_max_vel  m/s, m/s, rad/s     the base's velocity limit
+#   arm_lin       m/s                 how fast the flange may move toward its target
+#   arm_ang       rad/s               how fast it may turn
+#   joint         rad/s               how fast any one arm joint may move
+# Every profile is clipped to the robot's control.limits. (As in agentic-skills-exploration.)
+slow:   {base_max_vel: [0.08, 0.08, 0.15], arm_lin: 0.04, arm_ang: 0.25, joint: 0.15}   # first real runs
+medium: {base_max_vel: [0.15, 0.15, 0.3],  arm_lin: 0.1,  arm_ang: 0.5,  joint: 0.3}
+normal: {base_max_vel: [0.2, 0.2, 0.375],  arm_lin: 0.1,  arm_ang: 0.625, joint: 0.375}
+fast:   {base_max_vel: [0.5, 0.5, 1.0],    arm_lin: 0.4,  arm_ang: 2.0,  joint: 1.0}
