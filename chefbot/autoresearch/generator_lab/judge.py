@@ -17,21 +17,12 @@ import tempfile
 import time
 from pathlib import Path
 
-ASSET_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "shape": {"type": "integer", "minimum": 1, "maximum": 10},
-        "tips": {"type": "integer", "minimum": 1, "maximum": 10},
-        "mechanism": {"type": "integer", "minimum": 1, "maximum": 10},
-        "materials": {"type": "integer", "minimum": 1, "maximum": 10},
-        "proportions": {"type": "integer", "minimum": 1, "maximum": 10},
-        "overall": {"type": "integer", "minimum": 1, "maximum": 10},
-        "closest_real": {"type": "string"},
-        "flaws": {"type": "array", "items": {"type": "string"}},
-        "summary": {"type": "string"},
-    },
-    "required": ["shape", "tips", "mechanism", "materials", "proportions", "overall", "closest_real", "flaws", "summary"],
-}
+def asset_schema(scores: list[str]) -> dict:
+    props = {k: {"type": "integer", "minimum": 1, "maximum": 10} for k in scores}
+    props.update(closest_real={"type": "string"}, flaws={"type": "array", "items": {"type": "string"}}, summary={"type": "string"})
+    return {"type": "object", "properties": props, "required": [*scores, "closest_real", "flaws", "summary"]}
+
+
 BATCH_SCHEMA = {
     "type": "object",
     "properties": {
@@ -43,7 +34,6 @@ BATCH_SCHEMA = {
     },
     "required": ["variety", "coverage", "missing", "near_duplicates", "summary"],
 }
-SCORE_KEYS = ("shape", "tips", "mechanism", "materials", "proportions", "overall")
 
 
 class JudgeError(RuntimeError):
@@ -116,21 +106,23 @@ def _card(params: dict, checks: dict) -> str:
 
 
 def judge_asset(lab_dir: Path, params: dict, checks: dict, rubric: str, refs_image: Path | None, model: str, config_dir: Path,
-                ledger: Path | None = None) -> dict:
+                ledger: Path | None = None, judging: dict | None = None) -> dict:
+    """judging: the family's score keys and image names (family.judging)."""
+    j = judging or {"scores": ["shape", "tips", "mechanism", "materials", "proportions", "overall"], "motion": "asset_squeeze.jpg", "refs": "real_tongs.jpg"}
     lab_dir = Path(lab_dir)
-    images = {"asset_views.jpg": lab_dir / "sheet.jpg", "asset_squeeze.jpg": lab_dir / "actuation.jpg"}
+    images = {"asset_views.jpg": lab_dir / "sheet.jpg", j["motion"]: lab_dir / "actuation.jpg"}
     if refs_image is not None:
-        images["real_tongs.jpg"] = Path(refs_image)
-    prompt = rubric.replace("{CARD}", _card(params, checks)).replace("{REFS}", "real_tongs.jpg" if refs_image else "(none)")
-    out = ask(prompt, images, ASSET_SCHEMA, model, config_dir, ledger=ledger, kind="asset")
-    out["mean"] = round(sum(out[k] for k in SCORE_KEYS) / len(SCORE_KEYS), 2)
+        images[j["refs"]] = Path(refs_image)
+    prompt = rubric.replace("{CARD}", _card(params, checks)).replace("{REFS}", j["refs"] if refs_image else "(none)")
+    out = ask(prompt, images, asset_schema(j["scores"]), model, config_dir, ledger=ledger, kind="asset")
+    out["mean"] = round(sum(out[k] for k in j["scores"]) / len(j["scores"]), 2)
     return out
 
 
 def judge_batch(contact_sheet: Path, n: int, rubric: str, refs_image: Path | None, model: str, config_dir: Path,
-                ledger: Path | None = None) -> dict:
+                ledger: Path | None = None, refs_name: str = "real_tongs.jpg") -> dict:
     images = {"batch.jpg": Path(contact_sheet)}
     if refs_image is not None:
-        images["real_tongs.jpg"] = Path(refs_image)
-    prompt = rubric.replace("{N}", str(n)).replace("{REFS}", "real_tongs.jpg" if refs_image else "(none)")
+        images[refs_name] = Path(refs_image)
+    prompt = rubric.replace("{N}", str(n)).replace("{REFS}", refs_name if refs_image else "(none)")
     return ask(prompt, images, BATCH_SCHEMA, model, config_dir, ledger=ledger, kind="batch")

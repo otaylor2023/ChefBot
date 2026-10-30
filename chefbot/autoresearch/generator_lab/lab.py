@@ -89,8 +89,8 @@ def contract_text(cfg: GeneratorLabConfig, fam: dict) -> str:
 
     g = fam["generation"]
     text = (family_dir(cfg) / fam["contract"]).read_text()
-    for k, v in {"{GEN_TIMEOUT_S}": g["timeout_s"], "{MAX_ASSET_MB}": g["max_asset_mb"], "{MAX_COLLISION_GEOMS}": g["max_collision_geoms"],
-                 "{MAX_COLLISION_VERTS}": g["max_collision_verts"], "{GEN_PACKAGES}": _gen_packages(), "{MUJOCO_VERSION}": mujoco.__version__}.items():  # fmt: skip
+    for k, v in {"{GEN_TIMEOUT_S}": g["timeout_s"], "{MAX_ASSET_MB}": g["max_asset_mb"], "{MAX_COLLISION_GEOMS}": g.get("max_collision_geoms"),
+                 "{MAX_COLLISION_VERTS}": g.get("max_collision_verts"), "{GEN_PACKAGES}": _gen_packages(), "{MUJOCO_VERSION}": mujoco.__version__}.items():  # fmt: skip
         text = text.replace(k, str(v))
     return text
 
@@ -119,8 +119,9 @@ def setup_workspace(cfg: GeneratorLabConfig, ws: Path, text: str) -> None:
     os.chmod(ws / "lab", 0o755)
     (ws / "docs" / "generator_contract.md").write_text(contract_text(cfg, fam))
     checks_doc = (family_dir(cfg) / "checks.md").read_text()
-    thresholds = {k: v for k, v in fam["checks"].items()}
-    (ws / "docs" / "checks.md").write_text(checks_doc + "\n## Thresholds (family.yaml)\n\n```yaml\n" + yaml.safe_dump(thresholds, sort_keys=False) + "```\n")
+    if fam.get("checks"):  # the family's thresholds, when it keeps them in family.yaml
+        checks_doc += "\n## Thresholds (family.yaml)\n\n```yaml\n" + yaml.safe_dump(dict(fam["checks"]), sort_keys=False) + "```\n"
+    (ws / "docs" / "checks.md").write_text(checks_doc)
     shutil.copy(family_dir(cfg) / fam["judge"]["rubric"], ws / "docs" / "judge_rubric.md")
     shutil.copy(family_dir(cfg) / "rubric_batch.md", ws / "docs" / "judge_rubric_batch.md")
     refs_ws = ws / "refs"
@@ -128,9 +129,10 @@ def setup_workspace(cfg: GeneratorLabConfig, ws: Path, text: str) -> None:
         refs_ws.mkdir()
         for it in RF.items(cfg.family, "dev"):
             shutil.copytree(it["dir"], refs_ws / it["id"])
-        RF.montage(cfg.family, "dev", refs_ws / "real_tongs.jpg")
-        (refs_ws / "README.md").write_text("# Real tongs (the dev reference set)\n\nThe dev judge sees `real_tongs.jpg` next to your "
-                                           "renders. Val and test use other products.\n\n" + RF.spec_table(cfg.family, "dev") + "\n")  # fmt: skip
+        refs_name = F.judging(fam)["refs"]
+        RF.montage(cfg.family, "dev", refs_ws / refs_name)
+        (refs_ws / "README.md").write_text(f"# Real {fam.get('noun', cfg.family)} (the dev reference set)\n\nThe dev judge sees `{refs_name}` next "
+                                           "to your renders. Val and test use others.\n\n" + RF.spec_table(cfg.family, "dev") + "\n")  # fmt: skip
     (ws / "AGENTS.md").write_text(text)
     if not (ws / "generators" / "example").exists():
         shutil.copytree(family_dir(cfg) / "example", ws / "generators" / "example", ignore=shutil.ignore_patterns("__pycache__"))
@@ -166,7 +168,8 @@ class GeneratorLab(lab_server.IpcServer):
         os.chmod(self.snapshots, 0o755)
         self.ledger = self.private / "judge_ledger.jsonl"
         self.judge_home = self.private / "claude_judge"
-        self.dev_refs = self.ws / "refs" / "real_tongs.jpg"
+        self.judging = F.judging(self.fam)
+        self.dev_refs = self.ws / "refs" / self.judging["refs"]
         self.val_refs = RF.montage(cfg.family, "val", self.private / "refs_val.jpg")
         heldout = RF.root() / cfg.family / "heldout" / "rubric.md"
         self.val_rubric = (heldout if heldout.exists() else family_dir(cfg) / self.fam["judge"]["rubric"]).read_text()
@@ -232,16 +235,16 @@ class GeneratorLab(lab_server.IpcServer):
             if n >= 3:
                 try:
                     batch = J.judge_batch(j["dir"] / "batch.jpg", n, self.batch_rubric, self.val_refs, self.cfg.judge.get("val_model", "opus"),
-                                          self.judge_home, self.ledger)  # fmt: skip
+                                          self.judge_home, self.ledger, self.judging["refs"])  # fmt: skip
                 except J.JudgeError as e:
                     batch = {"error": str(e)}
-            summary = P.summarize(recs, batch)
+            summary = self.summarize(recs, batch)
             (j["dir"] / "records.json").write_text(json.dumps({"records": recs, "batch": batch}, indent=1, default=str))
             self.state["val_history"].append({"job": job, "gen": j["gen"], "digest": j["digest"], **summary})
             self._save_state()
             j["summary"] = summary
         else:
-            j["summary"] = P.summarize(recs)
+            j["summary"] = self.summarize(recs)
             (j["dir"] / "summary.json").write_text(json.dumps({"summary": j["summary"], "records": recs}, indent=1, default=str))
         j["finished"] = True
 
@@ -288,13 +291,17 @@ class GeneratorLab(lab_server.IpcServer):
             sub = j["dir"] / f"batch_{'-'.join(map(str, sorted(r['seed'] for r in recs)))}.jpg" if seeds else j["dir"] / "batch.jpg"
             n = P.batch_sheet(recs, sub)
             try:
-                batch = J.judge_batch(sub, n, self.batch_rubric, self.dev_refs if self.dev_refs.exists() else None, model, self.judge_home, self.ledger)
+                batch = J.judge_batch(sub, n, self.batch_rubric, self.dev_refs if self.dev_refs.exists() else None, model, self.judge_home, self.ledger,
+                                      self.judging["refs"])  # fmt: skip
             except J.JudgeError as e:
                 batch = {"error": str(e)}
         out = {"job": job, "model": model, "assets": [{"seed": r["seed"], **r.get("judge", {})} for r in recs], "batch": batch,
-               "summary": P.summarize(recs, batch), "judge_calls_left": self.cfg.dev_judge_calls - used - need}  # fmt: skip
+               "summary": self.summarize(recs, batch), "judge_calls_left": self.cfg.dev_judge_calls - used - need}  # fmt: skip
         (j["dir"] / f"judge-{time.strftime('%H%M%S')}.json").write_text(json.dumps(out, indent=1))
         return out
+
+    def summarize(self, recs: list[dict], batch: dict | None = None) -> dict:
+        return P.summarize(recs, batch, self.fam.get("summary_keys", ()), self.judging["scores"])
 
     def _save_state(self) -> None:
         self.state_path.write_text(json.dumps(self.state, indent=1))

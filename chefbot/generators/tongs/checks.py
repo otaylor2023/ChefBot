@@ -313,7 +313,7 @@ def declared(params: dict, measured: dict, fam: dict) -> dict:
     return out
 
 
-def run(asset_dir: Path, fam: dict, params: dict | None = None, out_dir: Path | None = None) -> dict:
+def run(asset_dir: Path, fam: dict, params: dict | None = None, out_dir: Path | None = None, **_) -> dict:
     """All checks on one generated asset. out_dir (default asset_dir/lab) gets checks.json and the render traces."""
     t0 = time.time()
     asset_dir = Path(asset_dir)

@@ -60,11 +60,12 @@ def evaluate(run: Path, gen: str, n: int | None, jobs: int, judge: bool, out: Pa
         P.judge_records(records, fam, rubric, refs_img, model, home, ledger)
         if count >= 3:
             try:
-                batch = J.judge_batch(out / "batch.jpg", count, (OL.family_dir(cfg) / "rubric_batch.md").read_text(), refs_img, model, home, ledger)
+                batch = J.judge_batch(out / "batch.jpg", count, (OL.family_dir(cfg) / "rubric_batch.md").read_text(), refs_img, model, home, ledger,
+                                      F.judging(fam)["refs"])  # fmt: skip
             except J.JudgeError as e:
                 batch = {"error": str(e)}
         shutil.rmtree(home, ignore_errors=True)
-    summary = {"run": str(run), "generator": gen, "seeds": seeds, **P.summarize(records, batch)}
+    summary = {"run": str(run), "generator": gen, "seeds": seeds, **P.summarize(records, batch, fam.get("summary_keys", ()), F.judging(fam)["scores"])}
     (out / "records.json").write_text(json.dumps({"records": records, "batch": batch}, indent=1, default=str))
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     write_page(out, records, summary, cfg.family)

@@ -1,0 +1,10 @@
+# A generator lab: buildings with elevators as plain-MuJoCo scenes (floors, shafts, cars, doors, buttons, displays)
+# with their controllers (timing, dispatch, faults), and a realistic variety across seeds; checked with the lab's
+# probes on full trips, judged by Claude against photos of real elevators. generator_lab/lab.py runs it.
+kind: generator
+family: elevator
+brief: briefs/make_elevators.md
+judge: {dev_model: sonnet, val_model: opus, dev_calls: 300}
+val: {n: 8, submissions: 4}
+test: {n: 16}
+budgets: {hours: 5, codex_usage_add_pct: 15}

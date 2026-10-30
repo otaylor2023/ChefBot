@@ -23,8 +23,16 @@ from chefbot.autoresearch.generator_lab import generate as G
 from chefbot.autoresearch.generator_lab import judge as J
 
 
-def check_ranges(gen_dir: Path, params: dict) -> dict:
+def flat(params: dict) -> dict:
+    """A generator's parameters, flat ({"build": .., "run": ..} merged when it returns them so)."""
+    if isinstance(params.get("build"), dict) or isinstance(params.get("run"), dict):
+        return {**(params.get("build") or {}), **(params.get("run") or {})}
+    return params
+
+
+def check_ranges(gen_dir: Path, params: dict, required=("length_m", "rest_tip_gap_m", "closing_force_N", "mass_kg")) -> dict:
     """The asset's parameters against the generator's ranges.yaml (every range needs a `why`)."""
+    params = flat(params)
     path = Path(gen_dir) / "ranges.yaml"
     if not path.exists():
         return {"ok": False, "why": "the generator has no ranges.yaml"}
@@ -41,7 +49,7 @@ def check_ranges(gen_dir: Path, params: dict) -> dict:
         if isinstance(v, (int, float)) and isinstance(r.get("min"), (int, float)) and isinstance(r.get("max"), (int, float)):
             if not r["min"] - 1e-9 <= v <= r["max"] + 1e-9:
                 whys.append(f"{k} = {v:g} is outside its range [{r['min']:g}, {r['max']:g}]")
-    for k in ("length_m", "rest_tip_gap_m", "closing_force_N", "mass_kg"):
+    for k in required:
         if k not in ranges:
             whys.append(f"ranges.yaml has no {k}")
     return {"ok": not whys, **({"why": "; ".join(whys)} if whys else {})}
@@ -59,19 +67,19 @@ def build_one(gen_dir: str, seed: int, out: str, fam: dict, video: bool = True, 
             return rec
         params = g["params"]
         rec["params"] = params
-        c = F.checks(fam).run(out_p, fam, params)
-        c["checks"]["ranges"] = check_ranges(Path(gen_dir), params)
+        runtime = dynamics_runtime(out_p, extra_deny) if fam.get("dynamics") else {}
+        c = F.checks(fam).run(out_p, fam, params, **runtime)
+        c["checks"]["ranges"] = check_ranges(Path(gen_dir), params, fam.get("ranges_required", ()))
         failed = [k for k, v in c["checks"].items() if not v.get("ok")]
         c.update(ok=not failed, failed=failed)
         (out_p / "lab" / "checks.json").write_text(json.dumps(c, indent=1, default=float))
         rec.update(ok=c["ok"], failed=failed, measured=c["measured"], check_s=c["check_s"],
                    why={k: v.get("why") for k, v in c["checks"].items() if v.get("why")})  # fmt: skip
-        if (out_p / "lab" / "settled.npz").exists() and (out_p / "lab" / "squeeze.npz").exists():
-            title = f"seed {seed}: {params.get('style', '')}"[:110]
+        if "structure" not in failed:
+            p = flat(params)
+            title = f"seed {seed}: {p.get('style') or p.get('building_type', '')}"[:110]
             try:
-                from chefbot.autoresearch.generator_lab import render
-
-                render.render_all(out_p, title=title, video=video)
+                F.module(fam, "render").render_all(out_p, title=title, video=video, **runtime)
                 rec["rendered"] = True
             except Exception as e:  # noqa: BLE001
                 rec["render_error"] = f"{type(e).__name__}: {e}"
@@ -87,7 +95,7 @@ def batch_sheet(records: list[dict], path: Path) -> int:
     for r in records:
         sheet = Path(r["dir"]) / "lab" / "sheet.jpg"
         if r.get("rendered") and sheet.exists():
-            im = Image.open(sheet).crop((640, 70, 1280, 520)).resize((320, 225))
+            im = Image.open(sheet).crop((0, 70, 640, 520)).resize((320, 225))  # the sheet's first view
             ImageDraw.Draw(im).rectangle([0, 0, 90, 22], fill=(255, 255, 255))
             ImageDraw.Draw(im).text((4, 4), f"#{r['seed']}", fill=(0, 0, 0))
             tiles.append(im)
@@ -124,11 +132,12 @@ def silhouette_diversity(records: list[dict]) -> float | None:
 
 def judge_records(records: list[dict], fam: dict, rubric: str, refs_image: Path | None, model: str, config_dir: Path,
                   ledger: Path | None, threads: int = 4) -> None:
+    judging = F.judging(fam)
     """Judge every rendered asset in place (record["judge"]), a few at a time."""
     def one(r):
         try:
             c = json.loads((Path(r["dir"]) / "lab" / "checks.json").read_text())
-            r["judge"] = J.judge_asset(Path(r["dir"]) / "lab", r.get("params", {}), c, rubric, refs_image, model, config_dir, ledger)
+            r["judge"] = J.judge_asset(Path(r["dir"]) / "lab", flat(r.get("params", {})), c, rubric, refs_image, model, config_dir, ledger, judging)
         except Exception as e:  # noqa: BLE001
             r["judge"] = {"error": f"{type(e).__name__}: {e}"}
 
@@ -136,7 +145,9 @@ def judge_records(records: list[dict], fam: dict, rubric: str, refs_image: Path 
         list(ex.map(one, [r for r in records if r.get("rendered")]))
 
 
-def summarize(records: list[dict], batch: dict | None = None) -> dict:
+def summarize(records: list[dict], batch: dict | None = None, keys=("length_m", "rest_tip_gap_m", "closing_force_N", "mass_kg"),
+              scores=("shape", "tips", "mechanism", "materials", "proportions", "overall")) -> dict:
+    """keys: measured numbers to give the range of; scores: the judge's score keys (the family's: family.judging)."""
     n = len(records)
     ok = [r for r in records if r.get("ok")]
     per_check: dict = {}
@@ -148,12 +159,12 @@ def summarize(records: list[dict], batch: dict | None = None) -> dict:
            "failures_by_check": dict(sorted(per_check.items(), key=lambda kv: -kv[1])),
            "silhouette_diversity": silhouette_diversity(records)}  # fmt: skip
     if judged:
-        for k in J.SCORE_KEYS:
+        for k in scores:
             out[f"judge_{k}"] = round(float(np.mean([j[k] for j in judged])), 2)
         out["judged"] = len(judged)
     if batch and "variety" in batch:
         out["judge_variety"], out["judge_coverage"] = batch["variety"], batch["coverage"]
-    for key in ("length_m", "rest_tip_gap_m", "closing_force_N", "mass_kg"):
+    for key in keys:
         vals = [r["measured"][key] for r in records if isinstance(r.get("measured", {}).get(key), (int, float))]
         if len(vals) >= 2:
             out[f"{key}_range"] = [round(min(vals), 4), round(max(vals), 4)]
@@ -161,6 +172,18 @@ def summarize(records: list[dict], batch: dict | None = None) -> dict:
     if gens:
         out["gen_s_mean"] = round(float(np.mean(gens)), 2)
     return out
+
+
+def dynamics_runtime(asset_dir: Path, extra_deny=()) -> dict:
+    """How a family with scene dynamics (a generated controller) runs them: sandboxed (no network, read only, writes
+    only to a scratch folder), in the generator's Python."""
+    import tempfile
+
+    from chefbot.runtime.episode import _sandbox_prefix, protected_paths
+
+    scratch = Path(tempfile.mkdtemp(prefix="chefbot_dynx_"))
+    deny = protected_paths() + list(extra_deny)
+    return {"sandbox": _sandbox_prefix(Path(asset_dir), scratch, deny, scratch / "runner.py", G.gen_python()), "python": G.gen_python()}
 
 
 def worker_init(env: dict) -> None:

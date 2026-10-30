@@ -20,4 +20,16 @@ def load(name: str) -> dict:
 
 def checks(fam: dict):
     """The family's checks module."""
-    return importlib.import_module(f"chefbot.generators.{fam['name']}.checks")
+    return module(fam, "checks")
+
+
+def module(fam: dict, name: str):
+    """One of the family's modules: checks (run), render (render_all)."""
+    return importlib.import_module(f"chefbot.generators.{fam['name']}.{name}")
+
+
+def judging(fam: dict) -> dict:
+    """What the judge scores and the names of the images it reads (family.yaml `judge`)."""
+    j = fam.get("judge") or {}
+    return {"scores": list(j.get("scores") or ["shape", "tips", "mechanism", "materials", "proportions", "overall"]),
+            "motion": j.get("motion_image", "asset_squeeze.jpg"), "refs": j.get("refs_image", "real_tongs.jpg")}  # fmt: skip

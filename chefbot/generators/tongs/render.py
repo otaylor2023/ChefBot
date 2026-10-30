@@ -83,7 +83,7 @@ def _models(asset_dir: Path, R: np.ndarray, pos, fixed: bool, grid: bool = False
     return S.load(xml)
 
 
-def render_all(asset_dir: Path, lab_dir: Path | None = None, title: str = "", video: bool = True) -> dict:
+def render_all(asset_dir: Path, lab_dir: Path | None = None, title: str = "", video: bool = True, **_) -> dict:
     asset_dir = Path(asset_dir)
     lab_dir = Path(lab_dir or asset_dir / "lab")
     out: dict = {}

@@ -1,0 +1,18 @@
+# Buildings with elevators: what a generator must make (contract.md), how the lab checks them (checks.py, with the
+# probes in probes.py), and how they are judged (rubric*.md). The scene format is chefbot/environments/mujoco.
+name: elevator
+noun: buildings with elevators
+contract: contract.md
+generation:
+  timeout_s: 180
+  max_asset_mb: 60
+  max_floors: 60
+dynamics: true                # the scene has its own controller: checks and renders run it, sandboxed
+judge:
+  rubric: rubric.md
+  scores: [layout, doors, panels, finishes, behavior, overall]
+  motion_image: asset_trip.jpg
+  refs_image: real_elevators.jpg
+ranges_required: [floors, cars, sill_gap_m, max_wait_s, door_open_s, door_close_s, dwell_s, rated_speed_mps, accel_mps2, jerk_mps3,
+                  leveling_tol_m, door_force_limit_N]
+summary_keys: [wait_s, ride_s, max_speed_mps, sill_gap_m, level_error_m, door_force_N, realtime_x]

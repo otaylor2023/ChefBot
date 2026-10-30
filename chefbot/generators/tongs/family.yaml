@@ -36,3 +36,8 @@ checks:
     tomato: {type: sphere, size: [0.03], mass: 0.10, friction: 0.8}
 judge:
   rubric: rubric.md
+  scores: [shape, tips, mechanism, materials, proportions, overall]
+  motion_image: asset_squeeze.jpg
+  refs_image: real_tongs.jpg
+ranges_required: [length_m, rest_tip_gap_m, closing_force_N, mass_kg]
+summary_keys: [length_m, rest_tip_gap_m, closing_force_N, mass_kg]
