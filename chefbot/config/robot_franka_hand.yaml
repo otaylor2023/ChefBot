@@ -1,4 +1,6 @@
-# The sim robot with the real FR3's gripper: RoboCasa's Panda (PandaOmron) with the Franka Hand.
+# The sim robot as the real FR3 and its gripper: RoboCasa's Panda (PandaOmron) with the Franka Hand, its IK and
+# joint limits the FR3's (embodiments/arms/fr3.yaml; the lab host clamps the sim Panda's joints to them: the Panda
+# allows poses the FR3 can't reach, on joints 4 and 6). The two arms have the same links.
 # Pair it with an env config whose `gripper` is franka_hand (the autoresearch labs do).
 #
 # The sim hand's pads are centered 0.093 m out from the flange (0.085-0.101) and open to 0.077 m;
@@ -6,5 +8,5 @@
 extends: robot.yaml
 
 hardware:
-  arm: panda
+  arm: fr3
   gripper: franka_hand

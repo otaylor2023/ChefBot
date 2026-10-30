@@ -315,6 +315,18 @@ class RoboCasaEnv(Env):
             mujoco.mj_forward(self.model, self.data)
             self._command_world = np.zeros(3)
 
+    def restrict_arm_joint_limits(self, limits) -> None:
+        """Narrow the sim arm's joint ranges (7 x (low, high)) to another arm's: RoboCasa's Panda as the FR3."""
+        limits = np.asarray(limits, dtype=float).reshape(7, 2)
+        with self.lock:
+            joints = [self.model.joint(name).id for name in _ARM_JOINTS]
+            lo = np.maximum(self.model.jnt_range[joints, 0], limits[:, 0])
+            hi = np.minimum(self.model.jnt_range[joints, 1], limits[:, 1])
+            self.model.jnt_range[joints] = np.stack([lo, hi], axis=1)
+            self.model.jnt_limited[joints] = 1
+            self.arm_joint_limits = self.model.jnt_range[joints].copy()
+            self._arm_target = np.clip(self._arm_target, self.arm_joint_limits[:, 0], self.arm_joint_limits[:, 1])
+
     def set_arm_joints(self, q: np.ndarray) -> None:
         """Put the arm at `q` instantly, at rest, and hold it there."""
         with self.lock:

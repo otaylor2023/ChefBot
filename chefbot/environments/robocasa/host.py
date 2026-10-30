@@ -51,6 +51,7 @@ class RoboCasaHost:
         config = RoboCasaConfig.load(layout=layout, style=style, seed=int(setup.scene.get("seed", 0)), robot=robot.env["robot"],
                                      gripper=robot.env["gripper"], objects=tuple({**o, "surface": "counter"} for o in objects))  # fmt: skip
         self.env = RoboCasaEnv(config, render=True)
+        self.env.restrict_arm_joint_limits(robot.kin.ik.joint_limits)  # the embodiment's arm (the FR3's limits on the sim Panda)
         self.scene = Scene(self.env, [o["category"] for o in objects])
         self.noise_key = [layout, style, 7]
         self.ctl = WholeBodyController(self.env, robot, speed, tick_s=1.0 / config.control_freq, on_tick=self._frame)
