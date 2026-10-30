@@ -62,7 +62,7 @@ def run(gen_dir: Path, seed: int, out: Path, timeout_s: float, max_mb: float, ex
     os.chmod(runner, 0o644)
     python = gen_python()
     deny = protected_paths() + list(extra_deny)
-    env = {"PATH": "/usr/bin:/bin", "HOME": str(out), "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4", "MPLBACKEND": "Agg"}
+    env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(out), "PYTHONDONTWRITEBYTECODE": "1", "OMP_NUM_THREADS": "4", "MPLBACKEND": "Agg"}  # sbin: mujoco runs sysctl on macOS
     cmd = _sandbox_prefix(gen_dir, out, deny, runner, python) + [python, "-I", str(runner), str(gen_dir), str(seed), str(out)]
     t0 = time.time()
     log = open(out / "gen_log.txt", "w")

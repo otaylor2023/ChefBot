@@ -97,7 +97,9 @@ def render_all(asset_dir: Path, lab_dir: Path | None = None, title: str = "", vi
     c, L = (lo + hi) / 2, float(np.max(hi - lo))
     tips = (d.site_xpos[m.site("tip_a").id] + d.site_xpos[m.site("tip_b").id]) / 2
     grips = (d.site_xpos[m.site("grip_a").id] + d.site_xpos[m.site("grip_b").id]) / 2
-    back = grips + (grips - tips) / max(np.linalg.norm(grips - tips), 1e-6) * 0.03  # toward the hinge end
+    u = (tips - grips) / max(np.linalg.norm(tips - grips), 1e-6)  # along the arms, toward the tips
+    span = float(np.abs((hi - lo) @ u))  # the object's extent along the arms (near enough: it lies along them)
+    back = c - u * (span / 2 - 0.04)  # 4 cm in from the hinge end
     views = []
     with mujoco.Renderer(m, H, W) as r:
         views.append(_caption(_render(r, m, d, _camera(c, 0.55 * L + 0.25, 135, -32)), "on the counter"))

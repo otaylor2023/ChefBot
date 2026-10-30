@@ -84,3 +84,25 @@ def test_the_lab_config_and_brief_fill_in(tmp_path):
     for f in ("AGENTS.md", "lab", "docs/generator_contract.md", "docs/checks.md", "docs/judge_rubric.md", "generators/example/generate.py"):
         assert (ws / f).exists(), f
     assert "{" not in (ws / "docs" / "generator_contract.md").read_text().split("```")[0]
+
+
+def test_the_robocasa_export_keeps_what_robosuite_would_drop(tmp_path):
+    """Collision geoms end up in group 0 and visual ones in group 1 (robosuite keeps no others), single sizes are
+    padded for RoboCasa's scaler, a reg_bbox region bounds it, and the folder is marked for ChefBot's spawner."""
+    import xml.etree.ElementTree as ET
+
+    from chefbot.autoresearch.objects import robocasa as RC
+    from chefbot.envs.robocasa.spawn import GENERATED_MARK
+
+    asset = tmp_path / "a"
+    assert generate.run(EXAMPLE, 3, asset, 60, 20)["ok"]
+    xml = (asset / "model.xml").read_text().replace('group="0"', 'group="3"').replace('size="0.004"', 'size="0.004"', 1)
+    (asset / "model.xml").write_text(xml)
+    out = RC.export(asset, tmp_path / "rc")
+    root = ET.parse(out / "model.xml").getroot()
+    obj = root.find("worldbody/body/body")
+    assert obj.get("name") == "object" and (out / GENERATED_MARK).exists()
+    groups = {(g.get("group"), g.get("contype") == "0" and g.get("conaffinity") == "0") for g in obj.iter("geom") if g.get("name") != "reg_bbox"}
+    assert groups <= {("0", False), ("1", True)}
+    assert all(len(g.get("size", "1 1").split()) >= 2 for g in obj.iter("geom"))
+    assert obj.find("geom[@name='reg_bbox']") is not None

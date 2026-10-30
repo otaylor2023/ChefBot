@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import mujoco
@@ -40,6 +41,44 @@ class ChefKitchen(Kitchen):
         self.chef_objects = tuple(chef_objects)
         super().__init__(*args, **kwargs)
 
+    def _create_objects(self):
+        super()._create_objects()
+        # robosuite appends an object's free joint after the joints in its XML (an articulated object: tongs), but
+        # RoboCasa places objects by joints[0]: put the free joint first.
+        from robosuite.utils.mjcf_utils import find_elements
+
+        for obj in self.objects.values():
+            if len(obj._joints) > 1:
+                free = find_elements(obj.worldbody, tags="joint", attribs={"type": "free"}, return_first=True)
+                name = free.get("name", "") if free is not None else ""
+                name = name[len(obj.naming_prefix) :] if name.startswith(obj.naming_prefix) else name  # _joints holds bare names
+                if name in obj._joints:
+                    obj._joints = [name] + [j for j in obj._joints if j != name]
+
+    def _load_model(self):
+        super()._load_model()
+        # robosuite merges only an object's assets and bodies into the task: a generated object's equality
+        # constraints (coupled hinges) and contact exclusions (a hinge's overlapping parts) are lost. Add them, named
+        # as robosuite names everything else (the prefix; the root body `object` becomes `main`).
+        import copy
+        import xml.etree.ElementTree as ET
+
+        refs = ("joint1", "joint2", "body1", "body2", "geom1", "geom2", "site1", "site2", "name")
+        for obj in self.objects.values():
+            path = getattr(obj, "mjcf_path", None)
+            if not path or not (Path(path).parent / GENERATED_MARK).exists():
+                continue
+            src = ET.parse(path).getroot()
+            if src.find("tendon") is not None:
+                raise NotImplementedError(f"{obj.name}: tendons in a generated object are not carried into the kitchen")
+            for section, dst in (("equality", self.model.equality), ("contact", self.model.contact)):
+                for el in src.find(section) if src.find(section) is not None else []:
+                    el = copy.deepcopy(el)
+                    for k in refs:
+                        if el.get(k):
+                            el.set(k, obj.naming_prefix + ("main" if el.get(k) == "object" else el.get(k)))
+                    dst.append(el)
+
     def _get_obj_cfgs(self):
         # Created without a location; place_objects() positions them after reset.
         nowhere = dict(size=(0.0, 0.0), ensure_valid_placement=False, ensure_object_boundary_in_range=False)
@@ -63,6 +102,37 @@ def _model_path(spec: dict) -> str:
 
 
 _ASSET_SETS = {"objaverse", "aigen_objs", "lightwheel"}
+
+
+GENERATED_MARK = ".chefbot_generated"  # in a model folder exported by chefbot.autoresearch.objects.robocasa
+_PHYSICS = ("geom_friction", "geom_solref", "geom_solimp", "geom_solmix", "geom_priority", "geom_condim", "geom_margin", "geom_gap")
+
+
+def restore_generated_physics(env: "RoboCasaEnv") -> None:
+    """RoboCasa's MJCFObject overwrites friction, solref, solimp and density on every geom of an object with its
+    category's values. A generated object (a folder with GENERATED_MARK) sets its own per part (silicone tips, steel
+    arms): put them back, from the same model compiled on its own (its geoms in the same order)."""
+    for name, spec in zip(object_names(env.config.objects), env.config.objects):
+        folder = Path(_model_path(spec)).parent
+        if "model" not in spec or not (folder / GENERATED_MARK).exists():
+            continue
+        own = mujoco.MjModel.from_xml_path(str(folder / "model.xml"))
+        root = env.model.body(env.suite.objects[name].root_body).id
+        bodies = {root} | {b for b in range(root + 1, env.model.nbody) if _under(env.model, b, root)}
+        mine = [g for g in range(env.model.ngeom) if int(env.model.geom_bodyid[g]) in bodies and not env.model.geom(g).name.endswith("reg_bbox")]
+        theirs = [g for g in range(own.ngeom) if not own.geom(g).name.endswith("reg_bbox")]
+        if len(mine) != len(theirs):
+            raise RuntimeError(f"{name}: {len(mine)} geoms in the kitchen, {len(theirs)} in its model")
+        for field in _PHYSICS:
+            getattr(env.model, field)[mine] = getattr(own, field)[theirs]
+
+
+def _under(model, body: int, root: int) -> bool:
+    while body > 0:
+        if body == root:
+            return True
+        body = int(model.body_parentid[body])
+    return False
 
 
 def object_names(specs) -> list[str]:

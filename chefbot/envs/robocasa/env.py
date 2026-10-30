@@ -25,7 +25,7 @@ from robosuite.utils.camera_utils import (
 
 from chefbot.envs.robocasa.config import RoboCasaConfig
 from chefbot.envs.robocasa.gripper import sim_gripper
-from chefbot.envs.robocasa.spawn import TASK_NAME, place_objects
+from chefbot.envs.robocasa.spawn import TASK_NAME, place_objects, restore_generated_physics
 from chefbot.interface.env import Env
 from chefbot.interface.types import RGBD, EnvState, Pose2D, wrap_angle
 
@@ -201,6 +201,7 @@ class RoboCasaEnv(Env):
         for geom in set().union(*self._pad_geoms.values()):  # the pads keep their grip on it
             model.geom_conaffinity[geom] |= TOOL_BIT
 
+        restore_generated_physics(self)
         place_objects(self)
         # The scene as spawned, for reset_scene(): everything that is not a robot joint.
         robot_joints = [j for j in range(model.njnt) if self.is_robot_body(int(model.jnt_bodyid[j]))]
