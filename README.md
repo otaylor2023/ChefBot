@@ -139,6 +139,21 @@ iCloud here). On macOS skills run under `sandbox-exec` plus an in-process guard
 (no network, no subprocesses, nothing of the repo); Codex is not walled off from
 the repo on macOS (`--hide` needs Linux), so the brief asks it not to look.
 
+**Object-creation labs** (`chefbot/autoresearch/objects`, labs with `kind: object`) work the same way, but the
+researcher writes a *generator*: given a seed, a MuJoCo model of one object in a family
+(`objects/families/<family>/contract.md`), so that seeds give a realistic variety. `./lab build` generates assets
+(sandboxed), runs physics checks (squeeze, release, pinch-and-hold, settling on a counter, the Franka Hand's fit,
+declared vs measured length, mass, opening and closing force) and renders them; `./lab judge` has Claude score the
+renders against photos of real products; `./lab val` does both on fresh seeds with a held-out rubric and
+references, aggregate only. The first is `tongs_gen` (kitchen tongs). The judge runs the `claude` CLI on its own
+account (`CLAUDE_JUDGE_TOKEN`, from `claude setup-token`); the reference photos live outside the repo
+(`CHEFBOT_REFS`); the generator's Python is `GEN_PYTHON` (trimesh, manifold3d, CoACD, build123d, mujoco).
+
+```sh
+python -m chefbot.autoresearch.objects.lab tongs_gen --root runs/labs/try    # a lab to drive by hand
+python -m chefbot.autoresearch.research tongs_gen --hide default --web-search --codex-network   # a research run (Linux)
+```
+
 ## The agent loop (AGENT_SPEC.md)
 
 An LLM (OpenRouter; key in `OPENROUTER_API_KEY` or `.env`) works through a

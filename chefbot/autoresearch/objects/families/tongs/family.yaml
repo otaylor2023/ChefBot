@@ -1,0 +1,38 @@
+# Kitchen tongs: what a generator must make (contract.md), how the lab checks it (checks.py), and how it is judged
+# (rubric_*.md). Thresholds here are the lab's; the researcher sees them in docs/checks.md.
+name: tongs
+noun: kitchen tongs
+contract: contract.md
+generation:
+  timeout_s: 120
+  max_asset_mb: 20
+  max_collision_geoms: 64
+  max_collision_verts: 20000
+required_params: [length_m, mass_kg, rest_tip_gap_m, closing_force_N, tip_friction, style]
+bodies: [arm_a, arm_b]
+sites: [grip_a, grip_b, tip_a, tip_b]
+checks:
+  max_force_N: 60            # the squeeze ramps up to this (well past any real tongs)
+  ramp_s: 3.0
+  contact_gap_m: 0.003       # tips closer than this, or touching, count as closed
+  max_closed_penetration_m: 0.002
+  reopen_tol_m: 0.003
+  rest_overlap_m: 0.001      # arms may not interpenetrate more than this at rest
+  settle_s: 3.0
+  settle_speed_mps: 0.01
+  max_counter_penetration_m: 0.002
+  hold_s: 2.0
+  hold_slip_m: 0.01
+  hand_open_m: 0.070         # the Franka Hand opens 77 mm: the handles at grip_a/grip_b must fit, with margin
+  hand_max_force_N: 50       # the hand squeezes 70 N continuous
+  declared:                  # measured vs declared: relative tolerance (and an absolute floor)
+    length_m: {rel: 0.05, abs: 0.005}
+    mass_kg: {rel: 0.10, abs: 0.005}
+    rest_tip_gap_m: {rel: 0.10, abs: 0.004}
+    closing_force_N: {rel: 0.15, abs: 0.5}
+  hold_objects:              # pinched between the tips, held 2 s under gravity (lab frame: x along the arms, y the opening, z the hinge axis, up)
+    sausage: {type: capsule, size: [0.014, 0.04], mass: 0.06, friction: 0.7}      # upright (MuJoCo's cylinder contacts are poor)
+    cracker: {type: box, size: [0.025, 0.002, 0.025], mass: 0.008, friction: 0.6}   # thin across the opening
+    tomato: {type: sphere, size: [0.03], mass: 0.10, friction: 0.8}
+judge:
+  rubric: rubric.md

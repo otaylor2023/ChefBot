@@ -102,9 +102,11 @@ def default_hide() -> list[str]:
     return [str(HERE / "setups"), str(HERE / "suites"), str(RUNS), str(REPO / ".env")]
 
 
-def codex_cmd(model: str, effort: str, sandbox: str, resume: str | None, prompt: str, search: bool = False) -> list[str]:
+def codex_cmd(model: str, effort: str, sandbox: str, resume: str | None, prompt: str, search: bool = False, network: bool = False) -> list[str]:
     cmd = ["codex"] + (["--search"] if search else []) + ["exec"] + (["resume", resume] if resume else []) + ["--json", "--skip-git-repo-check", "-m", model,
                                                                          "-c", f"model_reasoning_effort={effort}"]  # fmt: skip
+    if network and sandbox == "workspace-write":
+        cmd += ["-c", "sandbox_workspace_write.network_access=true"]  # its commands may reach the internet
     if sandbox == "none":
         cmd.append("--dangerously-bypass-approvals-and-sandbox")
     elif resume:
@@ -131,10 +133,15 @@ def main() -> int:
     ap.add_argument("--hide", default=None, help="colon list of paths Codex must not see (Linux: run in bubblewrap); 'default' hides "
                     "the lab's setups/ and suites/, runs/ and .env")  # fmt: skip
     ap.add_argument("--web-search", action="store_true", help="give Codex its web search tool (each query is logged); commands stay offline")
+    ap.add_argument("--codex-network", action="store_true", help="let Codex's commands reach the network too (downloads)")
     args = ap.parse_args()
     load_env(REPO / ".env")
     args.vision_url = args.vision_url or os.environ.get("VISION_URL")
-    cfg = C.load(args.lab)
+    from chefbot.autoresearch.objects import lab as OL
+
+    objects = OL.kind(args.lab) == "object"  # an object-creation lab (a generator), not a skill lab
+    cfg = OL.load(args.lab) if objects else C.load(args.lab)
+    final = OL.FINAL if objects else "skills/final"
     hours = args.hours or float(cfg.budgets.get("hours", 3))
     usage_cap = args.usage_cap or float(cfg.budgets.get("codex_usage_pct", 40))
     if not args.usage_cap and "codex_usage_add_pct" in cfg.budgets:  # a cap relative to where usage is now
@@ -145,7 +152,10 @@ def main() -> int:
     root = args.root or RUNS / "labs" / f"{cfg.name}-{time.strftime('%m%d-%H%M%S')}"
     ws, private = root / "workspace", root / "private"
     sandbox = args.remote_sandbox if args.remote else sandbox_kind()
-    setup_workspace(cfg, ws, brief(cfg, hours, usage_cap, sandbox, args.web_search))
+    if objects:
+        OL.setup_workspace(cfg, ws, OL.brief(cfg, hours, usage_cap, sandbox, args.web_search or args.codex_network))
+    else:
+        setup_workspace(cfg, ws, brief(cfg, hours, usage_cap, sandbox, args.web_search))
     private.mkdir(parents=True, exist_ok=True)
     shutil.copy(cfg.path, private / "lab.yaml")  # what this run was
     (private / "lab_name").write_text(cfg.name)
@@ -159,7 +169,7 @@ def main() -> int:
         (ws / ".lab" / "ipc").mkdir(parents=True, exist_ok=True)
         (ws / "runs").mkdir(exist_ok=True)
         subprocess.run(["chown", "-R", f"{pw.pw_uid}:{pw.pw_gid}", str(ws)], check=True)
-    hide = default_hide() if args.hide == "default" else [h for h in (args.hide or "").split(":") if h]
+    hide = (OL.default_hide(cfg) if objects else default_hide()) if args.hide == "default" else [h for h in (args.hide or "").split(":") if h]
 
     t0 = time.time()
     deadline = t0 + hours * 3600
@@ -169,6 +179,10 @@ def main() -> int:
 
         host, rws = args.remote.split(":", 1)
         lab = Relay(ws, host, rws)
+    elif objects:
+        lab = OL.ObjectLab(cfg, root, args.jobs)
+        os.chmod(private, 0o700)
+        lab.deadline = deadline
     else:
         lab = lab_server.Lab(cfg, root, args.jobs, args.vision_url)
         os.chmod(private, 0o700)  # the lab's ledger, val results: not the researcher's
@@ -184,7 +198,7 @@ def main() -> int:
         run_log.flush()
 
     note(f"lab {cfg.name}; workspace {ws}; deadline in {hours} h; usage cap {usage_cap}%; model cap ${cfg.model_usd}; "
-         f"vision {'on' if args.vision_url else 'off'}; skill sandbox: {sandbox}")  # fmt: skip
+         f"vision {'on' if args.vision_url else 'off'}; sandbox: {sandbox}; hide: {hide}")  # fmt: skip
     thread_id, sessions, capacity, over_cap = None, 0, False, False
     quick = 0  # sessions in a row that ended within QUICK_S
     proc = None
@@ -208,17 +222,17 @@ def main() -> int:
                 time.sleep(60)
             if thread_id is None and (ws / "research_log.md").read_text().strip() != "# Research log":  # a restarted run
                 prompt = (f"Read AGENTS.md. The lab was restarted, and this is a new conversation: your earlier work this session is in "
-                          f"the workspace (research_log.md, skills/, runs/). Continue from your research log. You have {left_min / 60:.1f} "
+                          f"the workspace (research_log.md, {final.split('/')[0]}/, runs/). Continue from your research log. You have {left_min / 60:.1f} "
                           "hours. ./lab budget shows what is left at any time.")  # fmt: skip
             elif thread_id is None:
                 prompt = f"Read AGENTS.md and begin. You have {left_min / 60:.1f} hours. ./lab budget shows what is left at any time."
             elif left_min <= WRAP_UP_MIN:
-                prompt = (f"{left_min:.0f} minutes are left. Wrap up now: put your best skill in skills/final (run it once with ./lab to "
-                          "check it), commit, and write REPORT.md as AGENTS.md describes.")  # fmt: skip
+                prompt = (f"{left_min:.0f} minutes are left. Wrap up now: put your best {'generator' if objects else 'skill'} in {final} "
+                          "(run it once with ./lab to check it), commit, and write REPORT.md as AGENTS.md describes.")  # fmt: skip
             else:
                 prompt = (f"Your turn ended, but the research session continues: {left_min / 60:.1f} hours left. Keep going with the "
                           "next experiment from your research log. (./lab budget for budgets.)")  # fmt: skip
-            cmd = codex_cmd(args.model, args.effort, args.codex_sandbox, thread_id, prompt, args.web_search)
+            cmd = codex_cmd(args.model, args.effort, args.codex_sandbox, thread_id, prompt, args.web_search, args.codex_network)
             if hide:
                 cmd = hide_prefix(hide, ws) + cmd
             env = None
@@ -270,9 +284,9 @@ def main() -> int:
             if time.time() > deadline or over_cap:
                 break
             quick = quick + 1 if time.time() - session_t0 < QUICK_S else 0
-            done = (ws / "REPORT.md").exists() and (ws / "skills" / "final").is_dir()
+            done = (ws / "REPORT.md").exists() and (ws / final).is_dir()
             if done and (deadline - time.time()) / 60 <= WRAP_UP_MIN and quick >= 3:
-                note("wrapped up (REPORT.md and skills/final exist; Codex keeps ending its turn at once): ending the run")
+                note(f"wrapped up (REPORT.md and {final} exist; Codex keeps ending its turn at once): ending the run")
                 break
             if quick >= 3:
                 time.sleep(min(60, 5 * quick))  # an idle researcher: don't spin

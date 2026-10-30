@@ -37,7 +37,61 @@ def _world_readable(path: Path) -> None:
         os.chmod(p, 0o755 if p.is_dir() else 0o644)
 
 
-class Lab:
+class IpcServer:
+    """Answers ./lab requests: request files in <workspace>/.lab/ipc, one thread per request, each answer with the
+    lab's notice (root/notice.txt) and, near the deadline, a note to wrap up. Subclasses: handle(req) -> dict."""
+
+    WRAP_UP = "skills/final, commit, REPORT.md"
+    root: Path
+    ipc: Path
+    log: object
+    deadline: float | None = None
+
+    def handle(self, req: dict) -> dict:
+        raise NotImplementedError
+
+    def serve_forever(self, stop: threading.Event | None = None) -> None:
+        stop = stop or threading.Event()
+        busy: dict[str, threading.Thread] = {}
+        while not stop.is_set():
+            for p in sorted(self.ipc.glob("req_*.json")):
+                rid = p.stem[4:]
+                if rid in busy:
+                    continue
+                try:
+                    req = json.loads(p.read_text())
+                except (json.JSONDecodeError, OSError):
+                    continue
+                p.unlink(missing_ok=True)
+                t = threading.Thread(target=self._answer, args=(rid, req), daemon=True)
+                busy[rid] = t
+                t.start()
+            for rid in [r for r, t in busy.items() if not t.is_alive()]:
+                busy.pop(rid)
+            time.sleep(0.2)
+
+    def _answer(self, rid: str, req: dict) -> None:
+        left = None if self.deadline is None else (self.deadline - time.time()) / 60
+        try:
+            if left is not None and left <= 0 and req.get("cmd") in ("run", "suite", "val"):
+                resp = {"error": "the research session is over: no new episodes"}
+            else:
+                resp = self.handle(req)
+        except Exception as e:  # noqa: BLE001
+            resp = {"error": f"{type(e).__name__}: {e}"}
+        notice = self.root / "notice.txt"  # a message for the researcher from us, attached to every answer
+        if notice.exists() and notice.read_text().strip():
+            resp["lab_notice"] = notice.read_text().strip()
+        if left is not None and left <= WRAP_UP_MIN:
+            resp["lab_note"] = f"{max(left, 0):.0f} min left in the research session: wrap up ({self.WRAP_UP})."
+        self.log.write(json.dumps({"t": time.time(), "req": req, "resp_keys": list(resp)}) + "\n")
+        self.log.flush()
+        tmp = self.ipc / f".resp_{rid}.json"
+        tmp.write_text(json.dumps(resp, indent=1))
+        tmp.rename(self.ipc / f"resp_{rid}.json")
+
+
+class Lab(IpcServer):
     def __init__(self, cfg: LabConfig, root: Path, jobs: int, vision_url: str | None, limits: dict | None = None):
         self.cfg, self.root = cfg, Path(root)
         self.ws, self.private, self.snapshots = self.root / "workspace", self.root / "private", self.root / "snapshots"
@@ -188,46 +242,6 @@ class Lab:
                 out["codex_weekly_used_percent"] = usage
             return out
         return {"error": f"unknown command {cmd!r}"}
-
-    def serve_forever(self, stop: threading.Event | None = None) -> None:
-        stop = stop or threading.Event()
-        busy: dict[str, threading.Thread] = {}
-        while not stop.is_set():
-            for p in sorted(self.ipc.glob("req_*.json")):
-                rid = p.stem[4:]
-                if rid in busy:
-                    continue
-                try:
-                    req = json.loads(p.read_text())
-                except (json.JSONDecodeError, OSError):
-                    continue
-                p.unlink(missing_ok=True)
-                t = threading.Thread(target=self._answer, args=(rid, req), daemon=True)
-                busy[rid] = t
-                t.start()
-            for rid in [r for r, t in busy.items() if not t.is_alive()]:
-                busy.pop(rid)
-            time.sleep(0.2)
-
-    def _answer(self, rid: str, req: dict) -> None:
-        left = None if self.deadline is None else (self.deadline - time.time()) / 60
-        try:
-            if left is not None and left <= 0 and req.get("cmd") in ("run", "suite", "val"):
-                resp = {"error": "the research session is over: no new episodes"}
-            else:
-                resp = self.handle(req)
-        except Exception as e:  # noqa: BLE001
-            resp = {"error": f"{type(e).__name__}: {e}"}
-        notice = self.root / "notice.txt"  # a message for the researcher from us, attached to every answer
-        if notice.exists() and notice.read_text().strip():
-            resp["lab_notice"] = notice.read_text().strip()
-        if left is not None and left <= WRAP_UP_MIN:
-            resp["lab_note"] = (f"{max(left, 0):.0f} min left in the research session: wrap up (skills/final, commit, REPORT.md).")
-        self.log.write(json.dumps({"t": time.time(), "req": req, "resp_keys": list(resp)}) + "\n")
-        self.log.flush()
-        tmp = self.ipc / f".resp_{rid}.json"
-        tmp.write_text(json.dumps(resp, indent=1))
-        tmp.rename(self.ipc / f"resp_{rid}.json")
 
     def close(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)

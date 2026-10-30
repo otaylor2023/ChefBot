@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 
 from chefbot.autoresearch import config, models, setups, suites
 from chefbot.autoresearch.episode import run_episode
@@ -149,6 +150,8 @@ def pick_parts():
 
 def test_every_lab_names_suites_and_setups_that_exist():
     for path in config.LABS.glob("*.yaml"):
+        if yaml.safe_load(path.read_text()).get("kind") == "object":  # object labs: test_objects.py
+            continue
         cfg = config.load(str(path))
         for part in cfg.suites:
             for it in suites.load(cfg.suite(part)).items:

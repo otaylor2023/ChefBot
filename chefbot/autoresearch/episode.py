@@ -61,12 +61,14 @@ def protected_paths() -> list[str]:
     return paths + [p for p in os.environ.get("SKILL_EXTRA_DENY", "").split(os.pathsep) if p]
 
 
-def _sandbox_prefix(skill_dir: Path, xchg: Path, deny: list[str], api: Path) -> list[str]:
-    """OS-level sandbox on top of the in-process guard: sandbox-exec on macOS, bubblewrap on Linux when usable."""
+def _sandbox_prefix(skill_dir: Path, xchg: Path, deny: list[str], api: Path, python: str | None = None) -> list[str]:
+    """OS-level sandbox on top of the in-process guard: sandbox-exec on macOS, bubblewrap on Linux when usable.
+    Readable: skill_dir, the interpreter's environment, the API's folder; writable: xchg only. No network."""
+    python = python or skill_python()
     if platform.system() == "Darwin" and shutil.which("sandbox-exec"):
         rules = ["(version 1)", "(allow default)", "(deny network*)"]
         rules += [f'(deny file-read* (subpath "{d}"))' for d in deny]
-        for a in (skill_dir, xchg, Path(skill_python()).parents[1], api.parent):
+        for a in (skill_dir, xchg, Path(python).parents[1], api.parent):
             rules.append(f'(allow file-read* (subpath "{Path(a).resolve()}"))')
         rules.append(f'(deny file-write* (require-not (require-any (subpath "{xchg.resolve()}") (subpath "/private/var/folders") (literal "/dev/null"))))')
         return ["sandbox-exec", "-p", "\n".join(rules)]
@@ -79,7 +81,7 @@ def _sandbox_prefix(skill_dir: Path, xchg: Path, deny: list[str], api: Path) -> 
         for d in deny:
             if Path(d).exists() and Path(d).is_dir():
                 args += ["--tmpfs", d]
-        for a in (skill_dir, Path(skill_python()).parents[1], api.parent):
+        for a in (skill_dir, Path(python).parents[1], api.parent):
             args += ["--ro-bind", str(Path(a).resolve()), str(Path(a).resolve())]
         args += ["--bind", str(xchg.resolve()), str(xchg.resolve())]
         return args + pre
