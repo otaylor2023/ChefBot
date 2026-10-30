@@ -14,5 +14,15 @@ suites:
   test: {suite: robocasa_pick/test, visible: hidden}
 paid_models: {google: {usd: 10}}                                # all dev and val episodes together
 vision_models: [owlv2, grounding-dino, sam2]
-budgets: {hours: 4, codex_usage_add_pct: 10}
+budgets: {hours: 5, codex_usage_add_pct: 20}
 brief: briefs/pick_up.md
+start_from:
+  skill: pick_up/run1_v32
+  files: [prior/wholebody_v2.py]
+  note: >-
+    `prior/skill/` is the best pick skill from an earlier lab on another robot (agentic-skills-exploration's
+    pick_up/run1_v32: Grounding DINO, SAM 2 and Gemini 3.1 Flash-Lite; 97% on its test, 15.6 s mean, $0.0003 an
+    episode). That lab differed: a YAM arm with a 94 mm gripper, a pole and a base camera, objects on a low stool,
+    and its robot API, wholebody-v2 (`prior/wholebody_v2.py`; its flange axes differ from this lab's). It does not
+    run here as is. Its approach and `prior/REPORT.md` are yours to use, adapt or drop; say in your report what you
+    kept.

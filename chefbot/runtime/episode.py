@@ -8,11 +8,12 @@ is served, the robot holding its last command (the base still driving to its las
 the episode's wall time: robot_time = sim time, which includes think and model time (reported separately too).
 Time the harness itself spends (stepping, rendering) is not charged.
 
-Limits per episode (LIMITS): control steps, think seconds, model dollars, and a hard wall-clock cap. Which models
-the skill may call is the episode's `access`: {"llm": bool, "vision": bool or [names], "cameras", "arm_only"}.
+Limits per episode (LIMITS): control steps, think seconds, model dollars, Astra calls, and a hard wall-clock cap.
+Which models the skill may call is the episode's `access`: {"llm": bool, "vision": bool or [names], "astra": bool,
+"cameras", "arm_only"}. An Astra answer (runtime/astra.py) arrives its real latency after the request, in world time.
 Whatever the skill does, the result has the task's score (from privileged measurements).
 
-(agentic-skills-exploration's runtime/episode.py, without Astra.)
+(agentic-skills-exploration's runtime/episode.py.)
 """
 
 from __future__ import annotations
@@ -33,12 +34,13 @@ from pathlib import Path
 import imageio.v3 as iio
 import numpy as np
 
+from chefbot.runtime import astra as A
 from chefbot.runtime import models as M
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 INTERFACES = {"chefbot-v1": HERE.parent / "interface" / "skill_api.py"}  # the skill-side robot API, by version (frozen once skills use it)
-LIMITS = {"control_steps": 1350, "think_s": 90.0, "model_usd": 0.10, "wall_s": 900.0}  # 1350 steps = 90 s of world time
+LIMITS = {"control_steps": 1350, "think_s": 90.0, "model_usd": 0.10, "wall_s": 900.0, "astra_calls": 16, "astra_in_flight": 2}  # 1350 steps = 90 s of world time
 MAX_ROWS = 600  # 40 s per call, so one move is one call
 ACT_OPS = {"act": ("whole", 11), "act_arm": ("arm", 8), "act_base": ("base", 3)}  # op -> (host step mode, row width)
 STARTUP_GRACE_S = 15.0
@@ -157,7 +159,11 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
 
     trace = open(out / "trace.jsonl", "w")
     calls = open(out / "calls.jsonl", "w")
-    clock = {"think_s": 0.0, "model_s": 0.0, "model_usd": 0.0, "n_llm": 0, "n_vision": 0, "n_observe": 0}
+    clock = {"think_s": 0.0, "model_s": 0.0, "model_usd": 0.0, "n_llm": 0, "n_vision": 0, "n_observe": 0, "n_astra": 0, "astra_s": 0.0,
+             "astra_in_tokens": 0, "astra_out_tokens": 0}  # fmt: skip
+    tickets: dict[int, dict] = {}  # Astra calls: ticket -> {call, sim_t0, args}
+    sessions: dict[str, str] = {}  # Astra conversations: session name -> Codex thread
+    transcript = open(out / "astra.jsonl", "w") if access.get("astra") else None
     t_start = time.time()
     reason, images_saved, returned = "skill returned", 0, None
     history: list[dict] = []  # the task's measurements, every control step
@@ -167,7 +173,8 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
 
     def budget() -> dict:
         return {"control_steps": limits["control_steps"] - host.step_count, "think_s": round(limits["think_s"] - clock["think_s"], 2),
-                "model_usd": round(limits["model_usd"] - clock["model_usd"], 4)}  # fmt: skip
+                "model_usd": round(limits["model_usd"] - clock["model_usd"], 4),
+                **({"astra_calls": limits["astra_calls"] - clock["n_astra"]} if access.get("astra") else {})}  # fmt: skip
 
     hold = {"row": None, "mode": "whole", "carry": 0.0}
 
@@ -281,9 +288,43 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
                             steps.append({k: rec[k] for k in ("pos_error_m", "rot_error_rad", "base_error_m", "ik_ok")})
                         resp = {"proprio": host.proprio(), "steps": steps}
                 elif op == "llm" and not access.get("llm"):
-                    resp = {"error": "this skill may not call Gemini"}
+                    resp = {"error": "this skill may not call Gemini" + (": the only model is robot.astra(...)" if access.get("astra") else "")}
                 elif op in ("detect", "segment") and not access.get("vision"):
-                    resp = {"error": "this skill may not call the vision models"}
+                    resp = {"error": "this skill may not call the vision models" + (": the only model is robot.astra(...)" if access.get("astra") else "")}
+                elif op == "astra_start":
+                    if not access.get("astra"):
+                        raise A.AstraError("robot.astra is not available to this skill")
+                    a = A.check(req)
+                    if clock["n_astra"] >= limits["astra_calls"]:
+                        raise A.AstraError(f"at most {limits['astra_calls']} Astra calls per episode")
+                    if sum(1 for t in tickets.values() if not t.get("collected")) >= limits["astra_in_flight"]:
+                        raise A.AstraError(f"at most {limits['astra_in_flight']} Astra calls in flight; collect one first")
+                    clock["n_astra"] += 1
+                    imgs = [np.load(xchg / Path(n).name) for n in a["images"]]
+                    tickets[clock["n_astra"]] = {"call": A.Call(a, imgs, sessions, A.codex_env()), "sim_t0": host.step_count / CONTROL_HZ, "args": a}
+                    resp = {"ticket": clock["n_astra"]}
+                elif op in ("astra_poll", "astra_wait"):
+                    t = tickets.get(int(req.get("ticket") or 0))
+                    if t is None:
+                        raise A.AstraError("unknown ticket")
+                    call, sim_now = t["call"], host.step_count / CONTROL_HZ
+                    if op == "astra_poll" and not (call.done() and sim_now >= t["sim_t0"] + call.result["latency_s"]):
+                        resp = {"ready": False}
+                    else:
+                        r = call.wait()
+                        debt += max(0.0, t["sim_t0"] + r["latency_s"] - sim_now)  # the answer arrives `latency` after the request, in world time
+                        if not t.get("collected"):
+                            t["collected"] = True
+                            clock["astra_s"] += r["latency_s"]
+                            u = r.get("usage") or {}
+                            clock["astra_in_tokens"] += int(u.get("input_tokens") or 0)
+                            clock["astra_out_tokens"] += int(u.get("output_tokens") or 0)
+                            transcript.write(json.dumps({"ticket": req.get("ticket"), "sim_t0": round(t["sim_t0"], 2),
+                                                         "args": {k: v for k, v in t["args"].items() if k != "images"},
+                                                         "n_images": len(t["args"]["images"]), "result": r}) + "\n")  # fmt: skip
+                            transcript.flush()
+                        resp = {"ready": True, "ok": r.get("ok"), "text": r.get("text"), "json": r.get("json"), "failure": r.get("error"),
+                                "latency_s": r.get("latency_s"), "usage": r.get("usage")}  # fmt: skip
                 elif op in ("detect", "segment") and isinstance(access["vision"], list) and \
                         req.get("model", "owlv2" if op == "detect" else "sam2") not in access["vision"]:  # fmt: skip
                     resp = {"error": f"vision model {req.get('model', 'owlv2' if op == 'detect' else 'sam2')!r} is not available; available: {access['vision']}"}
@@ -329,7 +370,7 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
                     resp = {}
                 else:
                     resp = {"error": f"unknown op {op!r}"}
-            except M.BudgetExceeded as e:
+            except (M.BudgetExceeded, A.AstraError) as e:
                 resp = {"error": str(e)}
             except Exception as e:  # noqa: BLE001
                 resp = {"error": f"{type(e).__name__}: {e}"[:500]}
@@ -364,6 +405,8 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
             proc.kill()
         trace.close()
         calls.close()
+        if transcript:
+            transcript.close()
         log.close()
         shutil.rmtree(xchg, ignore_errors=True)
         shutil.rmtree(api_dir, ignore_errors=True)
@@ -376,6 +419,8 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
               "think_s": round(clock["think_s"], 2), "model_s": round(clock["model_s"], 2),
               "robot_time_s": round(sim_s, 2), "model_usd": round(clock["model_usd"], 5),
               "n_llm": clock["n_llm"], "n_vision": clock["n_vision"], "n_observe": clock["n_observe"],
+              "n_astra": clock["n_astra"], "astra_s": round(clock["astra_s"], 2), "astra_in_tokens": clock["astra_in_tokens"],
+              "astra_out_tokens": clock["astra_out_tokens"],
               "wall_s": round(time.time() - t_start, 2), "sandbox": sandbox_kind(), "sandbox_blocked": blocked,
               "start_pose": None if pose is None else [pose.x, pose.y, pose.yaw], "returned": returned}  # fmt: skip
     if record:

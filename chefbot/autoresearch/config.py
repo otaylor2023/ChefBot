@@ -3,11 +3,11 @@
     goal:     {skill: pick_up, task: pick}                  what the lab produces, and the task it is scored on
     robot:    panda_franka
     suites:   {dev: {suite, visible: full}, val: {suite, visible: aggregate, submissions: 5}, test: {suite, visible: hidden}}
-    paid_models:   {google: {usd: 10}}                      metered APIs the skill may call, and their budgets
+    paid_models:   {google: {usd: 10}} | {codex: gpt-6-astra}  metered APIs the skill may call, and their budgets
     vision_models: [owlv2, grounding-dino, sam2]            what the vision server offers the skill
     budgets:  {hours: 4, codex_usage_pct: 60}               or codex_usage_add_pct: 10 (the cap: usage at the start + 10)
     brief:    briefs/pick_up.md
-    start_from: {skill: pick_up/run1_v12, note: "..."}     optional prior work for the researcher
+    start_from: {skill: pick_up/run1_v12, note: "...", files: [...]}   optional prior work (files: from labs/templates/)
     interface: chefbot-v1   arm_only: true   example: example_pick   skill_args: {...}      optional
 
 (agentic-skills-exploration's autoresearch/config.py.)
@@ -42,7 +42,15 @@ class LabConfig:
 
     def access(self) -> dict:
         """The model calls a skill in this lab may make (and whether it is arm only)."""
-        return {"llm": "google" in self.paid_models, "vision": list(self.vision_models), "arm_only": self.arm_only}
+        return {"llm": "google" in self.paid_models, "vision": list(self.vision_models), "astra": "codex" in self.paid_models,
+                "arm_only": self.arm_only}  # fmt: skip
+
+    def limits(self) -> dict:
+        """The per-episode limits that apply here (Astra's only when the skill may call Astra; dollars only when it pays)."""
+        from chefbot.runtime.episode import LIMITS
+
+        keep = [k for k in LIMITS if not k.startswith("astra") or self.access()["astra"]]
+        return {k: LIMITS[k] for k in keep if k != "model_usd" or self.model_usd > 0}
 
     @property
     def model_usd(self) -> float:

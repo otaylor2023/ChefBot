@@ -1,0 +1,28 @@
+name: pick_up
+version: astra_v19
+entry: main.py:run
+interface: wholebody-v2
+robot: yam_tidybot
+arm_only: true
+args:
+  object:
+    type: string
+    doc: what to pick up, in a few words
+speed: fast                          # the profile it was tested at (`normal` until 10/27/2026)
+models:
+  gpt-6-astra:
+    runs: codex_cli
+    provider: openai
+    auth: codex login
+assumes: the start rule of its lab's task
+privileged: false
+provenance:
+  lab: robocasa_pick_astra
+  run: pick_astra1
+  suite: robocasa_pick
+  test: 94% (32/34), 31.9 s mean, 26.2 s median (robocasa_pick/test); val 16/18
+  report: REPORT.md
+imported_from: >-
+  agentic-skills-exploration (skills/pick_up), unchanged. Built for the YAM TidyBot (94 mm gripper, a pole and a base
+  camera) against wholebody-v2, picking from a low stool: it does not run on ChefBot's chefbot-v1 API as is. Kept as
+  a starting point for ChefBot's pick labs (start_from).

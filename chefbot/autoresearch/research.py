@@ -50,7 +50,7 @@ def brief(cfg: C.LabConfig, hours: float, usage_cap: float, sandbox: str, web_se
     prior = ""
     if cfg.start_from:
         prior = "## Prior work\n\n" + cfg.start_from.get("note", "A previous research session's skill is in `prior/`.").strip() + "\n\n"
-    for k, v in {"{HOURS}": f"{hours:g}", "{USAGE_CAP}": f"{usage_cap:g}", "{MODEL_USD}": f"{cfg.model_usd:g}", "{LIMITS}": json.dumps(LIMITS),
+    for k, v in {"{HOURS}": f"{hours:g}", "{USAGE_CAP}": f"{usage_cap:g}", "{MODEL_USD}": f"{cfg.model_usd:g}", "{LIMITS}": json.dumps(cfg.limits()),
                  "{VAL_SUBMISSIONS}": str(cfg.val_submissions), "{SANDBOX}": sandbox, "{WEB}": WEB_TEXT if web_search else "",
                  "{ROBOT}": embodiments.load(cfg.robot).brief, "{PRIOR}": prior}.items():  # fmt: skip
         text = text.replace(k, v)
@@ -70,6 +70,8 @@ def setup_workspace(cfg: C.LabConfig, ws: Path, text: str) -> None:
         shutil.copytree(prior.dir, ws / "prior" / "skill", ignore=shutil.ignore_patterns("__pycache__", "skill.yaml", "REPORT.md"))
         if (prior.dir / "REPORT.md").exists():
             shutil.copy(prior.dir / "REPORT.md", ws / "prior" / "REPORT.md")
+        for f in cfg.start_from.get("files", []):  # reference files for the prior skill (e.g. the API it was written against)
+            shutil.copy(PACKAGE / "labs" / "templates" / f, ws / "prior" / Path(f).name)
     (ws / "AGENTS.md").write_text(text)
     if not (ws / "skills" / "example").exists():
         shutil.copytree(PACKAGE / "labs" / "templates" / (cfg.example or "example_pick"), ws / "skills" / "example")

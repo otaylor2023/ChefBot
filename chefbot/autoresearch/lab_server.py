@@ -165,7 +165,7 @@ class Lab(IpcServer):
         if j["kind"] == "dev":
             out["dir"] = str(j["dir"].relative_to(self.ws))
             keep = ("item", "seed", "success", "lift_cm", "max_lift_cm", "held", "robot_time_s", "sim_s", "think_s", "model_s",
-                    "model_usd", "end", "sandbox_blocked", "error")  # fmt: skip
+                    "model_usd", "n_astra", "astra_s", "end", "sandbox_blocked", "error")  # fmt: skip
             out["episodes"] = [{k: r.get(k) for k in keep if k in r} for r in done]
             out["summary"] = summarize(done)
         elif len(done) == len(j["futures"]):

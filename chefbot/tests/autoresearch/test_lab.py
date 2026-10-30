@@ -131,6 +131,17 @@ def test_a_crash_is_reported_and_models_are_gated(tmp_path):
     assert result["end"] == "skill raised ValueError: boom" and "Traceback" in log
 
 
+def test_astra_is_only_for_astra_skills(tmp_path):
+    result, _, log = episode(tmp_path, """
+        def run(robot, object):
+            try:
+                robot.astra("where is it?")
+            except RuntimeError as e:
+                robot.log("astra:", e)
+    """)
+    assert "astra: robot.astra is not available to this skill" in log and result["n_astra"] == 0
+
+
 def test_the_sandbox_blocks_the_repo_and_the_network(tmp_path):
     repo_file = Path(__file__).resolve()
     result, _, log = episode(tmp_path, f"""
