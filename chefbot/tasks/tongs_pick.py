@@ -2,9 +2,9 @@
 bowl or plate on it. MuJoCo kitchens (environments/mujoco_kitchen).
 
 Start rule: the robot stands facing a counter, its base center 0.36-0.44 m out from the front edge, yaw jittered.
-The tongs lie on the counter to one side in front of it (turned up to 30 degrees from along the edge, either end
-first), the food on the other side: on the counter, or in its container, which stands there. A distractor food
-stands beside it. A start is clear when everything stands flat where it was put and nothing touches the robot.
+The food stands in front of it, a little to one side: on the counter, or in its container (a pan, bowl or plate)
+there. The tongs lie on the counter to the other side, clear of the food's holder (turned up to 30 degrees from along
+the edge, either end first). A distractor food stands beside the food, away from the tongs. A start is clear when everything stands flat where it was put and nothing touches the robot.
 
 Fragile foods break: each episode draws the force that breaks each fragile food in the scene (lognormal about its
 category's median), and a food whose contact force (averaged over 10 ms) passes it breaks, visibly. A skill is told
@@ -100,7 +100,7 @@ class TongsPick(TaskType):
         tongs.park(len(scene.objects()))
         scene.forward()
         a["placed"] = False
-        side = float(rng.choice([-1.0, 1.0]))
+        side = float(rng.choice([-1.0, 1.0]))  # the tongs' side; the food is a little to the other
 
         def spot(du: float, inset: float, radius: float):
             u = a["spot"][1] + du / width
@@ -111,16 +111,9 @@ class TongsPick(TaskType):
             z = scene.flat_height(counter, float(x), float(y), radius)
             return None if z is None else (float(x), float(y), z)
 
-        # The tongs: lying on the counter, to one side, along the edge give or take 30 degrees, either end first.
-        edge_yaw = math.atan2(along[1], along[0])
-        t_yaw = edge_yaw + math.radians(rng.uniform(-30, 30)) + (math.pi if rng.random() < 0.5 else 0.0)
-        s = spot(side * rng.uniform(0.16, 0.24), rng.uniform(0.07, 0.12), 0.03)
-        if s is None or not self._lies_flat(scene, counter, tongs, s, t_yaw):
-            return
-        tongs.place(s[0], s[1], s[2], t_yaw)
-        # The food: on the counter, or in its container there; a distractor beside it.
+        # The food: on the counter, or in its container there, a little to one side of the robot.
         holder = container or target
-        hs = spot(-side * rng.uniform(0.02, 0.10), rng.uniform(0.10, 0.15), holder.reach if container else holder.radius)
+        hs = spot(-side * rng.uniform(0.0, 0.06), rng.uniform(0.10, 0.15), holder.radius)
         if hs is None:
             return
         if container:
@@ -133,6 +126,19 @@ class TongsPick(TaskType):
             target.place(hs[0] + dx, hs[1] + dy, z, float(rng.uniform(-math.pi, math.pi)))
         else:
             target.place(*hs, float(rng.uniform(-math.pi, math.pi)))
+        scene.forward()
+        # The tongs: lying on the counter on the other side, clear of the food's holder, along the edge give or take
+        # 30 degrees, either end first.
+        edge_yaw = math.atan2(along[1], along[0])
+        turn = math.radians(rng.uniform(-30, 30))
+        t_yaw = edge_yaw + turn + (math.pi if rng.random() < 0.5 else 0.0)
+        half_along = tongs.size[0] / 2 * abs(math.cos(turn)) + tongs.size[1] / 2 * abs(math.sin(turn))
+        hu = float((np.asarray(hs[:2]) - box.origin[:2]) @ along[:2]) - a["spot"][1] * width
+        s = spot(hu + side * (holder.reach + half_along + rng.uniform(0.03, 0.08)), rng.uniform(0.07, 0.12), 0.03)
+        if s is None or not self._lies_flat(scene, counter, tongs, s, t_yaw):
+            return
+        tongs.place(s[0], s[1], s[2], t_yaw)
+        # A distractor beside the food, on its other side.
         gap = holder.reach + 0.03
         for k, name in enumerate(a["distractors"][:2]):
             o = scene.object(name)
