@@ -102,8 +102,11 @@ def hide_prefix(hide: list[str], workspace: Path) -> list[str]:
 
 
 def default_hide() -> list[str]:
-    """What the researcher must not see in this repo: the lab's setups and suites (val and test), other runs, the keys."""
-    return [str(PACKAGE / "setups"), str(PACKAGE / "suites"), str(RUNS), str(REPO / ".env")]
+    """What the researcher must not see: the lab's setups and suites (val and test), the task types (how episodes are
+    scored, the fragile foods' breaking forces), the exported kitchens and generated assets, other runs, the keys."""
+    from chefbot.environments.mujoco_kitchen.export import kitchens_root
+
+    return [str(PACKAGE / "setups"), str(PACKAGE / "suites"), str(PACKAGE / "tasks"), str(kitchens_root()), str(RUNS), str(REPO / ".env")]
 
 
 def codex_cmd(model: str, effort: str, sandbox: str, resume: str | None, prompt: str, search: bool = False, network: bool = False) -> list[str]:

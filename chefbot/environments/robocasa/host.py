@@ -35,12 +35,6 @@ SETTLE_TICKS = 10
 VIDEO_VIEWS = ("robot0_agentview_left", "robot0_agentview_right")  # beside the robot's own cameras
 
 
-def make_host(setup, robot: Robot, speed: Speed, out_dir: Path, record: bool = True, camera_noise: bool = True) -> "RoboCasaHost":
-    if setup.environment != "robocasa":
-        raise ValueError(f"setup {setup.name}: unknown environment {setup.environment!r}")
-    return RoboCasaHost(setup, robot, speed, out_dir, record, camera_noise)
-
-
 class RoboCasaHost:
     realtime = False
 

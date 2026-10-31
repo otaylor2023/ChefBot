@@ -165,10 +165,11 @@ class RealEnv(Env):
         self._send({"op": P.ARM_POSE, "position": control[:3, 3].copy(), "orientation": control[:3, :3].copy()})
         return True
 
-    def set_gripper(self, closed: bool) -> None:
+    def set_gripper(self, closed: float) -> None:
+        closed = float(closed) >= 0.5
         if closed != self._gripper_closed:
-            self._send({"op": P.GRIPPER, "closed": bool(closed)})
-            self._gripper_closed = bool(closed)
+            self._send({"op": P.GRIPPER, "closed": closed})
+            self._gripper_closed = closed
 
     def halt(self, reason: str = "asked") -> None:
         self._send({"op": P.HALT, "reason": reason})

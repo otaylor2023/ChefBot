@@ -24,7 +24,7 @@ def run(item: dict, seed: int, skill: dict, robot_name: str, speed_name: str | N
     from chefbot.runtime import models as M
     from chefbot import embodiments, setups
     from chefbot.runtime.episode import run_episode
-    from chefbot.environments.robocasa.host import make_host
+    from chefbot.environments import make_host
 
     try:
         robot = embodiments.load(robot_name)

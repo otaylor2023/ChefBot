@@ -1,0 +1,31 @@
+# The real robot in plain MuJoCo (environments/mujoco_kitchen): the FR3 with the Franka Hand on a TidyBot++ base,
+# from MuJoCo Menagerie's models, the hand's grasp force a servo (environments/mujoco_kitchen/robot.py).
+description: TidyBot++ base, Franka FR3, Franka Hand (MuJoCo Menagerie)
+robot_config: robot_tidybot_fr3.yaml   # chefbot/config: kinematics, arm mount, postures, IK
+env:
+  robot: tidybot_fr3
+  gripper: franka_hand
+
+# The skill's camera names -> the sim's cameras, both RGB-D 640x480. `noise` as for panda_franka.
+cameras:
+  pole:  {sim: tb/pole,           depth: true, noise: {pos_m: 0.01, rot_deg: 1.0, fov: 0.02}}  # on a mast at the back of the base, 1.55 m up
+  wrist: {sim: tb/fr3/hand/wrist, depth: true, noise: {pos_m: 0.003, rot_deg: 0.5, fov: 0.02}}
+
+hand:                     # measured on the model
+  pad_center_m: 0.103     # the fingertip pads' centers, out from the flange along its z
+  pad_span_m: [0.094, 0.111]
+  open_width_m: 0.083
+  closing_yaw_deg: 45.0   # the fingers close along this direction in the flange's xy plane
+  closed_width_m: 0.003   # gripper command g: a pad gap of open - (open - closed) * g
+  grip_stiffness_N_per_m: 750     # squeeze per m of gap commanded narrower than what it holds,
+  grip_force_max_N: 70            # up to the hand's force
+
+# Where an episode starts the arm: the flange 0.3 m ahead of the base center and 1.2 m up, tipped 20 degrees
+# forward, so the wrist camera looks at the counter in front (the FR3's own ready pose points it at the floor here).
+start_q: [0.0, -0.53, 0.0, -1.49, 0.0, 1.31, 0.79]
+
+control:
+  hz: 15
+  speed: normal
+  limits:
+    base_max_vel: [0.5, 0.5, 1.0]

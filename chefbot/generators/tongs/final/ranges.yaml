@@ -1,0 +1,399 @@
+length_m:
+  min: 0.17
+  max: 0.44
+  dist: derived from working length and pull ring
+  why: Vollrath 7/9.5/12/16 inch classes and Rosle 26.5/32/43.5 cm overall products; https://www.vollrathfoodservice.com/products/smallwares/kitchen-essentials/tongs/utility-tongs
+    ; https://www.roesle.com/media/ae/0d/48/1708433394/2024_Katalog_Kueche_ENG_ohne_Preise_Ansicht.pdf
+working_length_m:
+  min: 0.165
+  max: 0.401
+  dist: silicone/nylon equal {0.23,0.27,0.30,0.35}+U(-.008,.008); pivot steel {0.18,0.235,0.30,0.395}+U(-.006,.006);
+    band {0.18,0.23,0.30}+U(-.006,.006); pasta {0.20,0.23,0.29}+U(-.005,.005); scissor U(.165,.210); bamboo
+    {0.22,0.24,0.30}+U(-.005,.005); molded U(.250,.290)
+  why: Hinge-to-tip length, or flexible strip length for bamboo. Overall length also includes the heel,
+    pull tab, or proximal scissor loops. Product size classes are supported by Vollrath 7/9.5/12/16-inch
+    utility tongs, OXO 9/12-inch tongs, IKEA 24 cm bamboo and MTC 30 cm bamboo serving tongs.
+mass_kg:
+  min: 0.015
+  max: 0.28
+  dist: derived from geometry and material volumes
+  why: Real material volumes; Vollrath 47110 81.5 g; Rosle locking 158-240 g and patisserie tongs about
+    30 g. Serving band designs are lighter than locking tongs. IKEA OSTBIT bamboo tongs are about 30 g;
+    thinner/smaller variants can be lighter. Cup/rim mass uses the watertight merged material volume,
+    with internal core replacement-density correction. Coil/rivet heads contribute explicit root inertia.
+    Small visual lock and spring-leg masses are omitted.
+rest_tip_gap_m:
+  min: 0.04
+  max: 0.108
+  dist: uniform(.065,.105) times sqrt(L/.27) for miniature L<.27, otherwise unscaled; bamboo uniform(.045,.075)*sqrt(L/.24);
+    molded U(.055,.078)
+  why: Smaller service tongs open less widely than grill tongs. Envelope is photo-informed engineering
+    inference; Vollrath usable width 11.5 cm sets a scale, not a precise site-gap measurement. Bamboo
+    opening is a photo-informed prior around the 5 cm package-width scale; dimensions are not an exact
+    commercial gap measurement.
+closing_force_N:
+  min: 2
+  max: 45
+  dist: derived from physical model under 20 N/s ramp
+  why: "Engineering spring/beam prior, not a measured commercial force curve. Force is on each actual\
+    \ grip surface under a 20 N/s ramp, including inertia and damping. Coils use K=E*d^4/(64*n*D); flexures\
+    \ use beam approximations. Independent simulation of the generated model records the resulting force.\
+    \ US8727408B1 Table 1 reports fabricated wood tongs mostly 0.4\u20132.2 lbf (1.8\u20139.8 N), one\
+    \ very stiff 6 lbf example; these are prototype wood measurements, not coil-tong calibration. https://patents.google.com/patent/US8727408B1/en"
+tip_friction:
+  min: 0.3
+  max: 1.15
+  dist: steel U(.30,.55), band/scissor U(.35,.55), nylon U(.50,.75), silicone U(.85,1.15), bamboo U(.50,.80)
+  why: 'Material-dependent engineering priors, not wet-food measurements; PFA gripper data estimates steel-steel
+    around .28, polymers selected higher. https://pfa-inc.com/pdfs/gripper_pads_specs.pdf Food evidence
+    is highly setup-dependent: Feng et al. (2019), DOI 10.1088/1757-899X/585/1/012120, measured tomato
+    maximum-static coefficients .71 on stainless and 2.46 on unspecified rubber; these are not silicone/wet-food
+    measurements. https://www.researchgate.net/publication/335155194_Tomato%27s_Mechanical_Properties_Measurement_Aiming_for_Auto-harvesting
+    . A separate tomato study reports stainless .26-.33: https://jssae.journals.ekb.eg/article_207252_780d4601ac119a8706dfb73d111aedd2.pdf
+    . Keep the engineering distributions rather than fitting one food/setup.'
+head_length_m:
+  min: 0.033
+  max: 0.085
+  dist: polymer U(.055,.070)*sqrt(L/.28); steel pivot U(.047,.069)*sqrt(L/.28); band U(.040,.060)*sqrt(L/.23);
+    pasta U(.055,.070); scissor U(.048,.060); bamboo .04; molded U(.052,.065)
+  why: Longer paddle heads scale with tong length; photo-informed 48-80 mm envelope from OXO and Rosle
+    cooking heads.
+head_width_m:
+  min: 0.018
+  max: 0.045
+  dist: polymer U(.032,.044); steel pivot U(.030,.044); band U(.027,.040); pasta U(.035,.045); scissor
+    U(.032,.042), all capped at .75*head_length; bamboo 1.15*U(.018,.024); molded U(.029,.036)
+  why: Commercial cooking/serving heads are generally elongated paddles; width is coupled to length to
+    avoid implausibly round miniature heads. Rosle width near 4 cm; smaller Vollrath service sizes support
+    smaller heads. This parameter is the nominal head envelope before scallop trimming.
+arm_width_m:
+  min: 0.005
+  max: 0.024
+  dist: pivot U(.015,.021); band U(.013,.020); scissor .014 flat strap or .005 round rod; bamboo U(.018,.024);
+    molded U(.019,.023)
+  why: Estimated channel width from manufacturer photos relative to the 32-44 mm heads. Scissor value
+    is actual nominal shaft width/diameter, not the hinge bearing span.
+steel_thickness_m:
+  min: 0.00065
+  max: 0.001
+  dist: uniform
+  why: 'Vollrath specifies 24 gauge economy and 20 gauge heavy-duty stainless: roughly 0.6 and 0.9 mm.
+    This envelope includes formed-edge and product variation.'
+channel_depth_m:
+  min: 0
+  max: 0.005
+  dist: pivot U(.003,.005); zero for flat bands and wire scissors
+  why: Engineering interpretation of stamped open channels in OXO and Vollrath photos; thin steel remains
+    a shell.
+grip_distance_m:
+  min: 0.029
+  max: 0.169
+  dist: pivot L*U(.32,.40), band L*U(.35,.42), each capped by a conservative 65 mm surface spread; scissor
+    0.032938 rod or 0.029568 curved strap; bamboo L*U(.40,.48); molded L*U(.39,.46), capped at 65 mm actual
+    outer-surface spread
+  why: Accessible actual squeeze surface on the proximal handle. Wide-opening designs are squeezed closer
+    to the hinge. Scissor grip lies on the exposed steel shank ahead of its finger loop, not inside the
+    loop or inside the wire. Molded heel radius and wall thickness are included when finding the accessible
+    surface point; its beam compliance uses the resulting load position.
+head_thickness_m:
+  min: 0.00065
+  max: 0.005
+  dist: 'steel: same as sheet; silicone: uniform(.0035,.0050); nylon: uniform(.0028,.0040); pasta: uniform(.0011,.0015);
+    molded U(.004,.005)'
+  why: Vollrath steel gauge and OXO silicone/nylon construction; polymer thicknesses photo-informed engineering
+    estimates. Fuller molded section follows OXO/Rosle product photos, not a published wall measurement;
+    https://www.roesle.com/en/locking-tongs-silicone-30-cm-118-in/
+cup_depth_m:
+  min: 0.0015
+  max: 0.01
+  dist: silicone U(.0030,.0045); steel pivot U(.003,.005); nylon U(.0025,.0035); band/scissor U(.0025,.004);
+    pasta .010 prong curvature
+  why: Vollrath specifies concave steel heads, while OXO silicone and nylon heads are relatively shallow
+    molded paddles.
+scallop_fraction:
+  min: 0
+  max: 0.13
+  dist: 0 for smooth heads, otherwise uniform(.07,.13)
+  why: Smooth edge lobes seen in scalloped steel/silicone product photos; relative radial indentation
+    rather than sharp teeth.
+scallop_count:
+  min: 4
+  max: 6
+  dist: uniform integer
+  why: Typical broad cooking head has several shallow scallops along each side; photo-informed design
+    variation.
+spring_stiffness_Nm_per_rad:
+  min: 0.7
+  max: 18.5
+  dist: pivot U(1.5,3.4); band U(2.5,5.5)*L/.23; scissor U(.9,1.6); bamboo a*L / integral_0^a [(a-x)*(L-x)/(E*I(x))]
+    dx, a=actual grip distance, I(x)=w(x)*t(x)^3/12; molded series combination 1/(1/k_loop+1/k_arm), k_loop=2*E*I/arc_length,
+    k_arm matches tip compliance under actual grip load
+  why: 'Pivot: JPE torsion-coil estimate. Band: equivalent per-arm elastic rate; band thickness derived
+    using 2*E*I/(pi*R), E=186 GPa. Engineering prior, not a measured product force curve. Bamboo equivalent
+    hinge preserves tip displacement under actual grip loading in linear Euler-Bernoulli theory; visible
+    arms remain rigid.'
+spring_preload_rad:
+  min: 0
+  max: 0.36
+  dist: pivot uniform(.20,.36), band zero; scissor uniform(.12,.22)
+  why: Pivot coil preloaded against its open stop; one-piece band is unstressed at its open equilibrium.
+spring_wire_diameter_m:
+  min: 0
+  max: 0.0024
+  dist: zero for flexural band, otherwise coil rate formula
+  why: 'Tokai stainless spring modulus: https://www.tokaibane.com/en/spring-design/torsion-springs-formulas
+    . Visual coil and modeled rate share dimensions.'
+head_color_index:
+  min: 0
+  max: 6
+  dist: 0-4 silicone palette; 5 charcoal nylon or 6 cream nylon; unused for metallic head
+  why: Charcoal, red, teal, green and purple silicone are common utensil colors; OXO and reference images
+    establish black/red silicone heads.
+rest_half_angle_rad:
+  min: 0.025
+  max: 0.4
+  dist: derived from target gap and head site position
+  why: Rest angle is geometric, not an independent random variable; yields the documented opening range.
+style:
+  dist: derived description
+  why: Describes the actual generated material, head shape, grips and decorative lock.
+head_material:
+  dist: 'bamboo .10; molded silicone .09; remaining .81: pasta steel .14, scissor steel .86*.16, band
+    steel .86*.84*.20, pivots .86*.84*.80 use silicone .45, steel .35, nylon .20'
+  why: Major common cooking-tong tip materials represented by Vollrath, OXO and Rosle manufacturer catalogs
+    cited above.
+head_profile:
+  dist: material and construction conditional scalloped or smooth cup/leaf/paddle, five-tooth pasta comb,
+    or flat bamboo paddle; molded flat rounded ribbed paddles
+  why: Vollrath scalloped concave steel; OXO molded heads; Rosle oak-leaf silhouette. No downloaded geometry
+    used. Smooth variants are labeled smooth even when a later construction override inherits a zero scallop
+    fraction.
+lock_type:
+  dist: polymer pivot pull ring; steel pivot none .50/collar .30/ring .20, with ring changed to none above
+    .36 m; other constructions none
+  why: Reference utility tongs show no lock or a sliding collar; OXO has pull-tab storage locks. All lock
+    geometry is visual only.
+soft_grips:
+  dist: silicone pivot Bernoulli(.85), steel pivot Bernoulli(.25), always nylon pivot and round scissor
+    coated loops; false for flat scissor, band, bamboo, molded
+  why: Common silicone/nylon-head products use soft inserts; economy stainless utilities usually have
+    bare steel handles.
+construction:
+  dist: bamboo .10; molded plastic .09; pivot .4681152; plain steel spring band .1170288; pasta spring
+    band .1134; scissor .111456
+  why: 'Vollrath one-piece utility and spaghetti tongs and the dev references show bent spring strips;
+    OXO shows riveted spring-loaded cooking tongs. Rigid arms plus a root flexure approximate distributed
+    band bending. Vollrath catalog also lists 15-inch chrome-plated wire scissor tongs, inspiring a shorter
+    one-hand serving variant: https://www.vollrathfoodservice.com/downloads/104850/CAT2024SmallwaresCountertopEquipmentCatalogen-pdf
+    IKEA OSTBIT 24 cm bamboo serving tongs adds a solid-strip flexure family. Molded PBT loop-flexure
+    with silicone paddles is supported by Lekue 883521; weights are coverage choices, not estimated market
+    shares.'
+spring_band_radius_m:
+  min: 0
+  max: 0.01
+  dist: band U(.006,.010); otherwise zero
+  why: Photo-informed 12-20 mm overall bend diameter for one-piece serving tongs.
+spring_band_thickness_m:
+  min: 0
+  max: 0.0012
+  dist: 'band: (k*.5*12*pi*R/(186e9*arm_width))^(1/3); otherwise zero'
+  why: Flexure thickness matches the declared equivalent spring rate; engineering reduced-order elastic
+    beam estimate.
+pasta_teeth:
+  min: 0
+  max: 5
+  dist: five for pasta (11.34% overall); zero for other non-bamboo/non-molded outputs
+  why: Vollrath one-piece spaghetti tong family and dev reference combs show several broad, curved prongs.
+    https://www.vollrathfoodservice.com/products/smallwares/kitchen-essentials/tongs/spaghetti-tongs ;
+    Rosle pronged pasta tongs https://www.roesle.com/en/spaghetti-tongs/ . Count is a design choice, not
+    a traced shape.
+edge_radius_m:
+  min: 0
+  max: 0.0025
+  dist: zero for pasta; rolled steel 1.4*sheet thickness; molded polymers half wall thickness
+  why: Rounded rolled rim or molded edge follows the actual head outline, with matching visible and collision
+    tube geometry. Dimensions are an engineering interpretation of product photos, not a manufacturer
+    tolerance.
+hinge_damping_Nms_per_rad:
+  min: 0.02
+  max: 0.153
+  dist: metal/pivot-polymer .05*(L/.23)^2; bamboo .03*(L/.23)^2; molded .035*(L/.27)^2
+  why: Equivalent viscous hinge/flexure damping is an engineering simulation prior, not a measured commercial
+    force curve. Length-squared scaling follows rotational inertia and reduces excessive impact speed
+    of long arms. The baseline is 0.05 N m s/rad at 23 cm. Raised 25% after a long steel model showed
+    a near-limit discrete contact impact; empirical numerical/response prior, not a measured commercial
+    damping value.
+wood_thickness_m:
+  min: 0.0038
+  max: 0.0046
+  dist: uniform distal thickness, linearly tapered from wood_root_thickness_m
+  why: Distal section thicker than the bending root, informed by wood tong prototypes in US8727408B1 Table
+    1; adaptation to bamboo, not measurements of commercial bamboo tongs. https://patents.google.com/patent/US8727408B1/en
+wood_density_kg_m3:
+  min: 650
+  max: 780
+  dist: uniform, bamboo only
+  why: "Bamboo studies report 646 kg/m3 for tested culms and about 700\u2013800 kg/m3 depending on species\
+    \ and culm location. Engineering prior for an unspecified commercial bamboo laminate: https://www.sciencedirect.com/science/article/pii/S0950061817307225\
+    \ ; https://www.sciencedirect.com/science/article/pii/S0950061819311055"
+wood_modulus_Pa:
+  min: 8000000000.0
+  max: 12000000000.0
+  dist: uniform, bamboo only
+  why: "Bending tests report bulk bamboo MOE 6.1\u201314.2 GPa, mean 9.6 GPa; choose 8\u201312 GPa for\
+    \ thin strips, not measured tong-specific values. Equivalent rate integrates the actual tapered section\
+    \ under load at the grip. https://www.sciencedirect.com/science/article/pii/S0950061817307225"
+wood_tone:
+  min: 0.9
+  max: 1.08
+  dist: uniform
+  why: 'Natural light bamboo tone variation; generated longitudinal grain, no downloaded image or tracing.
+    IKEA OSTBIT oil-finished bamboo: https://www.ikea.com/de/en/p/ostbit-serving-tong-bamboo-00453464/'
+head_relief:
+  dist: pivot polymer smooth .30, transverse ribs .40, studs .30; steel smooth; molded flexure six ribs
+  why: Molded kitchen-tong faces commonly carry shallow grip ribs or bumps, including the red silicone
+    dev reference. This is an independent procedural pattern, not traced geometry.
+head_relief_height_m:
+  min: 0
+  max: 0.00065
+  dist: zero when smooth; pivot polymer U(.00035,.00065); molded flexure .00065
+  why: Shallow molded gripping relief; photo-informed engineering prior. Pivot contact hulls bridge submillimetre
+    valleys; molded-flexure ribs are explicit rounded capsules.
+tip_contact_priority:
+  min: 1
+  max: 1
+  dist: fixed
+  why: Material-defined food-contact coefficient takes precedence over default-priority scene objects,
+    rather than max-friction mixing hiding steel variation. https://mujoco.readthedocs.io/en/3.3.1/modeling.html#contact-parameters
+contact_margin_m:
+  min: 0.0003
+  max: 0.0003
+  dist: fixed on head/wood arm collision pieces
+  why: Explicit 0.3 mm numerical contact skin for the convex surface approximation at a 2 ms step. It
+    is not an added hidden stop.
+tip_torsional_friction_m:
+  min: 0.003
+  max: 0.003
+  dist: fixed
+  why: Engineering effective contact-patch radius of 3 mm for distributed tip-food contact; condim 6.
+    Not a measured wet-food property.
+tip_rolling_friction_m:
+  min: 0.00035
+  max: 0.00035
+  dist: fixed
+  why: Engineering rolling-resistance length for a finite contact patch. Not validated on oily food.
+tip_contact_timeconst_s:
+  min: 0.003
+  max: 0.004
+  dist: steel/wood .003; polymer .004
+  why: MuJoCo compliant-contact time constant prior, with damping ratio 1 and impedance [.95,.99,.001];
+    effective behavior also depends on the scene timestep and refsafe setting.
+head_density_kg_m3:
+  min: 650
+  max: 7900
+  dist: steel 7900, silicone 1100, nylon 1150, bamboo U(650,780)
+  why: Conventional bulk material densities; explicit masses come from local material volumes, not visual-geom
+    default density. Bamboo material sources are documented below.
+grip_friction:
+  min: 0.4
+  max: 0.95
+  dist: bare steel/channel/scissor shank .4; soft pad .95; bamboo same U(.50,.80) as tips; molded PBT
+    .55
+  why: Material-dependent engineering priors for hand contact. Scissor squeeze sites are on the bare shank
+    ahead of the coated loops.
+wood_grain:
+  dist: seeded longitudinal sine waves across the surface at 14/37/83 cycles, amplitudes .035/.022/.012,
+    random phases, Gaussian noise sigma .006
+  why: Procedural natural-material appearance from the seed; no source image, labels, or downloaded texture.
+head_nose_fraction:
+  min: 0
+  max: 0.36
+  dist: steel non-pasta 55% broad .36, otherwise .025; nylon .30; silicone .025; pasta 0
+  why: Photo-informed rounded-spade versus oval serving outlines. Broad steel noses have a crowned front
+    edge and a continuous rolled rim; this is a procedural family choice, not a traced product outline.
+wood_root_thickness_m:
+  min: 0.0022
+  max: 0.0027
+  dist: uniform independently
+  why: Thin flexure near glued heel, thickness increases toward distal gripping ends. US8727408B1 wood
+    prototypes support a tapered section; bamboo modulus separately sourced.
+longitudinal_cup_depth_m:
+  min: 0
+  max: 0.0015
+  dist: all non-pasta .0015; pasta 0
+  why: Formed spoon depth along the long axis, inferred from concave serving-head product photos. Independent
+    from transverse cup depth; no change in steel sheet gauge.
+scissor_arm_form:
+  dist: conditional scissor 65% flat strap, 35% round rod; other families not scissor
+  why: Vollrath 46925 10-inch polished stainless scissor salad tongs and 47325 15-inch chrome-wire tongs
+    support separate formed-strip and wire constructions; procedural geometry is not traced. https://www.vollrathfoodservice.com/products/smallwares/buffet-and-tabletop-service/buffetware/stainless-steel-buffet-serving-tongs/46925
+spring_coil_turns:
+  min: 0
+  max: 4
+  dist: two for flat scissor, four for pivot/rod scissor, zero for band
+  why: Compact torsion coil package; wire diameter follows the same physical rate formula with the actual
+    number of turns. Flat 2.4 mm straps sit at +/-4 mm, leaving clearance for the smaller coil; this is
+    an engineering mechanism layout.
+plastic_heel_radius_m:
+  min: 0.012
+  max: 0.016
+  dist: uniform
+  why: Photo-informed section geometry for molded loop-flexure tongs. Lekue 883521 manufacturer lists
+    PBT body and silicone tips, 282 x 66 x 40 mm and 94 g; https://www.lekue.com/eu/non-scratch-kitchen-tongs-green/
+    . Geometry is not an exact replica or measured wall section.
+plastic_heel_thickness_m:
+  min: 0.0025
+  max: 0.0031
+  dist: uniform
+  why: Photo-informed section geometry for molded loop-flexure tongs. Lekue 883521 manufacturer lists
+    PBT body and silicone tips, 282 x 66 x 40 mm and 94 g; https://www.lekue.com/eu/non-scratch-kitchen-tongs-green/
+    . Geometry is not an exact replica or measured wall section.
+plastic_arm_thickness_m:
+  min: 0.0045
+  max: 0.0055
+  dist: uniform
+  why: Photo-informed section geometry for molded loop-flexure tongs. Lekue 883521 manufacturer lists
+    PBT body and silicone tips, 282 x 66 x 40 mm and 94 g; https://www.lekue.com/eu/non-scratch-kitchen-tongs-green/
+    . Geometry is not an exact replica or measured wall section.
+plastic_modulus_Pa:
+  min: 2200000000.0
+  max: 2700000000.0
+  dist: uniform
+  why: BASF Ultradur B4520 unreinforced PBT tensile/flexural modulus 2.4 GPa at room temperature. Range
+    allows grade variation; not measured on a specific tong. Creep/temperature effects omitted. https://download.basf.com/p1/8a8081c57fd4b609017fd62e21255407/en/ULTRADUR%25C2%25AE_B4520
+plastic_density_kg_m3:
+  min: 1300
+  max: 1300
+  dist: constant
+  why: BASF Ultradur B4520 density 1300 kg/m3; same BASF source as modulus.
+plastic_palette:
+  min: 0
+  max: 3
+  dist: uniform integer; charcoal/lime, cream, green, charcoal/red
+  why: Photo-informed section geometry for molded loop-flexure tongs. Lekue 883521 manufacturer lists
+    PBT body and silicone tips, 282 x 66 x 40 mm and 94 g; https://www.lekue.com/eu/non-scratch-kitchen-tongs-green/
+    . Geometry is not an exact replica or measured wall section.
+channel_section_power:
+  min: 0
+  max: 4
+  dist: four for pivot stamped channels; zero for other exported metal constructions
+  why: Fourth-power superellipse gives broad stamped web and rounded corners; geometry inferred from development
+    product photos, not a measured cross-section.
+scissor_rod_diameter_m:
+  min: 0
+  max: 0.005
+  dist: 5 mm for round rod scissor; zero for flat strap
+  why: Engineering section scale for chrome-wire serving tongs, informed by Vollrath 47325 product family;
+    not a published rod diameter.
+scissor_strap_thickness_m:
+  min: 0
+  max: 0.0024
+  dist: 2.4 mm for flat scissor; zero for round rod
+  why: Photo-informed polished flat stainless scissor construction; Vollrath 46925 establishes family
+    and length, not this exact section.
+plastic_core_thickness_m:
+  min: 0.0015
+  max: 0.0015
+  dist: fixed 1.5 mm; width .60 of local head envelope, stops 8 mm from end
+  why: Molded PBT reinforcement inside silicone paddle. Engineering interpretation of overmold construction,
+    not a measured internal part.

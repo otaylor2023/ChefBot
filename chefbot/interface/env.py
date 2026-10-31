@@ -36,8 +36,9 @@ class Env(ABC):
         return False
 
     @abstractmethod
-    def set_gripper(self, closed: bool) -> None:
-        """Command the gripper fully closed or fully open. Holds until the next call."""
+    def set_gripper(self, closed: float) -> None:
+        """Command the gripper: 0 open .. 1 closed (a bool is either end). A gripper that is only open or closed
+        closes at >= 0.5. Holds until the next call."""
 
     @abstractmethod
     def get_camera_rgbd(self, cam: str) -> RGBD: ...

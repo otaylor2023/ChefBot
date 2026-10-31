@@ -258,9 +258,9 @@ class RoboCasaEnv(Env):
         with self.lock:
             self._arm_target = np.clip(q, self.arm_joint_limits[:, 0], self.arm_joint_limits[:, 1])
 
-    def set_gripper(self, closed: bool) -> None:
+    def set_gripper(self, closed: float) -> None:
         with self.lock:
-            self._gripper_closed = bool(closed)
+            self._gripper_closed = float(closed) >= 0.5
 
     def get_camera_rgbd(self, cam: str) -> RGBD:
         """Do not call with `lock` held: the render thread takes it."""

@@ -1,0 +1,30 @@
+name: pick_up
+version: chefbot_v30
+entry: main.py:run
+interface: chefbot-v1
+robot: panda_franka
+arm_only: true
+args:
+  object:
+    type: string
+    doc: what to pick up, in a few words
+models:
+  gemini-3.1-flash-lite:
+    runs: api
+    provider: google
+    key: GEMINI_API_KEY
+  grounding-dino:
+    runs: vision_models
+  sam2:
+    runs: vision_models
+assumes: the start rule of its lab's task (robocasa_pick)
+privileged: false
+provenance:
+  lab: robocasa_pick
+  run: robocasa_pick-1030-154632
+  suite: robocasa_pick
+  test: not run (the session stopped at its Codex usage cap before choosing a final); val 83% (20/24), 11.4 s mean
+  report: REPORT.md (interim)
+imported_from: >-
+  ChefBot's robocasa_pick lab (bohg-ws-20 runs/labs/robocasa_pick-1030-154632, skills/v30), unchanged: its
+  validated reference. Kept as the starting point of the tongs lab.

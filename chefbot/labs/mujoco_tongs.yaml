@@ -1,0 +1,29 @@
+# Pick up a pair of kitchen tongs from the counter and use them to lift a named food (on the counter, or in a pan, a
+# bowl or a plate), in RoboCasa kitchens exported to plain MuJoCo, on the TidyBot++ FR3 with the Franka Hand. Tongs
+# from the tongs lab's final generator; some foods break if squeezed too hard (the breaking forces are hidden). A
+# program that calls small models: Gemini and the vision models. Starts from the pick lab's v30.
+goal: {skill: tongs_lift, task: lift}
+robot: tidybot_fr3
+interface: chefbot-v1
+example: example_tongs
+skill_args:
+  object: {type: string, doc: "the food to lift, in a few words"}
+  where: {type: string, doc: "where it is: 'on the counter', 'in the bowl', 'in the pan', 'in the plate'"}
+  tool: {type: string, doc: "the tool to use: 'tongs'"}
+suites:
+  dev:  {suite: mujoco_tongs/dev,  visible: full}
+  val:  {suite: mujoco_tongs/val,  visible: aggregate, submissions: 5}
+  test: {suite: mujoco_tongs/test, visible: hidden}
+paid_models: {google: {usd: 10}}
+vision_models: [owlv2, grounding-dino, sam2]
+budgets: {hours: 6, codex_usage_add_pct: 25}
+brief: briefs/tongs_lift.md
+start_from:
+  skill: pick_up/chefbot_v30
+  note: >-
+    `prior/skill/` is the best pick skill (v30) from this lab's predecessor: picking a named object off a counter
+    with the hand alone, in RoboCasa, on a Panda with the Franka Hand on another base (val 83%, 11.4 s). Its
+    perception (Grounding DINO, SAM 2, a Gemini check, depth geometry) may carry over. The robot, the scenes and the
+    task differ here; `prior/REPORT.md` is its interim report. Use, adapt or drop it; say in your report what you
+    kept. (That lab's brief said the fingers close along -45 degrees in the flange frame; its researcher measured
+    +45. This robot's brief is measured on this robot.)

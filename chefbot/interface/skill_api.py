@@ -7,7 +7,8 @@ Frames: odom = the robot root (the arm base frame) where the episode started, fi
 fingers (the approach direction); the robot's brief says where the fingertip pads are and which way they close.
 
 Control: `act(rows)` runs one 15 Hz control step per row. A row is an absolute whole-body target
-[x, y, z, qw, qx, qy, qz, gripper, base_x, base_y, base_yaw]: the flange pose in odom, gripper 0 open / 1 closed,
+[x, y, z, qw, qx, qy, qz, gripper, base_x, base_y, base_yaw]: the flange pose in odom, gripper 0 open .. 1 closed
+(continuous where the robot's brief says so; else it closes at >= 0.5),
 and where the robot root should be (x, y, yaw in odom). Each step the base drives toward its target and the arm
 takes a clipped step toward the flange target (a few mm and a few degrees per 20 Hz tick, the speed profile's
 rates), re-solved by IK against where the base really is. At most 600 rows (40 s) per call.
@@ -84,8 +85,9 @@ class Robot:
 
     def proprio(self) -> dict:
         """Cheap state: step, sim_time_s, flange_pose_odom (4x4), flange_pose_root (4x4, in the root
-        frame: what act_arm rows give), base_pose_odom [x, y, yaw], gripper_closed_cmd, gripper_closure
-        (0 open .. 1 closed), gripper_width_m, arm_q, arm_q_cmd, base_in_contact."""
+        frame: what act_arm rows give), base_pose_odom [x, y, yaw], gripper_cmd (the last command, 0..1; not on
+        every robot), gripper_closed_cmd, gripper_closure (0 open .. 1 closed, measured), gripper_width_m, arm_q,
+        arm_q_cmd, base_in_contact."""
         return _with_root(self._call("proprio")["proprio"])
 
     def observe(self, cameras: tuple[str, ...] | None = None) -> dict:

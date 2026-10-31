@@ -23,6 +23,7 @@ def register(cls):
 
 def get(name: str) -> "TaskType":
     import chefbot.tasks.pick_up  # noqa: F401  (registers the built-in types)
+    import chefbot.tasks.tongs_pick  # noqa: F401
 
     if name not in TYPES:
         raise ValueError(f"no task type {name!r}; types: {', '.join(sorted(TYPES))}")

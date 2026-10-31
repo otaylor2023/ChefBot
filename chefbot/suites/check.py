@@ -19,7 +19,7 @@ from chefbot import suites
 
 def check_item(setup_name: str, task_name: str, seeds: list[int], robot_name: str) -> dict:
     from chefbot import embodiments, setups
-    from chefbot.environments.robocasa.host import make_host
+    from chefbot.environments import make_host
 
     t0, host = time.time(), None
     try:
