@@ -99,11 +99,14 @@ def main() -> None:
         kitchens = list(KITCHENS[split])
         items = []
         for i in range(n):
-            t_seed, t_params = tongs[i % len(tongs)]
-            gap = float(t_params["rest_tip_gap_m"])
-            fits = {c: [m for m, w in split_models[split][c] if w <= gap - MARGIN_M] for c in FOODS}
-            cats = [c for c in FOODS if fits[c]]
-            food = cats[i % len(cats)] if i < len(cats) else rng.choice(cats)
+            for k in range(len(tongs)):  # tongs that open too little for any two foods are passed over
+                t_seed, t_params = tongs[(i + k) % len(tongs)]
+                gap = float(t_params["rest_tip_gap_m"])
+                fits = {c: [m for m, w in split_models[split][c] if w <= gap - MARGIN_M] for c in FOODS}
+                cats = [c for c in FOODS if fits[c]]
+                if len(cats) >= 2:
+                    break
+            food = cats[i % len(cats)]
             other = rng.choice([c for c in cats if c != food])
             where = "counter" if i % 3 == 0 else CONTAINERS[(i // 3) % 3]
             objects = [{"category": food, "model": rng.choice(fits[food])}, {"category": other, "model": rng.choice(fits[other])}]
