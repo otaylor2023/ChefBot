@@ -50,8 +50,12 @@ def run(robot, object="food", where="on the counter", tool="tongs"):  # noqa: A0
     T_root = planar(*p["base_pose_odom"])
     for name, cam in obs["cameras"].items():
         robot.save_image(name, cam["rgb"])
-    tongs = find(robot, obs["cameras"]["pole"], T_root, tool) or find(robot, obs["cameras"]["wrist"], T_root, tool)
-    food = find(robot, obs["cameras"]["pole"], T_root, object) or find(robot, obs["cameras"]["wrist"], T_root, object)
+    tongs = find(robot, obs["cameras"]["pole"], T_root, tool)
+    if tongs is None:
+        tongs = find(robot, obs["cameras"]["wrist"], T_root, tool)
+    food = find(robot, obs["cameras"]["pole"], T_root, object)
+    if food is None:
+        food = find(robot, obs["cameras"]["wrist"], T_root, object)
     robot.log("tongs at", tongs, "food at", food, where)
     if tongs is None:
         return {"ok": False, "reason": "tongs not found"}
