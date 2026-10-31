@@ -59,6 +59,10 @@ class MujocoKitchenEnv(Env):
         spec.visual.global_.offwidth, spec.visual.global_.offheight = max(w, 1280), max(h, 960)
         spec.visual.map.znear = 0.01
         self.model = spec.compile()
+        # RoboCasa's collision geoms are invisible (alpha 0), and mj_ray skips invisible geoms: the scene's rays must
+        # see them. Cameras render only the visual groups (VISUAL), so this changes no image.
+        collision = np.isin(self.model.geom_group, [0, 3]) & (self.model.geom_rgba[:, 3] == 0)
+        self.model.geom_rgba[collision, 3] = 1.0
         self.data = mujoco.MjData(self.model)
         self.physics_hooks: list = []
         m = self.model
