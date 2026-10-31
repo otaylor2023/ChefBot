@@ -115,6 +115,7 @@ class TongsPick(TaskType):
         holder = container or target
         hs = spot(-side * rng.uniform(0.0, 0.06), rng.uniform(0.10, 0.15), holder.radius)
         if hs is None:
+            a["why"] = "no flat spot for the food's holder"
             return
         if container:
             container.place(*hs, float(rng.uniform(-math.pi, math.pi)))
@@ -122,6 +123,7 @@ class TongsPick(TaskType):
             dx, dy = rng.uniform(-0.25, 0.25, 2) * max(container.radius - target.reach, 0.0)
             hit, z = scene.ray_down(hs[0] + dx, hs[1] + dy, hs[2] + 0.4)
             if hit != container.body:
+                a["why"] = "the container is not under the food's spot"
                 return
             target.place(hs[0] + dx, hs[1] + dy, z, float(rng.uniform(-math.pi, math.pi)))
         else:
@@ -136,6 +138,7 @@ class TongsPick(TaskType):
         hu = float((np.asarray(hs[:2]) - box.origin[:2]) @ along[:2]) - a["spot"][1] * width
         s = spot(hu + side * (holder.reach + half_along + rng.uniform(0.03, 0.08)), rng.uniform(0.07, 0.12), 0.03)
         if s is None or not self._lies_flat(scene, counter, tongs, s, t_yaw):
+            a["why"] = "no flat spot for the tongs"
             return
         tongs.place(s[0], s[1], s[2], t_yaw)
         # A distractor beside the food, on its other side.
