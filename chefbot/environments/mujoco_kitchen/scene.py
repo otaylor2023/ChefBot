@@ -132,10 +132,11 @@ class Scene:
         return [f for f in self._fixtures.values() if f.label == "counter"]
 
     def ray_down(self, x: float, y: float, z: float, exclude: int = -1) -> tuple[int, float]:
-        """(the body root it hits, the height) straight down from (x, y, z): geoms of the visual groups excluded."""
+        """(the body root it hits, the height) straight down from (x, y, z), seeing only the kitchen's collision geoms
+        (RoboCasa's group 0): not the robot or the generated extras (group 3), not visual geoms."""
         m, d = self.env.model, self.env.data
         gid = np.zeros(1, np.int32)
-        groups = np.array([1, 0, 0, 1, 0, 0], np.uint8)  # collision geoms: RoboCasa's group 0, Menagerie's 3
+        groups = np.array([1, 0, 0, 0, 0, 0], np.uint8)
         dist = mujoco.mj_ray(m, d, np.array([x, y, z]), np.array([0, 0, -1.0]), groups, 1, exclude, gid)
         if dist < 0:
             return -1, -np.inf
