@@ -1,0 +1,22 @@
+name: tongs_lift
+version: mujoco_tongs1_v34
+entry: main.py:run
+interface: chefbot-v1
+robot: tidybot_fr3
+args:
+  object: {type: string, doc: "the food to lift, in a few words"}
+  where: {type: string, doc: "'on the counter', 'in the bowl', 'in the pan', 'in the plate'"}
+  tool: {type: string, doc: "'tongs'"}
+models:
+  gemini-3.1-flash-lite: {runs: api, provider: google, key: GEMINI_API_KEY}
+  grounding-dino: {runs: vision_models}
+  sam2: {runs: vision_models}
+assumes: the start rule of its lab's task (tongs_pick)
+privileged: false
+provenance:
+  lab: mujoco_tongs
+  run: mujoco_tongs-1031-105234 (bohg-ws-20)
+  suite: mujoco_tongs
+  test: not run; dev 0/18 full successes, 15/18 tongs held at the end, 3 foods broken (seed 0, 18 of 24 scenes)
+  report: REPORT.md; research_log.md (the run's record)
+  note: the run's lab lost its worker pool to an out-of-memory kill 48 min in; the rest of its 5.4 h had no episodes

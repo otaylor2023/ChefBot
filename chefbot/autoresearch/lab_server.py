@@ -21,6 +21,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
 from chefbot import setups, suites
@@ -31,6 +32,7 @@ from chefbot.autoresearch.summary import summarize
 
 MAX_DEV_SEEDS = 5
 WRAP_UP_MIN = 40
+WORKER_EPISODES = 4  # episodes a worker runs before it is replaced (memory)
 WORKER_ENV = ("MUJOCO", "PYOPENGL", "GEMINI", "EGL", "CUDA", "SKILL_", "CODEX")  # what the workers inherit
 
 
@@ -111,8 +113,8 @@ class Lab(IpcServer):
         self.reserved = {(it.setup, it.task, sd) for it in held for sd in it.seeds}
         self.ledger = (str(self.private / "model_ledger.jsonl"), cfg.model_usd)
         self.vision_url, self.limits = vision_url, limits
-        env = {k: v for k, v in os.environ.items() if k.startswith(WORKER_ENV)}
-        self.pool = ProcessPoolExecutor(jobs, mp_context=mp.get_context("spawn"), initializer=worker.init, initargs=(env,))
+        self._pool_args = (jobs, {k: v for k, v in os.environ.items() if k.startswith(WORKER_ENV)})
+        self.pool = self._new_pool()
         self.jobs: dict[str, dict] = {}
         self.state_path = self.private / "lab_state.json"
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {"val_used": 0, "val_history": []}
@@ -120,6 +122,29 @@ class Lab(IpcServer):
         self.deadline: float | None = None
 
     # -- jobs ----------------------------------------------------------------------------
+
+    def _new_pool(self) -> ProcessPoolExecutor:
+        """Workers are replaced every WORKER_EPISODES episodes: a simulator that grows in memory can't take the
+        machine down (a worker killed by the kernel breaks the whole pool)."""
+        jobs, env = self._pool_args
+        return ProcessPoolExecutor(jobs, mp_context=mp.get_context("spawn"), initializer=worker.init, initargs=(env,),
+                                   max_tasks_per_child=WORKER_EPISODES)  # fmt: skip
+
+    def _pool_ok(self) -> None:
+        """A broken pool (a worker died) is replaced; its unfinished episodes report a harness error."""
+        if getattr(self.pool, "_broken", False):
+            self.log.write(json.dumps({"t": time.time(), "pool": "broken, replaced"}) + "\n")
+            self.log.flush()
+            self.pool.shutdown(wait=False, cancel_futures=True)
+            self.pool = self._new_pool()
+
+    @staticmethod
+    def _result(f, ep: dict) -> dict:
+        """A finished episode's result; a lost one (its worker died) as a harness error."""
+        try:
+            return f.result()
+        except Exception as e:  # noqa: BLE001
+            return {**ep, "success": False, "error": f"harness: the episode's worker died ({type(e).__name__}); rerun it", "harness_lost": True}
 
     def snapshot(self, skill: str) -> tuple[Path, str]:
         src = (self.ws / skill).resolve()
@@ -142,12 +167,14 @@ class Lab(IpcServer):
         spec = {"dir": str(snap), "interface": self.cfg.interface, "access": self.cfg.access()}
         job = f"{kind}-{time.strftime('%H%M%S')}-{uuid.uuid4().hex[:4]}"
         base = (self.ws / "runs" / job) if kind == "dev" else (self.private / "val_runs" / job)
-        futs = []
+        futs, eps = [], []
+        self._pool_ok()
         for it, seed in episodes:
             out = base / f"{it.id}_s{seed}"
+            eps.append({"item": it.id, "setup": it.setup, "task": it.task, "seed": seed})
             futs.append(self.pool.submit(worker.run, {"id": it.id, "setup": it.setup, "task": it.task}, seed, spec, self.cfg.robot, None, str(out),
                                          self.ledger, self.vision_url, record, f"{job}/{it.id}_s{seed}", self.limits))  # fmt: skip
-        self.jobs[job] = {"kind": kind, "skill": skill, "digest": digest, "futures": futs, "dir": base, "t0": time.time()}
+        self.jobs[job] = {"kind": kind, "skill": skill, "digest": digest, "futures": futs, "episodes": eps, "dir": base, "t0": time.time()}
         self.log.write(json.dumps({"t": time.time(), "submit": job, "skill": skill, "digest": digest, "n": len(episodes)}) + "\n")
         self.log.flush()
         return {"job": job, "skill_digest": digest, "episodes": len(episodes)}
@@ -159,7 +186,8 @@ class Lab(IpcServer):
         t_end = time.time() + max(0.0, wait_s)
         while time.time() < t_end and not all(f.done() for f in j["futures"]):
             time.sleep(0.5)
-        done = [f.result() for f in j["futures"] if f.done()]
+        done = [self._result(f, ep) for f, ep in zip(j["futures"], j["episodes"]) if f.done()]
+        self._pool_ok()
         out = {"job": job, "kind": j["kind"], "skill": j["skill"], "skill_digest": j["digest"], "done": len(done),
                "total": len(j["futures"]), "elapsed_s": round(time.time() - j["t0"], 1)}  # fmt: skip
         if j["kind"] == "dev":
@@ -170,6 +198,14 @@ class Lab(IpcServer):
             out["summary"] = summarize(done)
         elif len(done) == len(j["futures"]):
             out["summary"] = summarize(done)  # val: aggregate only
+            if any(r.get("harness_lost") for r in done) and not j.get("recorded"):
+                # Lost to the harness, not the skill: the submission is given back, and nothing is recorded.
+                j["recorded"] = True
+                self.state["val_used"] = max(0, self.state["val_used"] - 1)
+                self._save_state()
+                out = {k: v for k, v in out.items() if k != "summary"}
+                out["error"] = "the lab lost episodes of this val run (a worker died); the submission was given back: submit again"
+                return out
             if not j.get("recorded"):
                 j["recorded"] = True
                 self.state["val_history"].append({"job": job, "skill": j["skill"], "digest": j["digest"], **out["summary"]})

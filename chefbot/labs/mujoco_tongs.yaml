@@ -19,11 +19,10 @@ vision_models: [owlv2, grounding-dino, sam2]
 budgets: {hours: 6, codex_usage_add_pct: 25}
 brief: briefs/tongs_lift.md
 start_from:
-  skill: pick_up/chefbot_v30
+  skill: tongs_lift/mujoco_tongs1_v34
   note: >-
-    `prior/skill/` is the best pick skill (v30) from this lab's predecessor: picking a named object off a counter
-    with the hand alone, in RoboCasa, on a Panda with the Franka Hand on another base (val 83%, 11.4 s). Its
-    perception (Grounding DINO, SAM 2, a Gemini check, depth geometry) may carry over. The robot, the scenes and the
-    task differ here; `prior/REPORT.md` is its interim report. Use, adapt or drop it; say in your report what you
-    kept. (That lab's brief said the fingers close along -45 degrees in the flange frame; its researcher measured
-    +45. This robot's brief is measured on this robot.)
+    `prior/skill/` is the reference skill (v34) of an earlier session of this same lab, with its `prior/REPORT.md` and
+    `prior/skill/research_log.md`. That session lost its episode runner 48 minutes in (the lab's fault: a worker ran
+    out of memory, now fixed), so it ran few experiments: v34 picked up and held the tongs in 15 of 18 dev episodes
+    but lifted no food (0/18; 3 foods broken, 10 never touched). Its report lists several prepared but untested
+    changes. Same robot, scenes and splits. Use, adapt or drop any of it; say in your report what you kept.
