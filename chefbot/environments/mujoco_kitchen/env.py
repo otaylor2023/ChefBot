@@ -2,7 +2,8 @@
 (robot.py), and any extra free objects (a generated pair of tongs), as one model. Implements ChefBot's Env.
 
     env = MujocoKitchenEnv(kitchen_dir, extras={"tongs": "path/to/model.xml"})
-    env.set_base_target(pose, max_vel) / set_arm_joint_targets(q) / set_gripper(closure 0..1) / wait_for_next_tick(dt)
+    env.set_base_target(pose, max_vel) / set_arm_joint_targets(q) / wait_for_next_tick(dt)
+    env.gripper_move(width, speed) / gripper_grasp(speed, force) / set_gripper(closed)     the Franka Hand (hand.py)
     env.get_state(), env.get_camera_rgbd("tb/pole"), env.render(cam, w, h)
     env.body_root(name) -> body id; env.geoms_of(root) -> geom ids; env.contact_forces() -> {root body: N}
 
@@ -21,8 +22,9 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from chefbot.environments.mujoco_kitchen import hand
 from chefbot.environments.mujoco_kitchen.objects import DEFAULT, MASS
-from chefbot.environments.mujoco_kitchen.robot import _absolute_files, robot_spec
+from chefbot.environments.mujoco_kitchen.robot import GRIP_KP, GRIP_KV, _absolute_files, robot_spec
 from chefbot.interface.env import Env
 from chefbot.interface.types import RGBD, EnvState, Pose2D
 
@@ -41,8 +43,10 @@ def wrap(a: float) -> float:
 
 
 class MujocoKitchenEnv(Env):
-    def __init__(self, kitchen_dir: Path, extras: dict[str, Path] | None = None, render: bool = True):
+    def __init__(self, kitchen_dir: Path, extras: dict[str, Path] | None = None, render: bool = True,
+                 grip_speed: float = 0.05, grip_force: float = 20.0):
         self.kitchen_dir = Path(kitchen_dir)
+        self.grip_default = (grip_speed, grip_force)  # set_gripper's: the real robot's (onboard/config.yaml)
         self.meta = json.loads((self.kitchen_dir / "meta.json").read_text())
         spec = mujoco.MjSpec.from_file(str(self.kitchen_dir / "kitchen.xml"))
         spec.compiler.degree = False
@@ -73,6 +77,8 @@ class MujocoKitchenEnv(Env):
         self._arm_dof = [m.jnt_dofadr[m.joint(j).id] for j in ARM_JOINTS]
         self._arm_act = [m.actuator(j).id for j in ARM_JOINTS]
         self._finger_qpos = [m.jnt_qposadr[m.joint(j).id] for j in FINGERS]
+        self._finger_dof = [m.jnt_dofadr[m.joint(j).id] for j in FINGERS]
+        self.hand = hand.FrankaHand(hand.MAX_WIDTH)
         self._grip_act = m.actuator(f"{ROBOT}fr3/hand/actuator8").id
         self.robot_root = m.body(f"{ROBOT}base_link").id
         self.robot_geoms = frozenset(int(g) for g in np.flatnonzero(m.body_rootid[m.geom_bodyid] == self.robot_root))
@@ -136,8 +142,9 @@ class MujocoKitchenEnv(Env):
         self._base_ref = np.zeros(3)
         self._base_goal = None  # (pose, max_vel) or ("vel", v)
         self._base_vel_cmd = np.zeros(3)
-        self.gripper_cmd = 0.0
-        self.data.ctrl[self._grip_act] = 0.0
+        self.data.qpos[self._finger_qpos] = hand.MAX_WIDTH / 2
+        self.hand.reset(hand.MAX_WIDTH)
+        self._drive_hand(0.0)
         mujoco.mj_forward(self.model, self.data)
 
     def teleport_base(self, pose: Pose2D) -> None:
@@ -165,7 +172,7 @@ class MujocoKitchenEnv(Env):
         return EnvState(base_pose=Pose2D(float(x), float(y), float(th)), base_velocity=d.qvel[self._base_dof].copy(),
                         base_in_contact=self._base_contact(), time=float(d.time), arm_q=d.qpos[self._arm_qpos].copy(),
                         arm_qd=d.qvel[self._arm_dof].copy(), gripper_width=self.gripper_width(),
-                        gripper_closed_cmd=self.gripper_cmd >= 0.5, arm_in_contact=self._arm_contact())  # fmt: skip
+                        gripper_closed_cmd=self.gripper_closed_cmd, arm_in_contact=self._arm_contact())  # fmt: skip
 
     def gripper_width(self) -> float:
         return float(np.sum(self.data.qpos[self._finger_qpos]))
@@ -187,15 +194,46 @@ class MujocoKitchenEnv(Env):
     def set_arm_joint_targets(self, q) -> None:
         self.data.ctrl[self._arm_act] = np.asarray(q, float)
 
+    @property
+    def gripper_closed_cmd(self) -> bool:
+        """The hand's last command was a grasp."""
+        return self.hand.sent.kind == "grasp"
+
+    def gripper_command(self) -> dict:
+        return self.hand.sent.as_dict()
+
     def set_gripper(self, closed) -> None:
-        """Closure 0 (open) .. 1 (closed); a bool is fully open or closed."""
-        self.gripper_cmd = float(np.clip(float(closed), 0.0, 1.0))
-        self.data.ctrl[self._grip_act] = self.gripper_cmd
+        """Open (a move to the full width) or closed (a grasp), at the robot's default speed and force, as the real
+        robot does; sent only when it changes."""
+        closed = float(closed) >= 0.5
+        if closed != self.gripper_closed_cmd:
+            speed, force = self.grip_default
+            self.gripper_grasp(speed, force) if closed else self.gripper_move(hand.MAX_WIDTH, speed)
+
+    def gripper_move(self, width: float, speed: float) -> None:
+        self.hand.send(hand.move(width, speed))
+
+    def gripper_grasp(self, speed: float, force: float) -> None:
+        self.hand.send(hand.grasp(speed, force))
+
+    def _drive_hand(self, h: float) -> None:
+        m, d = self.model, self.data
+        ref, force, squeezing = self.hand.step(h, self.gripper_width(), float(np.sum(d.qvel[self._finger_dof])))
+        a = self._grip_act
+        m.actuator_forcerange[a] = [-2.0 * force, 2.0 * hand.MAX_FORCE]  # on the tendon: each finger gets half
+        if squeezing:  # a plain closing force (and the damping)
+            m.actuator_gainprm[a, 0], m.actuator_biasprm[a, 1] = 1.0, 0.0
+            d.ctrl[a] = -2.0 * force
+        else:
+            m.actuator_gainprm[a, 0], m.actuator_biasprm[a, 1] = GRIP_KP, -GRIP_KP
+            d.ctrl[a] = ref / 2.0
+        m.actuator_biasprm[a, 2] = -GRIP_KV
 
     def wait_for_next_tick(self, dt: float) -> None:
         m, d = self.model, self.data
         for _ in range(max(1, round(dt / m.opt.timestep))):
             self._advance_base_ref(m.opt.timestep)
+            self._drive_hand(m.opt.timestep)
             mujoco.mj_step(m, d)
             for hook in self.physics_hooks:
                 hook(self)

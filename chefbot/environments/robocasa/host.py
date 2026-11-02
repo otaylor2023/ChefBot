@@ -107,6 +107,12 @@ class RoboCasaHost:
             m.cam_quat[i] = [w, x, y, z]
             m.cam_fovy[i] = fovy * (1.0 + rng.uniform(-df, df))
 
+    def gripper_move(self, width: float, speed: float) -> None:
+        self.env.gripper_move(width, speed)
+
+    def gripper_grasp(self, speed: float, force: float) -> None:
+        self.env.gripper_grasp(speed, force)
+
     def step(self, row, mode: str = "whole") -> dict:
         rec = self.ctl.step(row, mode)
         self.step_count += 1

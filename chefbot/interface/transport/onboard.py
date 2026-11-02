@@ -17,13 +17,15 @@ HELLO = "hello"
 HEARTBEAT = "heartbeat"
 ARM_JOINTS = "arm_joints"  # q: joint targets (rad)
 ARM_POSE = "arm_pose"  # position (3,), orientation (3, 3): the arm controller's point, arm base frame
-GRIPPER = "gripper"  # closed: bool
+GRIPPER = "gripper"  # closed: bool (a grasp, or a move to full width, at the onboard config's speed and force)
+GRIPPER_MOVE = "gripper_move"  # width (m), speed (m/s): libfranka's move
+GRIPPER_GRASP = "gripper_grasp"  # speed (m/s), force (N): libfranka's grasp
 BASE_TARGET = "base_target"  # pose: (x, y, yaw) world, max_vel: (vx, vy, vyaw)
 BASE_HOLD = "base_hold"
 HALT = "halt"
 RGBD = "rgbd"  # id, camera
 
-COMMANDS = frozenset({ARM_JOINTS, ARM_POSE, GRIPPER, BASE_TARGET, BASE_HOLD, HALT})
+COMMANDS = frozenset({ARM_JOINTS, ARM_POSE, GRIPPER, GRIPPER_MOVE, GRIPPER_GRASP, BASE_TARGET, BASE_HOLD, HALT})
 
 # robot -> client
 STATE = "state"

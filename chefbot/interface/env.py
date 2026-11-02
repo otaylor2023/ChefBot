@@ -37,8 +37,18 @@ class Env(ABC):
 
     @abstractmethod
     def set_gripper(self, closed: float) -> None:
-        """Command the gripper: 0 open .. 1 closed (a bool is either end). A gripper that is only open or closed
-        closes at >= 0.5. Holds until the next call."""
+        """Open or close the gripper (closed at >= 0.5). On the Franka Hand: a move to its full width, or a grasp at
+        the robot's default speed and force. Holds until the next call."""
+
+    def gripper_move(self, width: float, speed: float) -> None:
+        """The Franka Hand's move: the fingers to `width` (m between them) at `speed` (m/s). A gripper without it
+        closes for a width under half its travel, else opens."""
+        self.set_gripper(width < 0.04)
+
+    def gripper_grasp(self, speed: float, force: float) -> None:
+        """The Franka Hand's grasp: close at `speed` (m/s) until the fingers stop on something, then hold `force` (N)
+        on it. A gripper without it closes."""
+        self.set_gripper(True)
 
     @abstractmethod
     def get_camera_rgbd(self, cam: str) -> RGBD: ...

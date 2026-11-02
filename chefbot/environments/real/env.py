@@ -171,6 +171,14 @@ class RealEnv(Env):
             self._send({"op": P.GRIPPER, "closed": closed})
             self._gripper_closed = closed
 
+    def gripper_move(self, width: float, speed: float) -> None:
+        self._send({"op": P.GRIPPER_MOVE, "width": float(width), "speed": float(speed)})
+        self._gripper_closed = False
+
+    def gripper_grasp(self, speed: float, force: float) -> None:
+        self._send({"op": P.GRIPPER_GRASP, "speed": float(speed), "force": float(force)})
+        self._gripper_closed = True
+
     def halt(self, reason: str = "asked") -> None:
         self._send({"op": P.HALT, "reason": reason})
 

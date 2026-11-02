@@ -7,9 +7,11 @@ Frames: odom = the robot root (the arm base frame) where the episode started, fi
 fingers (the approach direction); the robot's brief says where the fingertip pads are and which way they close.
 
 Control: `act(rows)` runs one 15 Hz control step per row. A row is an absolute whole-body target
-[x, y, z, qw, qx, qy, qz, gripper, base_x, base_y, base_yaw]: the flange pose in odom, gripper 0 open .. 1 closed
-(continuous where the robot's brief says so; else it closes at >= 0.5),
-and where the robot root should be (x, y, yaw in odom). Each step the base drives toward its target and the arm
+[x, y, z, qw, qx, qy, qz, gripper, base_x, base_y, base_yaw]: the flange pose in odom, the gripper (1 closed, 0 open;
+closed at >= 0.5) and where the robot root should be (x, y, yaw in odom). The gripper column is the simple way to use
+the hand: closed is a grasp at the robot's default speed and force, open is a move to its full width, sent only when
+the column changes between open and closed (so a gripper_move or gripper_grasp call stands while your rows keep the
+matching value: 1 after a grasp, 0 after a move). Each step the base drives toward its target and the arm
 takes a clipped step toward the flange target (a few mm and a few degrees per 20 Hz tick, the speed profile's
 rates), re-solved by IK against where the base really is. At most 600 rows (40 s) per call.
 
@@ -85,9 +87,10 @@ class Robot:
 
     def proprio(self) -> dict:
         """Cheap state: step, sim_time_s, flange_pose_odom (4x4), flange_pose_root (4x4, in the root
-        frame: what act_arm rows give), base_pose_odom [x, y, yaw], gripper_cmd (the last command, 0..1; not on
-        every robot), gripper_closed_cmd, gripper_closure (0 open .. 1 closed, measured), gripper_width_m, arm_q,
-        arm_q_cmd, base_in_contact."""
+        frame: what act_arm rows give), base_pose_odom [x, y, yaw], gripper_command (the last gripper command sent:
+        {"kind": "move", "width_m", "speed_mps"} or {"kind": "grasp", "speed_mps", "force_n"}; not on every robot),
+        gripper_closed_cmd (that was a grasp), gripper_closure (0 open .. 1 closed, measured), gripper_width_m
+        (measured, between the fingers), arm_q, arm_q_cmd, base_in_contact."""
         return _with_root(self._call("proprio")["proprio"])
 
     def observe(self, cameras: tuple[str, ...] | None = None) -> dict:
@@ -122,6 +125,22 @@ class Robot:
         holding its joints. Returns as act() (no arm errors)."""
         rows = np.asarray(rows, dtype=float).reshape(-1, 3)
         return _with_root_steps(self._call("act_base", rows=rows.tolist()))
+
+    def gripper_move(self, width_m: float, speed_mps: float = 0.05) -> dict:
+        """The Franka Hand's move (libfranka's, as the real robot runs it): the fingers to `width_m` apart (0 ..
+        0.08) at `speed_mps` (0.01 .. 0.1), position-controlled. If something stops them short, the move fails and
+        the hand backs off to 1 cm wider than where they stopped: a move never squeezes. Returns at once with
+        {"proprio"}; the hand runs the command over the next steps. The hand finishes each command before it takes
+        the next: a command sent while one runs waits, and a later one replaces the waiting one. A gripper that is
+        only open or closed closes for a width under 0.04."""
+        return _with_root_steps(self._call("gripper_move", width=float(width_m), speed=float(speed_mps)))
+
+    def gripper_grasp(self, force_n: float = 20.0, speed_mps: float = 0.05) -> dict:
+        """The Franka Hand's grasp (libfranka's, as the real robot runs it): close at `speed_mps` (0.01 .. 0.1) until
+        the fingers stop on something, then squeeze it with `force_n` (0.1 .. 70 N) for as long as the grasp holds.
+        The hand sets that force itself; nothing measures it, and only the fingers' width comes back. Returns at
+        once, as gripper_move, and waits its turn the same way. A gripper that is only open or closed just closes."""
+        return _with_root_steps(self._call("gripper_grasp", speed=float(speed_mps), force=float(force_n)))
 
     # -- models (metered; see budget()) ------------------------------------------------
 

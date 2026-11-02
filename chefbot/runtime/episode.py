@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import os
 import platform
 import queue
@@ -287,6 +288,13 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
                             trace_step(hold["row"], rec, False)
                             steps.append({k: rec[k] for k in ("pos_error_m", "rot_error_rad", "base_error_m", "ik_ok")})
                         resp = {"proprio": host.proprio(), "steps": steps}
+                elif op in ("gripper_move", "gripper_grasp"):
+                    vals = [req.get(k) for k in (("width", "speed") if op == "gripper_move" else ("speed", "force"))]
+                    if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in vals):
+                        resp = {"error": f"{op} needs finite numbers"}
+                    else:
+                        getattr(host, op)(*(float(v) for v in vals))
+                        resp = {"proprio": host.proprio()}
                 elif op == "llm" and not access.get("llm"):
                     resp = {"error": "this skill may not call Gemini" + (": the only model is robot.astra(...)" if access.get("astra") else "")}
                 elif op in ("detect", "segment") and not access.get("vision"):

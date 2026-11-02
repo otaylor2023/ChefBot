@@ -1,8 +1,8 @@
 """The whole-body controller under a skill: 11-D targets in odom -> base and joint commands on an Env.
 
 A target is [x, y, z, qw, qx, qy, qz, gripper, base_x, base_y, base_yaw], all absolute in odom (the robot root
-where the episode started, fixed): the flange pose, the gripper (0 open .. 1 closed; a binary gripper closes at
->= 0.5), and where the robot root should be. Each control step (1 / control.hz) runs ticks of the environment until the step's time is up. Every tick:
+where the episode started, fixed): the flange pose, the gripper (closed at >= 0.5: the env's set_gripper, which
+acts only when that changes), and where the robot root should be. Each control step (1 / control.hz) runs ticks of the environment until the step's time is up. Every tick:
   - the base drives toward its target: by itself when the environment's base can (Env.set_base_target), else by
     velocity control (P on the error, within the speed profile's base limit);
   - the arm takes one clipped Cartesian step toward the flange target relative to where the base is now (so a held
@@ -94,7 +94,7 @@ class WholeBodyController:
         self._base_hold = (float(bx), float(by), float(byaw))
         base_world = self.odom @ np.array([bx, by, 0.0, 1.0])
         yaw_world = math.atan2(self.odom[1, 0], self.odom[0, 0]) + byaw
-        self.env.set_gripper(float(np.clip(target[7], 0.0, 1.0)))
+        self.env.set_gripper(bool(target[7] >= 0.5))
         self._t_next += 1.0 / self.hz
         ik_ok = True
         while self.env.get_state().time < self._t_next - 1e-6:
@@ -110,7 +110,7 @@ class WholeBodyController:
         if mode == "arm":
             arm_root = np.eye(4)
             arm_root[:3, :3], arm_root[:3, 3] = R_of(target[3:7]), target[:3]
-            self.env.set_gripper(float(np.clip(target[7], 0.0, 1.0)))
+            self.env.set_gripper(bool(target[7] >= 0.5))
             bx, by, byaw = self._base_hold
         elif mode == "base":
             arm_root = None

@@ -37,8 +37,8 @@ hard limit). The robot is a cooking robot; what you build here is meant to run o
   (grabbing it with the fingers fails the episode, even if it is then put into the tongs). The
   skill decides when it is done: return from `run`.
 - **Physics.** Real contacts and friction: nothing sticks to anything. The tongs are a spring
-  mechanism: squeezing their handles closes their tips, and the gripper's partial closure sets how
-  hard (see the hand above). Tongs can be knocked over or pushed by a careless approach; held
+  mechanism: squeezing their handles closes their tips, and the hand's move and grasp commands set
+  how far and how hard (see the hand above). Tongs can be knocked over or pushed by a careless approach; held
   loosely they can turn or slip in the hand.
 
 ## Scoring

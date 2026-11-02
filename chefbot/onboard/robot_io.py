@@ -113,18 +113,31 @@ class RedisRobot:
         self._set_on_change(K.ACTIVE_CONTROLLER, K.CARTESIAN_CONTROLLER)
 
     def gripper(self, closed: bool) -> None:
+        """Closed: a grasp; open: a move to full width; at the configured speed and force, when it changes."""
         if closed == self.gripper_closed:
             return
-        self.gripper_closed = closed
-        if closed:  # force-close on whatever is there; the driver reports grasp_success
-            self.r.set(K.GRIPPER_GRASP_SUCCESS, K.GRIPPER_PENDING)
-            width = 0.0
+        if closed:
+            self.gripper_grasp(self.gripper_speed, self.gripper_force)
         else:
-            width = _number(self.r.get(K.GRIPPER_MAX_WIDTH)) or 0.08
-        self.r.set(K.GRIPPER_DESIRED_WIDTH, str(width))
-        self.r.set(K.GRIPPER_DESIRED_SPEED, str(self.gripper_speed))
-        self.r.set(K.GRIPPER_DESIRED_FORCE, str(self.gripper_force))
-        self.r.set(K.GRIPPER_MODE, K.GRIPPER_GRASP if closed else K.GRIPPER_MOVE)
+            self.gripper_move(_number(self.r.get(K.GRIPPER_MAX_WIDTH)) or 0.08, self.gripper_speed)
+
+    def gripper_move(self, width: float, speed: float) -> None:
+        """libfranka's move(width, speed) (the driver retries 1 cm wider when something stops the fingers)."""
+        self.gripper_closed = False
+        self._gripper_command(K.GRIPPER_MOVE, width, speed, self.gripper_force)
+
+    def gripper_grasp(self, speed: float, force: float) -> None:
+        """libfranka's grasp(0, speed, force, 1.0, 1.0): close until the fingers stop, then hold `force`; the driver
+        reports grasp_success."""
+        self.gripper_closed = True
+        self.r.set(K.GRIPPER_GRASP_SUCCESS, K.GRIPPER_PENDING)
+        self._gripper_command(K.GRIPPER_GRASP, 0.0, speed, force)
+
+    def _gripper_command(self, mode: str, width: float, speed: float, force: float) -> None:
+        self.r.set(K.GRIPPER_DESIRED_WIDTH, str(min(max(float(width), 0.0), 0.08)))
+        self.r.set(K.GRIPPER_DESIRED_SPEED, str(min(max(float(speed), 0.01), 0.1)))
+        self.r.set(K.GRIPPER_DESIRED_FORCE, str(min(max(float(force), 0.1), 70.0)))
+        self.r.set(K.GRIPPER_MODE, mode)
 
     def base_target(self, pose_world, max_vel) -> None:
         """Drive to a world pose within `max_vel` (never faster than the driver's own limits)."""

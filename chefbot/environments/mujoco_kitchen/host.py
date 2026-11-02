@@ -27,6 +27,8 @@ from chefbot.environments.mujoco_kitchen.scene import Scene
 CONTROL_HZ = 15.0
 TICK_S = 0.05
 SETTLE_TICKS = 10
+VIEW_ELEVATION = -28.0  # deg, the side views'
+VIEW_GROUPS = np.array([1, 1, 0, 0, 0, 0], np.uint8)  # the kitchen's geoms, not the robot's
 GENERATORS = Path(__file__).resolve().parents[2] / "generators"
 
 
@@ -55,7 +57,9 @@ class MujocoKitchenHost:
         kitchen = ensure_kitchen(layout, style, [dict(o) for o in sc["objects"]])
         extras = {name: generated(e["generator"], int(e["seed"])) for name, e in (sc.get("extras") or {}).items()}
         self.extra_params = {n: json.loads((p.parent / "params.json").read_text()) for n, p in extras.items()}
-        self.env = MujocoKitchenEnv(kitchen, extras=extras)
+        h = robot.raw.get("hand") or {}
+        self.env = MujocoKitchenEnv(kitchen, extras=extras, grip_speed=float(h.get("default_speed_mps", 0.05)),
+                                    grip_force=float(h.get("default_force_n", 20.0)))  # fmt: skip
         self.scene = Scene(self.env)
         self.noise_key = [layout, style, 7]
         self.ctl = WholeBodyController(self.env, robot, speed, tick_s=TICK_S, on_tick=self._frame)
@@ -115,6 +119,12 @@ class MujocoKitchenHost:
             m.cam_quat[i] = [w, x, y, z]
             m.cam_fovy[i] = fovy * (1.0 + rng.uniform(-df, df))
 
+    def gripper_move(self, width: float, speed: float) -> None:
+        self.env.gripper_move(width, speed)
+
+    def gripper_grasp(self, speed: float, force: float) -> None:
+        self.env.gripper_grasp(speed, force)
+
     def step(self, row, mode: str = "whole") -> dict:
         rec = self.ctl.step(row, mode)
         self.step_count += 1
@@ -131,7 +141,7 @@ class MujocoKitchenHost:
         bx, by, byaw = self.ctl.base_in_odom()
         q_cmd = self.ctl.q_cmd
         return {"step": self.step_count, "sim_time_s": self.step_count / CONTROL_HZ, "flange_pose_odom": F.tolist(),
-                "base_pose_odom": [bx, by, byaw], "gripper_cmd": float(self.env.gripper_cmd),
+                "base_pose_odom": [bx, by, byaw], "gripper_command": self.env.gripper_command(),
                 "gripper_closed_cmd": bool(s.gripper_closed_cmd),
                 "gripper_closure": float(np.clip(1.0 - s.gripper_width / self.gap_open, 0.0, 1.0)),
                 "gripper_width_m": float(s.gripper_width), "arm_q": [float(v) for v in s.arm_q],
@@ -140,7 +150,7 @@ class MujocoKitchenHost:
     def hold_row(self) -> list[float]:
         p = self.proprio()
         F = np.array(p["flange_pose_odom"])
-        return [*F[:3, 3].tolist(), *quat_wxyz(F[:3, :3]), p["gripper_cmd"], *p["base_pose_odom"]]
+        return [*F[:3, 3].tolist(), *quat_wxyz(F[:3, :3]), 1.0 if p["gripper_closed_cmd"] else 0.0, *p["base_pose_odom"]]
 
     def rgbd(self) -> dict[str, dict]:
         inv = np.linalg.inv(self.ctl.odom)
@@ -178,17 +188,49 @@ class MujocoKitchenHost:
     # -- recording -----------------------------------------------------------------
 
     def _views(self) -> list:
-        """Two views from beside the robot, looking at what is in front of it."""
+        """Two views from beside the robot, looking at what is in front of it: on each side, the first camera (from
+        1.1 m back and 55 degrees off the robot's back, then other angles, then nearer) with nothing of the kitchen
+        between it and what it looks at, anywhere in its picture; else the least blocked."""
         s = self.env.get_state().base_pose
+        look = np.array([s.x + 0.55 * math.cos(s.yaw), s.y + 0.55 * math.sin(s.yaw), 0.95])
         cams = []
         for side in (1.0, -1.0):
+            best = None
+            for dist in (1.1, 0.85, 0.6):
+                for off in (55.0, 40.0, 70.0, 85.0, 25.0, 100.0):
+                    az = math.degrees(s.yaw) + 180.0 - side * off
+                    blocked = self._blocked(look, dist, az, VIEW_ELEVATION)
+                    if best is None or blocked < best[0]:
+                        best = (blocked, dist, az)
+                    if blocked == 0:
+                        break
+                if best[0] == 0:
+                    break
             c = mujoco.MjvCamera()
-            fx, fy = math.cos(s.yaw), math.sin(s.yaw)
-            c.lookat[:] = [s.x + 0.55 * fx, s.y + 0.55 * fy, 0.95]
-            c.distance, c.elevation = 1.1, -28.0
-            c.azimuth = math.degrees(s.yaw) + 180.0 - side * 55.0
+            c.lookat[:] = look
+            c.distance, c.azimuth, c.elevation = best[1], best[2], VIEW_ELEVATION
             cams.append(c)
         return cams
+
+    def _blocked(self, look: np.ndarray, dist: float, az: float, el: float) -> int:
+        """How many of a 5 x 3 grid of rays across a camera's picture (`dist` back from `look` at az, el) meet the
+        kitchen before 80% of the way to `look`'s depth; the line back to `look` counts too. The robot doesn't count."""
+        m, d = self.env.model, self.env.data
+        gid = np.zeros(1, np.int32)
+        a, e = math.radians(az), math.radians(el)
+        fwd = np.array([math.cos(e) * math.cos(a), math.cos(e) * math.sin(a), math.sin(e)])
+        pos = look - dist * fwd
+        right = np.cross(fwd, [0.0, 0.0, 1.0])
+        right /= np.linalg.norm(right)
+        up = np.cross(right, fwd)
+        th = math.tan(math.radians(m.vis.global_.fovy / 2))
+        n = int(0 < mujoco.mj_ray(m, d, look, -fwd, VIEW_GROUPS, 1, -1, gid) < dist)
+        for u in np.linspace(-1, 1, 5):
+            for v in (-1.0, 0.0, 1.0):
+                ray = fwd + (u * th * 4 / 3) * right + (v * th) * up
+                hit = mujoco.mj_ray(m, d, pos, ray / np.linalg.norm(ray), VIEW_GROUPS, 1, -1, gid)
+                n += int(0 <= hit < 0.8 * dist * np.linalg.norm(ray))
+        return n
 
     def _frame(self) -> None:
         if not self.record:

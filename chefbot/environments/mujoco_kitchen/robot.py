@@ -3,9 +3,9 @@ franka_emika_panda) as an MjSpec to attach to a scene.
 
 Base: Menagerie's holonomic base on x / y slides and a yaw hinge (world frame), position actuators; the arm on its
 arm plate, 0.335 m up. Hand: on the FR3's flange, turned -45 degrees about it as on the real arm (hand.xml's body adds
-180). The hand's actuator is ChefBot's: a position servo on the finger tendon (stiffness GRIP_KP, force limit
-GRIP_FORCE_N, as the real hand's grasp force), so a closure command past the object squeezes it harder. The pads get
-torsional friction (condim 6): a held tool should not spin in them.
+180). The hand's actuator is a servo on the finger tendon (the fingers' mean opening, m): ctrl is its target, and
+hand.py's FrankaHand drives it (and its force limit) as libfranka's move and grasp. The pads get torsional friction
+(condim 6): a held tool should not spin in them.
 
 Cameras: `wrist` (beside the hand, looking along the fingers) and `pole` (on a mast at the back of the base, looking
 forward and down), both RealSense-like.
@@ -28,7 +28,6 @@ ARM_MOUNT_Z = 0.335  # the arm plate's top, above the floor
 HAND_QUAT = [0.3826834, 0.0, 0.0, 0.9238795]  # on the flange: +45 deg about z; hand.xml's body adds 180
 GRIP_KP = 3000.0  # N per m of finger travel (the tendon is the fingers' mean)
 GRIP_KV = 60.0
-GRIP_FORCE_N = 70.0  # the Franka Hand's continuous grasp force
 FINGER_TRAVEL = 0.04  # each finger, open to closed
 PAD_FRICTION = [1.0, 0.02, 0.002]
 WRIST_CAM = {"pos": [0.0, -0.065, 0.02], "pitch_deg": 12.0, "fovy": 58.0}  # in the hand frame
@@ -63,11 +62,12 @@ def arm_spec() -> mujoco.MjSpec:
     hand = mujoco.MjSpec.from_file(str(MENAGERIE / "franka_emika_panda" / "hand.xml"))
     _absolute_files(hand, MENAGERIE / "franka_emika_panda" / "assets")
     act = hand.actuator("actuator8")
-    # ctrl c in 0 (open) .. 1 (closed): the fingers' target is FINGER_TRAVEL * (1 - c) open.
-    act.gainprm[0] = -GRIP_KP * FINGER_TRAVEL
-    act.biasprm[:3] = [GRIP_KP * FINGER_TRAVEL, -GRIP_KP, -GRIP_KV]
-    act.ctrlrange = [0.0, 1.0]
-    act.forcerange = [-2 * GRIP_FORCE_N, 2 * GRIP_FORCE_N]  # on the tendon (the mean): each finger gets half
+    # ctrl: the tendon's target (each finger's opening, m). The env sets the force range per command (on the tendon,
+    # twice the fingers' squeeze: each finger gets half) and, while a grasp squeezes, makes it a plain force.
+    act.gainprm[0] = GRIP_KP
+    act.biasprm[:3] = [0.0, -GRIP_KP, -GRIP_KV]
+    act.ctrlrange = [-1000.0, FINGER_TRAVEL]
+    act.forcelimited = mujoco.mjtLimited.mjLIMITED_TRUE
     for g in hand.geoms:
         if g.classname.name.startswith("fingertip_pad_collision"):
             g.condim = 6

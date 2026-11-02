@@ -112,6 +112,10 @@ class OnboardServer:
                 self.robot.arm_pose(m["position"], m["orientation"])
             elif op == P.GRIPPER:
                 self.robot.gripper(bool(m["closed"]))
+            elif op == P.GRIPPER_MOVE:
+                self.robot.gripper_move(float(m["width"]), float(m["speed"]))
+            elif op == P.GRIPPER_GRASP:
+                self.robot.gripper_grasp(float(m["speed"]), float(m["force"]))
             elif op == P.BASE_TARGET:
                 self.robot.base_target(m["pose"], m["max_vel"])
             elif op == P.BASE_HOLD:
