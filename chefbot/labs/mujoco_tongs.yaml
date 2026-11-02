@@ -16,15 +16,18 @@ suites:
   test: {suite: mujoco_tongs/test, visible: hidden}
 paid_models: {google: {usd: 10}}
 vision_models: [owlv2, grounding-dino, sam2]
-budgets: {hours: 6, codex_usage_add_pct: 8}  # the user's 25% for this lab, less the first two runs' 17%
+budgets: {hours: 4, codex_usage_add_pct: 5}  # run 4: +5% (time-boxed: another lab runs at the same time)
 brief: briefs/tongs_lift.md
 start_from:
-  skill: tongs_lift/mujoco_tongs2_v17
+  skill: tongs_lift/mujoco_tongs3_v59
+  files: [tongs_prior_v17/v17_main.py, tongs_prior_v17/v17_REPORT.md]
   note: >-
-    `prior/skill/` is the reference skill (v17) of the previous session of this same lab, with its `prior/REPORT.md`
-    and `prior/skill/research_log.md`: 29.2% on val, 14/48 on dev, about 44 s an episode. This session's main goal
-    is speed: 20-30 s an episode (a single pick, in the pick labs, takes 11-16 s), keeping (and if you can, raising) its success. Since then the hand changed: it
-    now takes the real Franka Hand's two commands, robot.gripper_move(width, speed) and robot.gripper_grasp(force,
-    speed) (see the robot above and docs/robot_api.py), and a row's gripper column is only open (0) or a 20 N grasp
-    (1); v17 set the column between 0 and 1 to squeeze gently, which now means a full 20 N grasp. Same scenes and
-    splits. Use, adapt or drop any of it; say in your report what you kept.
+    `prior/skill/` is the reference skill (v59) of the previous session of this same lab, with its `prior/REPORT.md` and
+    `prior/skill/research_log.md`: 12.5% and 8.3% on val (two submissions), 7/48 on dev, about 36 s an episode, written
+    for the real Franka Hand's move and grasp. One thing has changed since then: robot.gripper_move now behaves as the
+    real hand's does, pushing as hard as it must (up to 70 N) toward its width and, if something stops the fingers
+    short, holding there as hard as it can, instead of backing off 1 cm (v59's log found moves would not hold the tongs'
+    spring; now they do). `prior/v17_main.py` and `prior/v17_REPORT.md` are the session before that (29.2% on val, 14/48
+    dev, about 44 s), on an older gripper that set a closure between open and closed: its way of squeezing the tongs to
+    a chosen opening may now be possible with gripper_move widths. Same scenes and splits; the goal is still about
+    20-30 s an episode at the best success you can get. Use, adapt or drop any of it; say in your report what you kept.
