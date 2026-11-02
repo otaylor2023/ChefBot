@@ -32,7 +32,7 @@ from chefbot.autoresearch.summary import summarize
 
 MAX_DEV_SEEDS = 5
 WRAP_UP_MIN = 40
-WORKER_EPISODES = 4  # episodes a worker runs before it is replaced (memory)
+WORKER_EPISODES = 4  # episodes per worker (on average) before its pool is replaced (memory)
 WORKER_ENV = ("MUJOCO", "PYOPENGL", "GEMINI", "EGL", "CUDA", "SKILL_", "CODEX")  # what the workers inherit
 
 
@@ -113,7 +113,7 @@ class Lab(IpcServer):
         self.ledger = (str(self.private / "model_ledger.jsonl"), cfg.model_usd)
         self.vision_url, self.limits = vision_url, limits
         self._pool_args = (jobs, {k: v for k, v in os.environ.items() if k.startswith(WORKER_ENV)})
-        self.pool = self._new_pool()
+        self.pool, self._pool_load = self._new_pool(), 0
         self.jobs: dict[str, dict] = {}
         self.state_path = self.private / "lab_state.json"
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {"val_used": 0, "val_history": []}
@@ -124,18 +124,27 @@ class Lab(IpcServer):
     # -- jobs ----------------------------------------------------------------------------
 
     def _new_pool(self) -> ProcessPoolExecutor:
-        """Workers are replaced every WORKER_EPISODES episodes: a simulator that grows in memory can't take the
-        machine down (a worker killed by the kernel breaks the whole pool)."""
         jobs, env = self._pool_args
-        return ProcessPoolExecutor(jobs, mp_context=mp.get_context("spawn"), initializer=worker.init, initargs=(env,),
-                                   max_tasks_per_child=WORKER_EPISODES)  # fmt: skip
+        return ProcessPoolExecutor(jobs, mp_context=mp.get_context("spawn"), initializer=worker.init, initargs=(env,))
+
+    def _pool_for_next(self) -> ProcessPoolExecutor:
+        """The pool for the next episode. After jobs x WORKER_EPISODES episodes a fresh pool takes new work and the old
+        one is shut down once it has run what it was given (its workers then exit): a simulator that grows in memory
+        can't take the machine down. (Not max_tasks_per_child: on Python 3.11 a pool using it can lose all its workers
+        and leave its queue unserved, as mujoco_tongs runs 2 and 3 did.)"""
+        if self._pool_load >= self._pool_args[0] * WORKER_EPISODES:
+            self.pool.shutdown(wait=False)
+            self.pool, self._pool_load = self._new_pool(), 0
+            self._write({"pool": "replaced (recycled)"})
+        self._pool_load += 1
+        return self.pool
 
     def _pool_ok(self) -> None:
         """A broken pool (a worker died) is replaced; its unfinished episodes report a harness error."""
         if getattr(self.pool, "_broken", False):
             self._write({"pool": "broken, replaced"})
             self.pool.shutdown(wait=False, cancel_futures=True)
-            self.pool = self._new_pool()
+            self.pool, self._pool_load = self._new_pool(), 0
 
     def _log_episode(self, f, name: str, t_submit: float) -> None:
         """When each episode finished, its own wall time, and how long since its job was submitted (the rest is the
@@ -185,7 +194,7 @@ class Lab(IpcServer):
         for it, seed in episodes:
             out = base / f"{it.id}_s{seed}"
             eps.append({"item": it.id, "setup": it.setup, "task": it.task, "seed": seed})
-            futs.append(self.pool.submit(worker.run, {"id": it.id, "setup": it.setup, "task": it.task}, seed, spec, self.cfg.robot, None, str(out),
+            futs.append(self._pool_for_next().submit(worker.run, {"id": it.id, "setup": it.setup, "task": it.task}, seed, spec, self.cfg.robot, None, str(out),
                                          self.ledger, self.vision_url, record, f"{job}/{it.id}_s{seed}", self.limits))  # fmt: skip
             futs[-1].add_done_callback(lambda f, name=f"{job}/{it.id}_s{seed}": self._log_episode(f, name, t0))
         self.jobs[job] = {"kind": kind, "skill": skill, "digest": digest, "futures": futs, "episodes": eps, "dir": base, "t0": time.time()}
