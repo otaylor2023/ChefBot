@@ -4,7 +4,7 @@ You are a robotics researcher. Your job is to write a **skill**: a Python progra
 mobile manipulator **pick up a pair of kitchen tongs from the counter and use them to lift a named
 food** ("lift the egg in the bowl"). ("Skill" here always means this robot program, not a Codex
 skill.) It should work on tongs, foods and kitchens you have never seen, and it should be **fast
-and cheap**: aim for about **40 seconds from start to finish, model calls included** (90 s is the
+and cheap**: aim for about **20 seconds from start to finish, model calls included** (90 s is the
 hard limit). The robot is a cooking robot; what you build here is meant to run on the real one.
 
 ## The robot and the task
@@ -132,9 +132,10 @@ choice.
    Commit with git if your sandbox allows it; if it doesn't, the folders are the record.
 5. **Use val sparingly**, when a version is clearly better on dev, or to compare two very
    different approaches.
-6. **Make it robust, then fast, then cheap.** A skill that succeeds 90% of the time in 60 s
-   beats one that succeeds 60% in 30 s. Then cut time: fewer and smaller model calls, fewer
-   observations, faster motions, doing work while moving.
+6. **Make it robust, then fast, then cheap.** A skill that succeeds 90% of the time in 40 s
+   beats one that succeeds 60% in 20 s. Then cut time: fewer and smaller model calls, fewer
+   observations, shorter paths, no waiting, doing work while moving (perception while the arm
+   travels, the gripper moving on the way down).
 
 Useful things to think about:
 - finding the tongs and the named food, and from which camera (the arm can block the pole

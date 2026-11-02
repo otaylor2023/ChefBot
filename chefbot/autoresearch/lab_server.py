@@ -88,8 +88,7 @@ class IpcServer:
             resp["lab_notice"] = notice.read_text().strip()
         if left is not None and left <= WRAP_UP_MIN:
             resp["lab_note"] = f"{max(left, 0):.0f} min left in the research session: wrap up ({self.WRAP_UP})."
-        self.log.write(json.dumps({"t": time.time(), "req": req, "resp_keys": list(resp)}) + "\n")
-        self.log.flush()
+        self._write({"req": req, "resp_keys": list(resp)})
         tmp = self.ipc / f".resp_{rid}.json"
         tmp.write_text(json.dumps(resp, indent=1))
         tmp.rename(self.ipc / f"resp_{rid}.json")
@@ -119,6 +118,7 @@ class Lab(IpcServer):
         self.state_path = self.private / "lab_state.json"
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {"val_used": 0, "val_history": []}
         self.log = open(self.private / "lab_server.log", "a")
+        self._log_lock = threading.Lock()
         self.deadline: float | None = None
 
     # -- jobs ----------------------------------------------------------------------------
@@ -133,10 +133,22 @@ class Lab(IpcServer):
     def _pool_ok(self) -> None:
         """A broken pool (a worker died) is replaced; its unfinished episodes report a harness error."""
         if getattr(self.pool, "_broken", False):
-            self.log.write(json.dumps({"t": time.time(), "pool": "broken, replaced"}) + "\n")
-            self.log.flush()
+            self._write({"pool": "broken, replaced"})
             self.pool.shutdown(wait=False, cancel_futures=True)
             self.pool = self._new_pool()
+
+    def _log_episode(self, f, name: str, t_submit: float) -> None:
+        """When each episode finished, its own wall time, and how long since its job was submitted (the rest is the
+        queue and the worker's start: a slow disk or a stuck worker shows there)."""
+        r = self._result(f, {})
+        self._write({"episode": name, "wall_s": r.get("wall_s"), "since_submit_s": round(time.time() - t_submit, 1), "model_s": r.get("model_s"),
+                     "error": r.get("error")})  # fmt: skip
+
+    def _write(self, entry: dict) -> None:
+        """A line of lab_server.log (episodes finish on the pool's thread)."""
+        with self._log_lock:
+            self.log.write(json.dumps({"t": time.time(), **entry}) + "\n")
+            self.log.flush()
 
     @staticmethod
     def _result(f, ep: dict) -> dict:
@@ -169,14 +181,15 @@ class Lab(IpcServer):
         base = (self.ws / "runs" / job) if kind == "dev" else (self.private / "val_runs" / job)
         futs, eps = [], []
         self._pool_ok()
+        t0 = time.time()
         for it, seed in episodes:
             out = base / f"{it.id}_s{seed}"
             eps.append({"item": it.id, "setup": it.setup, "task": it.task, "seed": seed})
             futs.append(self.pool.submit(worker.run, {"id": it.id, "setup": it.setup, "task": it.task}, seed, spec, self.cfg.robot, None, str(out),
                                          self.ledger, self.vision_url, record, f"{job}/{it.id}_s{seed}", self.limits))  # fmt: skip
+            futs[-1].add_done_callback(lambda f, name=f"{job}/{it.id}_s{seed}": self._log_episode(f, name, t0))
         self.jobs[job] = {"kind": kind, "skill": skill, "digest": digest, "futures": futs, "episodes": eps, "dir": base, "t0": time.time()}
-        self.log.write(json.dumps({"t": time.time(), "submit": job, "skill": skill, "digest": digest, "n": len(episodes)}) + "\n")
-        self.log.flush()
+        self._write({"submit": job, "skill": skill, "digest": digest, "n": len(episodes)})
         return {"job": job, "skill_digest": digest, "episodes": len(episodes)}
 
     def status(self, job: str, wait_s: float = 0.0) -> dict:

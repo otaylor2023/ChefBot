@@ -16,13 +16,15 @@ suites:
   test: {suite: mujoco_tongs/test, visible: hidden}
 paid_models: {google: {usd: 10}}
 vision_models: [owlv2, grounding-dino, sam2]
-budgets: {hours: 6, codex_usage_add_pct: 25}
+budgets: {hours: 6, codex_usage_add_pct: 8}  # the user's 25% for this lab, less the first two runs' 17%
 brief: briefs/tongs_lift.md
 start_from:
-  skill: tongs_lift/mujoco_tongs1_v34
+  skill: tongs_lift/mujoco_tongs2_v17
   note: >-
-    `prior/skill/` is the reference skill (v34) of an earlier session of this same lab, with its `prior/REPORT.md` and
-    `prior/skill/research_log.md`. That session lost its episode runner 48 minutes in (the lab's fault: a worker ran
-    out of memory, now fixed), so it ran few experiments: v34 picked up and held the tongs in 15 of 18 dev episodes
-    but lifted no food (0/18; 3 foods broken, 10 never touched). Its report lists several prepared but untested
-    changes. Same robot, scenes and splits. Use, adapt or drop any of it; say in your report what you kept.
+    `prior/skill/` is the reference skill (v17) of the previous session of this same lab, with its `prior/REPORT.md`
+    and `prior/skill/research_log.md`: 29.2% on val, 14/48 on dev, about 44 s an episode. This session's main goal
+    is speed: about 20 s an episode, keeping (and if you can, raising) its success. Since then the hand changed: it
+    now takes the real Franka Hand's two commands, robot.gripper_move(width, speed) and robot.gripper_grasp(force,
+    speed) (see the robot above and docs/robot_api.py), and a row's gripper column is only open (0) or a 20 N grasp
+    (1); v17 set the column between 0 and 1 to squeeze gently, which now means a full 20 N grasp. Same scenes and
+    splits. Use, adapt or drop any of it; say in your report what you kept.
