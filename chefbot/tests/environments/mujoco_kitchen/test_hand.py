@@ -8,7 +8,7 @@ DT = 0.002
 def run(hand, width, seconds, block=None):
     """Fingers that go where the servo says, unless an object `block` m wide is between them. Returns the width."""
     for _ in range(int(seconds / DT)):
-        ref, _, squeezing = hand.step(DT, width, 0.0 if (block is not None and width <= block) else 1.0)
+        ref, _, squeezing, _ = hand.step(DT, width, 0.0 if (block is not None and width <= block) else 1.0)
         new = block if squeezing else ref
         if block is not None:
             new = max(new, block)
@@ -34,7 +34,7 @@ def test_commands_wait_and_the_latest_wins():
     assert hand.sent.width == 0.07
 
 
-def test_grasp_squeezes_with_its_force_and_a_move_backs_off():
+def test_grasp_squeezes_with_its_force_and_a_blocked_move_keeps_pushing():
     hand = H.FrankaHand(0.08)
     hand.send(H.grasp(0.05, 12.0))
     run(hand, 0.08, 1.5, block=0.05)
@@ -42,7 +42,9 @@ def test_grasp_squeezes_with_its_force_and_a_move_backs_off():
     assert hand.step(DT, 0.05, 0.0)[1] == 12.0
     hand.send(H.move(0.0, 0.05))
     w = run(hand, 0.05, 2.0, block=0.05)
-    assert not hand.squeezing and abs(w - 0.06) < 1e-3
+    ref, force, squeezing, stiff = hand.step(DT, 0.05, 0.0)
+    assert not hand.busy and abs(w - 0.05) < 1e-6  # it ended where the object stopped it ...
+    assert ref == 0.0 and force == H.MAX_FORCE and stiff and not squeezing  # ... still pushing toward 0, up to 70 N
 
 
 def test_limits():

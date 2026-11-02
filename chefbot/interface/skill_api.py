@@ -128,8 +128,9 @@ class Robot:
 
     def gripper_move(self, width_m: float, speed_mps: float = 0.05) -> dict:
         """The Franka Hand's move (libfranka's, as the real robot runs it): the fingers to `width_m` apart (0 ..
-        0.08) at `speed_mps` (0.01 .. 0.1), position-controlled. If something stops them short, the move fails and
-        the hand backs off to 1 cm wider than where they stopped: a move never squeezes. Returns at once with
+        0.08) at `speed_mps` (0.01 .. 0.1), position-controlled: it pushes as hard as it must, up to the hand's 70 N.
+        If something stops the fingers short, the move ends there and the hand keeps pushing toward the width, holding
+        what is between them as hard as it can (use gripper_grasp to squeeze with a chosen force). Returns at once with
         {"proprio"}; the hand runs the command over the next steps. The hand finishes each command before it takes
         the next: a command sent while one runs waits, and a later one replaces the waiting one. A gripper that is
         only open or closed closes for a width under 0.04."""

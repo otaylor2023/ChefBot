@@ -5,7 +5,8 @@
 - **The hand.** In the flange frame (`docs/robot_api.py`), the fingertip pads' centers are 0.103 m out along the
   flange's +z (the pads span 0.094–0.111 m), and the fingers close along the direction at +45° in the flange's x-y
   plane. The hand takes the real robot's two commands (libfranka's): `robot.gripper_move(width_m, speed_mps)`
-  moves the fingers to a width (0–0.08 m) and never squeezes (if something stops them it backs off 1 cm), and
+  moves the fingers to a width (0–0.08 m), pushing as hard as it must (up to 70 N; if something stops them short it
+  keeps pushing there, as hard as it can), and
   `robot.gripper_grasp(force_n, speed_mps)` closes until the fingers stop on something, then holds that force
   (0.1–70 N). Speeds up to 0.1 m/s. The hand finishes each command before taking the next. The force is not measured
   anywhere: you only get the fingers' width back. A row's gripper column is the shorthand: 1 a grasp at 20 N, 0 a move

@@ -24,7 +24,7 @@ import numpy as np
 
 from chefbot.environments.mujoco_kitchen import hand
 from chefbot.environments.mujoco_kitchen.objects import DEFAULT, MASS
-from chefbot.environments.mujoco_kitchen.robot import GRIP_KP, GRIP_KV, _absolute_files, robot_spec
+from chefbot.environments.mujoco_kitchen.robot import GRIP_KP, GRIP_KP_MOVE, GRIP_KV, GRIP_KV_MOVE, _absolute_files, robot_spec
 from chefbot.interface.env import Env
 from chefbot.interface.types import RGBD, EnvState, Pose2D
 
@@ -218,16 +218,17 @@ class MujocoKitchenEnv(Env):
 
     def _drive_hand(self, h: float) -> None:
         m, d = self.model, self.data
-        ref, force, squeezing = self.hand.step(h, self.gripper_width(), float(np.sum(d.qvel[self._finger_dof])))
+        ref, force, squeezing, stiff = self.hand.step(h, self.gripper_width(), float(np.sum(d.qvel[self._finger_dof])))
         a = self._grip_act
         m.actuator_forcerange[a] = [-2.0 * force, 2.0 * hand.MAX_FORCE]  # on the tendon: each finger gets half
         if squeezing:  # a plain closing force (and the damping)
             m.actuator_gainprm[a, 0], m.actuator_biasprm[a, 1] = 1.0, 0.0
             d.ctrl[a] = -2.0 * force
         else:
-            m.actuator_gainprm[a, 0], m.actuator_biasprm[a, 1] = GRIP_KP, -GRIP_KP
+            kp = GRIP_KP_MOVE if stiff else GRIP_KP
+            m.actuator_gainprm[a, 0], m.actuator_biasprm[a, 1] = kp, -kp
             d.ctrl[a] = ref / 2.0
-        m.actuator_biasprm[a, 2] = -GRIP_KV
+        m.actuator_biasprm[a, 2] = -(GRIP_KV_MOVE if stiff and not squeezing else GRIP_KV)
 
     def wait_for_next_tick(self, dt: float) -> None:
         m, d = self.model, self.data

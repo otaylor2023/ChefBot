@@ -28,6 +28,7 @@ ARM_MOUNT_Z = 0.335  # the arm plate's top, above the floor
 HAND_QUAT = [0.3826834, 0.0, 0.0, 0.9238795]  # on the flange: +45 deg about z; hand.xml's body adds 180
 GRIP_KP = 3000.0  # N per m of finger travel (the tendon is the fingers' mean)
 GRIP_KV = 60.0
+GRIP_KP_MOVE, GRIP_KV_MOVE = 10000.0, 60.0  # a move's servo: stiffer (a spindle drive; light resistance hardly moves it)
 FINGER_TRAVEL = 0.04  # each finger, open to closed
 PAD_FRICTION = [1.0, 0.02, 0.002]
 WRIST_CAM = {"pos": [0.0, -0.065, 0.02], "pitch_deg": 12.0, "fovy": 58.0}  # in the hand frame
