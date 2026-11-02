@@ -312,4 +312,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    code = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)  # not waiting at exit on the episode pool's workers: run 2's lab process outlived its run by 10 h
