@@ -23,7 +23,7 @@ start_from:
   note: >-
     `prior/skill/` is the reference skill (v17) of the previous session of this same lab, with its `prior/REPORT.md`
     and `prior/skill/research_log.md`: 29.2% on val, 14/48 on dev, about 44 s an episode. This session's main goal
-    is speed: about 20 s an episode, keeping (and if you can, raising) its success. Since then the hand changed: it
+    is speed: 20-30 s an episode (a single pick, in the pick labs, takes 11-16 s), keeping (and if you can, raising) its success. Since then the hand changed: it
     now takes the real Franka Hand's two commands, robot.gripper_move(width, speed) and robot.gripper_grasp(force,
     speed) (see the robot above and docs/robot_api.py), and a row's gripper column is only open (0) or a 20 N grasp
     (1); v17 set the column between 0 and 1 to squeeze gently, which now means a full 20 N grasp. Same scenes and
