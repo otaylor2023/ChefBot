@@ -12,6 +12,7 @@ researcher's), snapshots/ (every skill version as it ran, readable by the skill'
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import multiprocessing as mp
@@ -20,7 +21,7 @@ import shutil
 import threading
 import time
 import uuid
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
@@ -114,6 +115,10 @@ class Lab(IpcServer):
         self.vision_url, self.limits = vision_url, limits
         self._pool_args = (jobs, {k: v for k, v in os.environ.items() if k.startswith(WORKER_ENV)})
         self.pool, self._pool_load = self._new_pool(), 0
+        self._queue: collections.deque = collections.deque()  # (outer future, args) not yet given to a pool
+        self._in_flight, self._pump_lock = 0, threading.RLock()  # re-entrant: a done callback can run at once
+        self._running: dict = {}  # episode (inner future) -> its pool
+        self._retired: set = set()  # replaced pools still finishing their episodes
         self.jobs: dict[str, dict] = {}
         self.state_path = self.private / "lab_state.json"
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {"val_used": 0, "val_history": []}
@@ -127,24 +132,62 @@ class Lab(IpcServer):
         jobs, env = self._pool_args
         return ProcessPoolExecutor(jobs, mp_context=mp.get_context("spawn"), initializer=worker.init, initargs=(env,))
 
-    def _pool_for_next(self) -> ProcessPoolExecutor:
-        """The pool for the next episode. After jobs x WORKER_EPISODES episodes a fresh pool takes new work and the old
-        one is shut down once it has run what it was given (its workers then exit): a simulator that grows in memory
-        can't take the machine down. (Not max_tasks_per_child: on Python 3.11 a pool using it can lose all its workers
+    def _enqueue(self, *args) -> Future:
+        """An episode for the pool. The lab keeps the queue and gives the pool at most `jobs` episodes at a time, so
+        after jobs x WORKER_EPISODES episodes it can hand new ones to a fresh pool while the old one finishes the few it
+        has (and its workers exit): a simulator that grows in memory can't take the machine down, and no more than
+        2 x jobs workers ever exist. (Not max_tasks_per_child: on Python 3.11 a pool using it can lose all its workers
         and leave its queue unserved, as mujoco_tongs runs 2 and 3 did.)"""
-        if self._pool_load >= self._pool_args[0] * WORKER_EPISODES:
-            self.pool.shutdown(wait=False)
-            self.pool, self._pool_load = self._new_pool(), 0
-            self._write({"pool": "replaced (recycled)"})
-        self._pool_load += 1
-        return self.pool
+        outer: Future = Future()
+        with self._pump_lock:
+            self._queue.append((outer, args))
+        self._pump()
+        return outer
+
+    def _pump(self) -> None:
+        with self._pump_lock:
+            while self._queue and self._in_flight < self._pool_args[0]:
+                outer, args = self._queue.popleft()
+                if not outer.set_running_or_notify_cancel():
+                    continue
+                broken = getattr(self.pool, "_broken", False)
+                if broken or self._pool_load >= self._pool_args[0] * WORKER_EPISODES:
+                    self.pool.shutdown(wait=False, cancel_futures=bool(broken))
+                    self._retired.add(self.pool)  # kept until its episodes finish: a collected pool kills its workers
+                    self.pool, self._pool_load = self._new_pool(), 0
+                    self._write({"pool": "broken, replaced" if broken else "replaced (recycled)"})
+                self._pool_load += 1
+                self._in_flight += 1
+                try:
+                    inner = self.pool.submit(worker.run, *args)
+                except Exception as e:  # noqa: BLE001  (a pool that broke just now: a harness error, the next one gets a new pool)
+                    self._in_flight -= 1
+                    outer.set_exception(e)
+                    continue
+                self._running[inner] = self.pool
+                inner.add_done_callback(lambda f, outer=outer: self._finished(f, outer))
+
+    def _finished(self, inner, outer: Future) -> None:
+        exc = inner.exception()
+        if exc is not None:
+            outer.set_exception(exc)
+        else:
+            outer.set_result(inner.result())
+        with self._pump_lock:
+            self._in_flight -= 1
+            pool = self._running.pop(inner, None)
+            if pool in self._retired and pool not in self._running.values():
+                self._retired.discard(pool)
+        self._pump()
 
     def _pool_ok(self) -> None:
         """A broken pool (a worker died) is replaced; its unfinished episodes report a harness error."""
-        if getattr(self.pool, "_broken", False):
-            self._write({"pool": "broken, replaced"})
-            self.pool.shutdown(wait=False, cancel_futures=True)
-            self.pool, self._pool_load = self._new_pool(), 0
+        with self._pump_lock:
+            if getattr(self.pool, "_broken", False):
+                self._write({"pool": "broken, replaced"})
+                self.pool.shutdown(wait=False, cancel_futures=True)
+                self.pool, self._pool_load = self._new_pool(), 0
+        self._pump()
 
     def _log_episode(self, f, name: str, t_submit: float) -> None:
         """When each episode finished, its own wall time, and how long since its job was submitted (the rest is the
@@ -194,7 +237,7 @@ class Lab(IpcServer):
         for it, seed in episodes:
             out = base / f"{it.id}_s{seed}"
             eps.append({"item": it.id, "setup": it.setup, "task": it.task, "seed": seed})
-            futs.append(self._pool_for_next().submit(worker.run, {"id": it.id, "setup": it.setup, "task": it.task}, seed, spec, self.cfg.robot, None, str(out),
+            futs.append(self._enqueue({"id": it.id, "setup": it.setup, "task": it.task}, seed, spec, self.cfg.robot, None, str(out),
                                          self.ledger, self.vision_url, record, f"{job}/{it.id}_s{seed}", self.limits))  # fmt: skip
             futs[-1].add_done_callback(lambda f, name=f"{job}/{it.id}_s{seed}": self._log_episode(f, name, t0))
         self.jobs[job] = {"kind": kind, "skill": skill, "digest": digest, "futures": futs, "episodes": eps, "dir": base, "t0": time.time()}
@@ -304,6 +347,10 @@ class Lab(IpcServer):
         return {"error": f"unknown command {cmd!r}"}
 
     def close(self) -> None:
+        with self._pump_lock:
+            for outer, _ in self._queue:
+                outer.cancel()
+            self._queue.clear()
         self.pool.shutdown(wait=False, cancel_futures=True)
 
 
