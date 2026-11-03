@@ -1,6 +1,7 @@
 """Drive the base by gamepad, slowly: tidybot2's gamepad_teleop.py as it is, with lower speed limits.
 
     ~/miniforge3/envs/tidybot2/bin/python -m chefbot.onboard.bringup.gamepad [--vel 0.2] [--yaw-vel 0.5]
+    ~/miniforge3/envs/tidybot2/bin/python -m chefbot.onboard.bringup.gamepad --echo   # no base: prints the stick only
 
 gamepad_teleop.py hard-codes max_vel (1.0 m/s, 1.0 m/s, 3.14 rad/s) at full stick; this runs the same script with
 Vehicle's limits replaced (default 0.2 m/s, 0.5 rad/s, gentler acceleration). Buttons as in that script (Logitech
@@ -12,6 +13,9 @@ snaps to its larger axis (pushed mostly up = exactly forward, the sideways part 
 only while the left stick is centred. With the left bumper (base frame) the command is then purely forward, back,
 left, right or a turn in place, however the stick is held.
 
+--echo opens only the gamepad (no Vehicle, no CAN): it prints the raw stick and the command one-axis mode would send,
+in m/s and rad/s, ten times a second. Ctrl-C stops it.
+
 Base motor power and the e-stop as in the lab's instructions. The base driver (redis_driver.py) must not be running:
 both would hold the CAN bus.
 """
@@ -20,7 +24,9 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import math
 import sys
+import time
 from pathlib import Path
 
 # gamepad_teleop.py's axes: 1 and 0 the left stick (forward, sideways), 3 the right stick (turn).
@@ -49,6 +55,40 @@ class OneAxisJoystick:
         return getattr(self._joy, name)
 
 
+def command(f: float, s: float, t: float, vel: float, yaw_vel: float, snap: bool) -> tuple[float, float, float]:
+    """What gamepad_teleop would send for these raw axes (its signs, deadzone and scaling), in m/s, m/s, rad/s."""
+    if snap:
+        f, s, t = one_axis(f, s, t)
+
+    def dz(v):
+        return 0.0 if abs(v) <= CENTRED else math.copysign((abs(v) - CENTRED) / (1 - CENTRED), v)
+
+    return -dz(f) * vel, -dz(s) * vel, -dz(t) * yaw_vel  # x forward, y left, yaw left (CCW) positive
+
+
+def echo(vel: float, yaw_vel: float, snap: bool) -> None:
+    import pygame
+
+    pygame.init()
+    joy = pygame.joystick.Joystick(0)
+    print(f"gamepad: {joy.get_name()} ({joy.get_numaxes()} axes); no base. Ctrl-C stops.", flush=True)
+    names = {True: "base frame (left bumper)", False: "global (right bumper)"}
+    try:
+        while True:
+            pygame.event.pump()
+            f, s, t = joy.get_axis(FORWARD), joy.get_axis(SIDEWAYS), joy.get_axis(TURN)
+            vx, vy, w = command(f, s, t, vel, yaw_vel, snap)
+            held = joy.get_button(4) or joy.get_button(5)
+            frame = names[bool(joy.get_button(4))] if held else "no bumper: base would not move"
+            moves = [n for n, v in (("forward" if vx > 0 else "back", vx), ("left" if vy > 0 else "right", vy),
+                                    ("turn left" if w > 0 else "turn right", w)) if v]  # fmt: skip
+            print(f"raw stick fwd {-f:+.2f} side {-s:+.2f} turn {-t:+.2f}  ->  vx {vx:+.3f} vy {vy:+.3f} m/s  "
+                  f"yaw {w:+.3f} rad/s  [{', '.join(moves) or 'still'}]  {frame}", flush=True)  # fmt: skip
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        pass
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tidybot2", type=Path, default=Path.home() / "tidybot2")
@@ -57,9 +97,13 @@ def main() -> None:
     ap.add_argument("--accel", type=float, default=0.15, help="m/s^2")
     ap.add_argument("--yaw-accel", type=float, default=0.4, help="rad/s^2")
     ap.add_argument("--free", dest="one_axis", action="store_false", help="all stick axes at once (default: one at a time)")
+    ap.add_argument("--echo", action="store_true", help="print the stick and the command only; no base")
     args = ap.parse_args()
     if not (0 < args.vel <= 0.5 and 0 < args.yaw_vel <= 1.0):
         sys.exit("refusing: --vel must be in (0, 0.5] m/s and --yaw-vel in (0, 1.0] rad/s")
+    if args.echo:
+        echo(args.vel, args.yaw_vel, args.one_axis)
+        return
 
     sys.path.insert(0, str(args.tidybot2))
     teleop = importlib.import_module("gamepad_teleop")
