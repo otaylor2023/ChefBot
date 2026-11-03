@@ -43,7 +43,8 @@ def _detector(dictionary: str):
 
 
 def card_corners(cam, det, frames: int = FRAMES) -> dict[int, np.ndarray] | None:
-    """The hand card's markers' corners (px) averaged over frames, by id; None unless all of them are seen in most."""
+    """The hand card's markers' corners (px) averaged over frames, by id: those seen in most frames; None if fewer
+    than two are."""
     import cv2
 
     from chefbot.onboard.calibration.targets import hand_card_points
@@ -55,9 +56,8 @@ def card_corners(cam, det, frames: int = FRAMES) -> dict[int, np.ndarray] | None
         for i, c in zip([] if ids is None else ids.ravel(), corners):
             if int(i) in seen:
                 seen[int(i)].append(c[0])
-    if any(len(v) < frames // 2 for v in seen.values()):
-        return None
-    return {i: np.mean(v, 0) for i, v in seen.items()}
+    out = {i: np.mean(v, 0) for i, v in seen.items() if len(v) >= frames // 2}
+    return out if len(out) >= 2 else None
 
 
 def look(out: Path) -> None:

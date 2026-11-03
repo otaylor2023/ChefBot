@@ -3,8 +3,9 @@
 
     python -m chefbot.onboard.calibration.targets OUT_DIR     # hand_markers.pdf, base_charuco.pdf (US letter)
 
-hand_markers: two 55 mm DICT_4X4_50 markers, ids 1 and 2, 70 mm apart center to center, for the white face of the
-    Franka Hand that the pole camera sees (about 19.5 x 9.5 cm): the card 143 x 73 mm. (id 0 is the loose marker.)
+hand_markers: three 38 mm DICT_4X4_50 markers in a row, ids 1, 2, 3, 46 mm apart center to center, for the white face
+    of the Franka Hand that the pole camera sees (room for 45 mm tall, under 6 in wide): the card 137 x 45 mm, a thin
+    white border (the hand's white face around it adds to it). (id 0 is the loose marker.)
 base_charuco: a 5 x 4 ChArUco board, 30 mm squares with 22 mm DICT_4X4_50 markers (ids 10-19), for the robot's
     base where the wrist camera can see it: the board 150 x 120 mm, the card 166 x 136 mm.
 """
@@ -19,7 +20,7 @@ import numpy as np
 DPI = 600
 PAGE_IN = (8.5, 11.0)
 DICTIONARY = "DICT_4X4_50"
-HAND = {"ids": (1, 2), "marker_m": 0.055, "pitch_m": 0.070, "margin_m": 0.009}
+HAND = {"ids": (1, 2, 3), "marker_m": 0.038, "pitch_m": 0.046, "margin_m": 0.0035}
 BASE = {"squares": (5, 4), "square_m": 0.030, "marker_m": 0.022, "first_id": 10, "margin_m": 0.008}
 
 
@@ -72,13 +73,14 @@ def hand_markers() -> np.ndarray:
     d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, DICTIONARY))
     img = _page()
     m, pitch, margin = _px(HAND["marker_m"]), _px(HAND["pitch_m"]), _px(HAND["margin_m"])
-    w, h = pitch + m + 2 * margin, m + 2 * margin
+    w, h = (len(HAND["ids"]) - 1) * pitch + m + 2 * margin, m + 2 * margin
     x0, y0 = (img.shape[1] - w) // 2, _px(0.04)
     _cut_box(img, x0, y0, w, h)
     for k, mid in enumerate(HAND["ids"]):
         img[y0 + margin:y0 + margin + m, x0 + margin + k * pitch:x0 + margin + k * pitch + m] = cv2.aruco.generateImageMarker(d, mid, m)
-    _label(img, f"ChefBot hand markers: {DICTIONARY} ids {HAND['ids'][0]} (left), {HAND['ids'][1]} (right), "
-                f"{HAND['marker_m'] * 1000:.0f} mm, {HAND['pitch_m'] * 1000:.0f} mm apart", x0 - _px(0.02), y0 + h + _px(0.012))  # fmt: skip
+    _label(img, f"ChefBot hand markers: {DICTIONARY} ids {', '.join(map(str, HAND['ids']))} (left to right), "
+                f"{HAND['marker_m'] * 1000:.0f} mm, {HAND['pitch_m'] * 1000:.0f} mm apart; card {w / DPI * 25.4:.0f} x {h / DPI * 25.4:.0f} mm",
+           x0 - _px(0.02), y0 + h + _px(0.012))  # fmt: skip
     _label(img, "Cut on the gray line. Glue flat to the white face of the hand the pole camera sees.", x0 - _px(0.02), y0 + h + _px(0.022))
     _scale_bar(img, x0, y0 + h + _px(0.05))
     return img
