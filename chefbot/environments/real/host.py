@@ -8,7 +8,8 @@ while the skill thinks or waits on a model. Robot time counts from the skill's f
 
 Between the controller and the robot, every arm command is checked (SafetyStop, and the robot holds, if any fails):
 the joints inside their limits, no part of the arm in the pole's keep-out (interface/workspace.py) or within
-PLATE_CLEAR of the base's plate, the flange above `flange_z_min` (arm base frame). The base moves only if the host
+PLATE_CLEAR of the base's plate or the flange below `flange_z_min` over the base (within its footprint; beyond it a
+table may be at the plate's height or lower), nothing near the floor (arm base frame). The base moves only if the host
 is made with base=True (an arm-only skill never needs it). dry_run: nothing is sent to the arm or the gripper; the
 arm's joints are taken to be where the controller commanded them (the skill sees its moves made), the cameras are
 the real ones (seeing the robot where it really is). confirm: Enter before each move (episode.py, the skill's
@@ -35,8 +36,13 @@ from chefbot.interface.types import Pose2D
 
 HOME = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)  # the FR3's ready pose: the hand pointing down (the calibrations' start)
 HOME_SPEED = 0.3  # rad/s, the fastest joint, going home
-FLANGE_Z_MIN = 0.12  # m above the arm base frame's origin: with the fingers pointing down, their ends near the plate's height
-PLATE_CLEAR = 0.05  # m: every arm point (bar the base column's) at least this above the plate
+# Over the base (within its footprint, about the arm base: config/robot_tidybot_fr3.yaml footprint_radius): every arm
+# point at least PLATE_CLEAR above the plate, the flange above FLANGE_Z_MIN. Beyond the base, a table may be at the
+# plate's height or lower: there only the floor (0.335 m below the plate, arm_mount) bounds it.
+FOOTPRINT_RADIUS = 0.36
+FLANGE_Z_MIN = 0.12  # m above the plate, over the base
+PLATE_CLEAR = 0.05  # m: every arm point (bar the base column's) at least this above the plate, over the base
+FLOOR_CLEAR_Z = -0.30  # m: every arm point above this anywhere (the floor is at -0.335)
 OPEN_WIDTH = 0.08  # m: the Franka Hand fully open
 
 
@@ -75,11 +81,15 @@ class GuardedEnv:
             raise SafetyStop(f"joints outside their limits: {np.degrees(q).round(1).tolist()}")
         if in_keep_out(q):
             raise SafetyStop("the arm would go into the pole's keep-out")
-        if arm_points(q)[2:, 2].min() < PLATE_CLEAR:
+        pts = arm_points(q)[2:]
+        over_base = np.linalg.norm(pts[:, :2], axis=1) < FOOTPRINT_RADIUS
+        if np.any(over_base & (pts[:, 2] < PLATE_CLEAR)):
             raise SafetyStop(f"the arm would come within {PLATE_CLEAR * 100:.0f} cm of the base's plate")
-        z = self.kin.flange_pose(q)[2, 3]
-        if z < self.flange_z_min:
-            raise SafetyStop(f"the flange would go to {z:.3f} m, below the floor of {self.flange_z_min} m (arm base frame)")
+        if pts[:, 2].min() < FLOOR_CLEAR_Z:
+            raise SafetyStop(f"the arm would go down to {pts[:, 2].min():.2f} m, near the floor")
+        F = self.kin.flange_pose(q)
+        if np.linalg.norm(F[:2, 3]) < FOOTPRINT_RADIUS and F[2, 3] < self.flange_z_min:
+            raise SafetyStop(f"the flange would go to {F[2, 3]:.3f} m over the base, below its floor of {self.flange_z_min} m (arm base frame)")
 
     def set_arm_joint_targets(self, q) -> None:
         self.check(q)

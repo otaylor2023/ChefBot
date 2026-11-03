@@ -85,17 +85,35 @@ def test_an_arm_move_gets_there_and_the_base_holds(robot, tmp_path):
         h.close()
 
 
-def test_a_move_below_the_floor_stops_and_holds(robot, tmp_path):
+def test_a_move_toward_the_floor_stops_and_holds(robot, tmp_path):
     h, fake = host_on(robot, tmp_path)
     try:
         F = robot.kin.flange_pose(READY)
         with pytest.raises(RuntimeError, match="halted"):
-            for _ in range(200):
-                h.step(arm_row(F, dz=-0.6), "arm")
+            for _ in range(400):
+                h.step(arm_row(F, dz=-0.9), "arm")
         assert isinstance(h.fault, SafetyStop)
-        assert robot.kin.flange_pose(fake.q)[2, 3] >= 0.12 - 1e-6
+        assert robot.kin.flange_pose(fake.q)[2, 3] > -0.30
     finally:
         h.close()
+
+
+def test_a_table_at_the_plates_height_beyond_the_base_is_allowed(robot, tmp_path):
+    from chefbot.environments.real.host import GuardedEnv
+
+    g = GuardedEnv(FakeRobot(), robot)
+    from chefbot.onboard.calibration.wrist import ik
+
+    T = robot.kin.flange_pose(READY)
+    T[:3, 3] = [0.5, 0.0, 0.16]  # fingertips about 3 cm above the plate's height, half a meter out
+    q = ik(READY, T)
+    assert q is not None
+    g.check(q)  # no SafetyStop: it is beyond the base
+    T[:3, 3] = [0.25, 0.0, 0.16]  # the same height over the base: stopped
+    q = ik(READY, T)
+    if q is not None:
+        with pytest.raises(SafetyStop):
+            g.check(q)
 
 
 def test_a_dry_run_sends_nothing_but_shows_the_move(robot, tmp_path):

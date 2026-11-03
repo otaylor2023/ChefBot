@@ -4,8 +4,8 @@ gives where it is and how tall, then above it, down, grasp, up.
   0. the arm home (its ready pose: the hand pointing down, the object in the wrist camera's view), by its joints
   1. open the gripper; one wrist frame
   2. Gemini points at the object (x, y normalized 0..1000)
-  3. the depth there, through the camera's pose: the point in odom; around it, the surface it stands on (a low
-     percentile of the heights) and its top; its middle from the points above that surface near the point
+  3. the depth there, through the camera's pose: the point in odom; around it, the surface it stands on (the most
+     common height in a ring 7-15 cm out) and its top; its middle from the points above that surface near it
   4. the fingertip pads' center to its top less half its height (at most 2.5 cm in, at least 1.5 cm above the
      surface), the hand as it is (pointing down, the fingers closing as they do now)
   5. 10 cm above it, then down, a pause for the arm to settle, the grasp, 5 cm up, a pause
@@ -129,6 +129,10 @@ def _home(robot):
     n = max(10, int(math.ceil(far / HOME_SPEED * HZ)))
     rows = [[*(q0 + (q1 - q0) * (k / n)).tolist(), 0.0] for k in range(1, n + 1)] + [[*q1.tolist(), 0.0]] * 15
     r = robot.act_joints(rows)
+    for _ in range(6):  # the speed profile may move the joints slower than these rows: hold until it's there
+        if r["steps"][-1]["pos_error_m"] < 0.01:
+            break
+        r = robot.act_joints([[*q1.tolist(), 0.0]] * 15)
     robot.log(f"home: {np.degrees(far):.0f} deg at most; within {np.degrees(r['steps'][-1]['pos_error_m']):.1f} deg of it")
 
 
@@ -151,9 +155,15 @@ def run(robot, object: str, force_n: float = 20.0):
     if len(near) < 5:
         return {"ok": False, "reason": "no depth at the point", "point_px": [round(u), round(v)]}
     P = np.median(near, 0)  # the point on the object, in odom
-    around = _cloud(cam, u, v, 90)
+    around = _cloud(cam, u, v, 120)
     flat = np.linalg.norm(around[:, :2] - P[:2], axis=1)
-    surface = float(np.percentile(around[flat < 0.15, 2], 10))
+    # the surface it stands on: the most common height in a ring around it (not the object; not an edge's far side)
+    ring = around[(flat > 0.07) & (flat < 0.15) & (around[:, 2] < P[2] + 0.005) & (around[:, 2] > P[2] - 0.40), 2]
+    if len(ring) < 30:
+        return {"ok": False, "reason": "can't see the surface around it", "point_px": [round(u), round(v)]}
+    counts, edges = np.histogram(ring, bins=np.arange(ring.min(), ring.max() + 0.011, 0.01))
+    k = int(np.argmax(counts))
+    surface = float(np.median(ring[(ring >= edges[k]) & (ring <= edges[k + 1])]))
     body = around[(flat < 0.06) & (around[:, 2] > surface + 0.01)]
     if len(body) < 10:
         return {"ok": False, "reason": f"nothing stands above the surface at the point ({P[2] - surface:.3f} m)", "point_px": [round(u), round(v)]}

@@ -48,7 +48,7 @@ def main() -> None:
     ap.add_argument("--yes", action="store_true", help="don't wait for Enter before each move")
     ap.add_argument("--base", action="store_true", help="let the base move (default: it holds)")
     ap.add_argument("--home", action="store_true", help="the arm to its ready pose before the skill (a skill can do it itself: act_joints)")
-    ap.add_argument("--flange-z-min", type=float, default=FLANGE_Z_MIN, help="the flange's height floor, arm base frame (m)")
+    ap.add_argument("--flange-z-min", type=float, default=FLANGE_Z_MIN, help="the flange's height floor over the base, arm base frame (m)")
     ap.add_argument("--url", help="the onboard server (default: environments/real/config.yaml's)")
     ap.add_argument("--model-usd", type=float, default=LIMITS["model_usd"], help="the episode's model budget")
     ap.add_argument("--think-s", type=float, default=LIMITS["think_s"])
