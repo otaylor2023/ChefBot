@@ -126,6 +126,7 @@ def orbit(q_look, marker_cam) -> list[np.ndarray]:
     off the vertical and turned about it, still pointing at the marker (as if the camera looked along the flange's
     z from the flange; near enough to keep the marker in view)."""
     from chefbot.onboard.calibration import fr3
+    from chefbot.onboard.calibration.arm import path_clear
 
     T0 = fr3.flange(q_look)
     target = T0[:3, 3] + T0[:3, :3] @ marker_cam  # the marker in the base, taking the camera as at the flange
@@ -142,9 +143,16 @@ def orbit(q_look, marker_cam) -> list[np.ndarray]:
                 T = np.eye(4)
                 T[:3, :3], T[:3, 3] = R, p
                 q = ik(q_look, T)
-                if q is not None and np.abs(q - q_look).max() < np.radians(100):
+                if q is not None and np.abs(q - q_look).max() < np.radians(100) and path_clear(q_look, q):
                     poses.append(q)
-    return poses
+    # in order, each move from the one before must be clear too (else go by the look pose)
+    out, prev = [], np.asarray(q_look, float)
+    for q in poses:
+        if not path_clear(prev, q):
+            out.append(np.asarray(q_look, float))
+        out.append(q)
+        prev = q
+    return out
 
 
 def record(out: Path) -> None:

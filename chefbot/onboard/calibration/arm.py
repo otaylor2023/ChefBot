@@ -29,6 +29,31 @@ STALL_S = 4.0  # no progress for this long: settled there, or stuck
 STEP_TIMEOUT_S = 30.0
 
 
+# Keep out of the space behind the arm and to its left (the arm's own frame: x forward, y left), where a pole
+# stands about 10 cm back and left of the arm: no joint, link midpoint or fingertip there, above the base column.
+KEEP_OUT_X_BELOW, KEEP_OUT_Y_ABOVE, KEEP_OUT_Z_ABOVE = 0.0, 0.03, 0.2
+TCP_Z = 0.13065  # m along the flange's z: the fingertips
+
+
+def arm_points(q) -> np.ndarray:
+    """Points along the arm (joint origins, link midpoints, the fingertips) in the arm base frame."""
+    from chefbot.onboard.calibration import fr3
+
+    fs = fr3.frames(q)
+    p = [f[:3, 3] for f in fs] + [fs[-1][:3, 3] + fs[-1][:3, 2] * TCP_Z]
+    return np.array(p + [(a + b) / 2 for a, b in zip(p, p[1:])])
+
+
+def in_keep_out(q) -> bool:
+    p = arm_points(q)
+    return bool(np.any((p[:, 0] < KEEP_OUT_X_BELOW) & (p[:, 1] > KEEP_OUT_Y_ABOVE) & (p[:, 2] > KEEP_OUT_Z_ABOVE)))
+
+
+def path_clear(q0, q1, samples: int = 30) -> bool:
+    """The joint-space straight line from q0 to q1 (how the arm moves) stays out of the keep-out."""
+    return not any(in_keep_out(q0 + (q1 - q0) * t) for t in np.linspace(0, 1, samples))
+
+
 class Stop(Exception):
     """The operator stopped the session."""
 
@@ -70,6 +95,8 @@ class Arm:
             bad = [i + 1 for i in np.flatnonzero((target < lo) | (target > hi))]
             raise ValueError(f"target outside the joint limits (less {MARGIN} rad) at joints {bad}: {np.round(target, 3)}")
         q0 = self.q()
+        if not path_clear(q0, target):
+            raise ValueError(f"the move would pass behind the arm on its left (the pole): {np.round(target, 3)}")
         delta = target - q0
         n = max(1, int(np.ceil(np.abs(delta).max() / STEP)))
         print(f"\n{label}\n  joints now    {np.round(q0, 3).tolist()}\n  joints target {np.round(target, 3).tolist()}"
