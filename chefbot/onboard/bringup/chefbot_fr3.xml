@@ -5,7 +5,9 @@
      task so goals move smoothly, stiffer gains; slower limits for ChefBot. The Cartesian task's point is ChefBot's TCP
      (the Franka Hand on the 27.25 mm camera holder: 0.1034 + 0.02725 m along the flange's z).
 
-     cd ~/OpenSai && bash scripts/launch.sh ~/ChefBot/chefbot/onboard/bringup/chefbot_fr3.xml -->
+     OpenSai takes only configs in its config folder: onboard/bringup/launch.sh links this file in, or by hand
+     ln -sfn ~/ChefBot/chefbot/onboard/bringup/chefbot_fr3.xml ~/OpenSai/config_folder/xml_config_files/
+     cd ~/OpenSai && bash scripts/launch.sh chefbot_fr3.xml -->
 <redisConfiguration namespacePrefix="opensai" />
 
 <robotControlConfiguration robotName="FrankaRobot"

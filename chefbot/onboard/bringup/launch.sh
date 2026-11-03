@@ -67,7 +67,11 @@ wait_for_key() {  # key, what must be in its value, timeout
 }
 
 echo "1) OpenSai: $OPENSAI_CONFIG"
-(cd "$OPENSAI_DIR" && exec bash scripts/launch.sh "$OPENSAI_CONFIG") >"$LOGS/opensai.log" 2>&1 &
+# OpenSai takes only configs in its own config folder: link ours in (as the other projects' configs sit there).
+OPENSAI_CONFIG_NAME="$(basename "$OPENSAI_CONFIG")"
+[[ -e "$OPENSAI_DIR/config_folder/xml_config_files/$OPENSAI_CONFIG_NAME" && ! -L "$OPENSAI_DIR/config_folder/xml_config_files/$OPENSAI_CONFIG_NAME" ]] ||
+	ln -sfn "$OPENSAI_CONFIG" "$OPENSAI_DIR/config_folder/xml_config_files/$OPENSAI_CONFIG_NAME"
+(cd "$OPENSAI_DIR" && exec bash scripts/launch.sh "$OPENSAI_CONFIG_NAME") >"$LOGS/opensai.log" 2>&1 &
 PIDS+=($!)
 wait_for_key "::sai-interfaces-webui::config_file_name" "$(basename "$OPENSAI_CONFIG")" "$READY_TIMEOUT_S"
 
