@@ -84,7 +84,8 @@ class MountTracker:
         """The camera's pose from the pooled frames: in full once the card's positions spread, else its rotation."""
         centers = np.array([f[0].mean(0) for f in self.frames])
         spread = np.sort(np.linalg.svd(centers - centers.mean(0), compute_uv=False))[::-1] / np.sqrt(len(centers))
-        full = len(spread) >= 2 and spread[1] > self.spread_m  # spread out in at least two directions
+        # spread out in at least two directions (once fitting in full, until the spread falls well below that)
+        full = len(spread) >= 2 and spread[1] > self.spread_m * (0.7 if self.full else 1.0)
         pose = self.pose if self.pose is not None else _seed(self.frames[0])
         return (_fit_full if full else _fit_rotation)(pose, list(self.frames)), full
 
