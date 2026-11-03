@@ -22,6 +22,7 @@ LIMITS = np.array([[-2.7437, 2.7437], [-1.7837, 1.7837], [-2.9007, 2.9007], [-3.
                    [0.5445, 4.5169], [-3.0159, 3.0159]])  # fmt: skip
 MARGIN = 0.1
 RAMP_HZ = 50.0
+MAX_LAG = 0.25  # rad behind the ramp: the arm is not following (blocked, or the controller is off): stop and hold
 
 
 class Stop(Exception):
@@ -36,11 +37,12 @@ def _array(raw) -> np.ndarray | None:
 
 
 class Arm:
-    def __init__(self, host: str = "127.0.0.1", port: int = 6379, max_speed: float = 0.25):
+    def __init__(self, host: str = "127.0.0.1", port: int = 6379, max_speed: float = 0.1):
         import redis
 
         self.r = redis.Redis(host=host, port=port)
-        self.max_speed = max_speed  # rad/s, every joint
+        self.max_speed = max_speed  # rad/s, every joint, on average (the ramp's peak is pi/2 of it): ZitiBot's joint
+        # controller (zitibot_panda.xml: kp 100, kv 20, velocity saturation) trails faster ramps by over 0.15 rad
         if self.q() is None:
             raise RuntimeError(f"no {K.JOINT_POSITIONS} on Redis: is the Franka driver running?")
 
@@ -86,7 +88,7 @@ class Arm:
                 break
             time.sleep(1.0 / RAMP_HZ)
             lag = np.abs(self.q() - (q0 + w * delta)).max()
-            if lag > 0.15:
+            if lag > MAX_LAG:
                 self.r.set(K.JOINT_GOAL_POSITION, json.dumps(self.q().tolist()))  # hold where it is
                 raise RuntimeError(f"the arm is not following ({np.degrees(lag):.0f} deg behind): stopped, holding")
         t1 = time.time()
