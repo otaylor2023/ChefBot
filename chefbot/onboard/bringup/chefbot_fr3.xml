@@ -2,7 +2,7 @@
 <!-- ChefBot's OpenSai config for the FR3 (instead of ZitiBot's zitibot_panda.xml, whose joint task saturates velocity
      at OpenSai's default with soft gains: the arm crawled and stalled). From the pickleball project's
      picklebot_j5_otg.xml: OpenSai's stock Panda model (its end-effector is the flange), a jerk-limited OTG on the joint
-     task so goals move smoothly, stiffer gains; slower limits for ChefBot. The Cartesian task's point is ChefBot's TCP
+     task so goals move smoothly; slower limits, and no dynamic decoupling (below), for ChefBot. The Cartesian task's point is ChefBot's TCP
      (the Franka Hand on the 27.25 mm camera holder: 0.1034 + 0.02725 m along the flange's z).
 
      OpenSai takes only configs in its config folder: onboard/bringup/launch.sh links this file in, or by hand
@@ -18,14 +18,20 @@
 		addTimestampToFilename="true" />
 
 	<controller name="joint_controller">
-		<jointTask name="joint_task">
+		<!-- No dynamic decoupling (IMPEDANCE: torque = kp e - kv de, per joint, in N m/rad). OpenSai's decoupling
+		     (bounded inertia estimates) drops, through a pseudoinverse with an absolute 0.3 tolerance, any joint
+		     motion whose inertia is over about 3.3 kg m2: on the FR3 the shoulder's (0.87 q2 - 0.49 q4) got no
+		     stiffness at all, the arm stalled there, and the torque came back all at once as the pose changed. -->
+		<jointTask name="joint_task" useDynamicDecoupling="false">
 			<velocitySaturation enabled="false" />
 			<otg type="jerk"
 				maxVelocity="0.5 0.5 0.5 0.5 0.6 0.6 0.6"
 				maxAcceleration="1.0 1.0 1.0 1.0 1.5 1.5 1.5"
 				maxJerk="5 5 5 5 8 8 8" />
-			<gains kp="400 250 400 250 400 400 400"
-				kv=" 32  24  32  24  32  32  32"
+			<!-- about half libfranka's joint_impedance_control example (600 x4, 250, 150, 50; 50 x4, 30, 25, 15),
+			     which runs in the 1 kHz loop itself (OpenSai adds a Redis round trip) -->
+			<gains kp="300 300 300 300 120  80  30"
+				kv=" 25  25  25  25  12  10   5"
 				ki="  0   0   0   0   0   0   0" />
 		</jointTask>
 	</controller>
