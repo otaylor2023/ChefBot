@@ -7,19 +7,19 @@ them and the onboard server.
 
 ```sh
 git clone <ChefBot> ~/ChefBot && cd ~/ChefBot
-~/miniforge3/bin/conda create -n chefbot python=3.11
-~/miniforge3/envs/chefbot/bin/pip install -e ".[onboard]"
 ```
 
-`[onboard]` is the server's few dependencies (redis, pyrealsense2; no planning, IK or simulator).
+The server runs in `~/chefbot_calib/env` (launch.sh's `CHEFBOT_PYTHON`): numpy, redis, pyrealsense2, websockets,
+msgpack, msgpack-numpy, opencv; no planning, IK or simulator.
 
 ## Each session
 
 1. Franka Desk: unlock the joints, FCI on.
-2. The Franka arm driver (real-time torque loop), as for ZitiBot, from `~/OpenSai/drivers/FrankaPanda/redis_driver`.
-3. The NUC on SRC wifi (`sudo nmcli con up SRC`): the kitchen's mocap streams only there.
-4. `cd ~/ChefBot && chefbot/onboard/bringup/launch.sh`: OpenSai, the gripper and base drivers, the mocap
-   publisher (`mocap.sh`: `chefbot-tidy::pos` / `::ori` on Redis), then the onboard server. Ctrl-C stops them all.
+2. The NUC on SRC wifi (`sudo nmcli con up SRC`): the kitchen's mocap streams only there.
+3. `cd ~/ChefBot && chefbot/onboard/bringup/launch.sh`: the Franka arm driver (asks for sudo once), OpenSai holding
+   the arm, the gripper and base drivers, the mocap publisher (`mocap.sh`: `chefbot-tidy::pos` / `::ori` on Redis),
+   then the onboard server. Ctrl-C stops them all, the arm driver first (the brakes hold the arm); it says whether
+   the arm driver stopped. `--no-arm-driver` if one is already running; `arm.sh` is just the arm driver and OpenSai;
    `mocap.sh` alone runs just the mocap publisher, printing each frame.
 
 Then, read-only, on the robot: `python -m chefbot.onboard.check` (which drivers are up, nothing moves).

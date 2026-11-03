@@ -3,4 +3,4 @@
 # server). Ctrl-C stops both, the driver first. Desk first: joints unlocked, FCI on.
 #
 # Usage: chefbot/onboard/bringup/arm.sh   (the whole robot: launch.sh)
-exec bash "$(dirname "$0")/launch.sh" --arm-driver --no-gripper --no-base --no-mocap --no-server "$@"
+exec bash "$(dirname "$0")/launch.sh" --no-gripper --no-base --no-mocap --no-server "$@"

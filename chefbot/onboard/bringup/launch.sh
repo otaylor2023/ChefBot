@@ -30,7 +30,6 @@ READY_TIMEOUT_S=90
 ARM_DRIVER=true GRIPPER=true BASE=true MOCAP=true SERVER=true
 for arg in "$@"; do
 	case "$arg" in
-		--arm-driver) ARM_DRIVER=true ;;  # the default; kept so older commands work
 		--no-arm-driver) ARM_DRIVER=false ;;
 		--no-gripper) GRIPPER=false ;;
 		--no-base) BASE=false ;;
