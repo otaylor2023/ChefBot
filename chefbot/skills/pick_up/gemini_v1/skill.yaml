@@ -1,0 +1,24 @@
+name: pick_up
+version: gemini_v1
+entry: main.py:run
+interface: chefbot-v1
+robot: tidybot_fr3
+arm_only: true
+cameras: [wrist]
+args:
+  object:
+    type: string
+    doc: what to pick up, in a few words
+  force_n:
+    type: number
+    default: 20.0
+    doc: the grasp's squeeze (N)
+models:
+  gemini-robotics-er-2-preview:
+    runs: api
+    provider: google
+    key: GEMINI_API_KEY
+assumes: the object under the wrist camera's view from where the arm starts (the ready pose), on a flat surface, small enough for a top-down grasp (under 7 cm across the fingers)
+privileged: false
+provenance:
+  written: by hand, 2026-11-03, the first real-robot pick (environments/real/host.py)
