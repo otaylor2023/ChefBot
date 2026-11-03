@@ -130,3 +130,17 @@ def test_speed_scale_never_exceeds_the_driver_limits(rig):
     redis.set(D.MAX_VEL_SCALE, "0.5")
     loop.step()
     assert vehicle.otg_inp.max_velocity == pytest.approx([0.0625, 0.0625, 0.2])
+
+
+@pytest.mark.parametrize("goal", [[0.3, 0.0, 0.0], [0.3, 0.3, 0.0], [-0.1, 0.25, 1.0], [0.0, -0.4, 0.0]])
+def test_the_planar_speed_limit_holds_along_any_direction(rig, goal):
+    # Per-axis limits of 0.125 let a 45 deg diagonal reach 0.177 m/s (0.167 measured in HT-3b).
+    loop, vehicle, redis, _ = rig
+    command(redis, goal)
+    loop.step()
+    vx, vy, w = vehicle.otg_inp.max_velocity
+    d = np.array(goal[:2]) / np.linalg.norm(goal[:2])
+    # The fastest the synchronized trajectory can go along d: each axis at most its limit.
+    along = min(vx / abs(d[0]) if abs(d[0]) > 1e-9 else np.inf, vy / abs(d[1]) if abs(d[1]) > 1e-9 else np.inf)
+    assert along <= 0.125 + 1e-9 and along >= 0.125 * 0.99
+    assert w == pytest.approx(0.4)
