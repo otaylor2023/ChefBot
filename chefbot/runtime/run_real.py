@@ -3,8 +3,8 @@ robot (environments/real/host.py).
 
     python -m chefbot.runtime.run_real --skill pick_up/chefbot_v30 --arg object="red cup" [--dry-run] [--yes]
 
-Before: the robot up with the onboard server (onboard/bringup/launch.sh --arm-driver; the base driver too, for its
-pose), and on this computer `ssh -L 8765:localhost:8765 tidybot01` (environments/real/config.yaml's url), the
+Before: the robot up with the onboard server (onboard/bringup/launch.sh: the arm and base drivers, OpenSai, the
+server), and on this computer `ssh -L 8765:localhost:8765 tidybot01` (environments/real/config.yaml's url), the
 vision server for skills that use it (VISION_URL), the model keys in .env.
 
 Every move waits for Enter (--yes: doesn't). --dry-run: nothing is sent to the arm or the gripper, the arm taken

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Start the robot's drivers (the existing ones, in place), then the onboard server.
 #
-#   0) with --arm-driver: the Franka arm driver (real-time torque loop: OpenSai's safe_launch_driver.sh, which
-#      clears stale commands and seeds a hold at the arm's joints; asks for sudo once, for the CPU governor)
+#   0) the Franka arm driver (real-time torque loop: OpenSai's safe_launch_driver.sh, which clears stale commands
+#      and seeds a hold at the arm's joints; asks for sudo once, for the CPU governor)
 #   1) OpenSai with chefbot_fr3.xml, next to this script (arm joint + Cartesian controllers, Redis, web UI)
 #   2) the Franka gripper driver (OpenSai's drivers/FrankaPanda/redis_driver/launch_gripper.sh)
 #   3) the hb1 base driver (ZitiBot's controllers/tidybot_base/redis_driver.py)
@@ -11,7 +11,8 @@
 # Ctrl-C stops them all (the arm driver first: the arm's brakes hold it). Desk first: joints unlocked, FCI on.
 # arm.sh, next to this script, is just 0) and 1).
 #
-# Usage: chefbot/onboard/bringup/launch.sh [--arm-driver] [--no-gripper] [--no-base] [--no-mocap] [--no-server]
+# Usage: chefbot/onboard/bringup/launch.sh [--no-arm-driver] [--no-gripper] [--no-base] [--no-mocap] [--no-server]
+#   (--no-arm-driver: one is already running, started by hand)
 # Paths and limits come from the environment, with these defaults:
 set -euo pipefail
 
@@ -26,10 +27,11 @@ MAX_ACCEL_XY="${MAX_ACCEL_XY:-0.1}"
 MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-0.5}"
 READY_TIMEOUT_S=90
 
-ARM_DRIVER=false GRIPPER=true BASE=true MOCAP=true SERVER=true
+ARM_DRIVER=true GRIPPER=true BASE=true MOCAP=true SERVER=true
 for arg in "$@"; do
 	case "$arg" in
-		--arm-driver) ARM_DRIVER=true ;;
+		--arm-driver) ARM_DRIVER=true ;;  # the default; kept so older commands work
+		--no-arm-driver) ARM_DRIVER=false ;;
 		--no-gripper) GRIPPER=false ;;
 		--no-base) BASE=false ;;
 		--no-mocap) MOCAP=false ;;
@@ -85,7 +87,7 @@ wait_for_key() {  # key, what must be in its value, timeout
 
 if $ARM_DRIVER; then
 	if pgrep -f "[s]ai_franka_robot_redis_driver" >/dev/null; then
-		echo "an arm driver is already running: stop it first (or leave out --arm-driver)" >&2
+		echo "an arm driver is already running: stop it first (or pass --no-arm-driver)" >&2
 		exit 1
 	fi
 	echo "0) Franka arm driver"
