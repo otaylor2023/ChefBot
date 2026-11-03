@@ -159,7 +159,8 @@ fi
 echo "drivers up; logs in $LOGS"
 if $SERVER; then
 	echo "5) onboard server"
-	"$CHEFBOT_PYTHON" -m chefbot.onboard.server
+	# the repo on its path (three folders up from this script): wherever launch.sh is run from
+	PYTHONPATH="$(cd "$(dirname "$0")/../../.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" "$CHEFBOT_PYTHON" -m chefbot.onboard.server
 else
 	echo "5) server skipped; Ctrl-C stops the drivers"
 	wait
