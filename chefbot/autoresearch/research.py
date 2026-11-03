@@ -130,6 +130,7 @@ def main() -> int:
     ap.add_argument("--root", type=Path, help="the run's directory (default runs/labs/<lab>-<time>)")
     ap.add_argument("--hours", type=float, help="default: the lab's budgets.hours")
     ap.add_argument("--usage-cap", type=float, help="stop when Codex's weekly usage passes this percent (default: the lab's)")
+    ap.add_argument("--thread", default=None, help="resume this Codex conversation (a restarted run, with --root)")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--vision-url", help="the vision server (default: VISION_URL, from the environment or .env)")
     ap.add_argument("--model", default="gpt-6-astra", help="the researcher's model")
@@ -207,7 +208,7 @@ def main() -> int:
 
     note(f"lab {cfg.name}; workspace {ws}; deadline in {hours} h; usage cap {usage_cap}%; model cap ${cfg.model_usd}; "
          f"vision {'on' if args.vision_url else 'off'}; sandbox: {sandbox}; hide: {hide}")  # fmt: skip
-    thread_id, sessions, capacity, over_cap = None, 0, False, False
+    thread_id, sessions, capacity, over_cap = args.thread, 0, False, False
     quick = 0  # sessions in a row that ended within QUICK_S
     proc = None
 
