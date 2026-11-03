@@ -24,7 +24,7 @@ LIMITS = np.array([[-2.7437, 2.7437], [-1.7837, 1.7837], [-2.9007, 2.9007], [-3.
 MARGIN = 0.1
 STEP = 0.05  # rad: how far ahead of the arm the goal goes (the largest-moving joint's share)
 CAUGHT_UP = 0.04  # rad from the step's goal: on to the next
-SAG = 0.12  # rad: how far short of a goal the joint controller may settle (generous: ZitiBot's soft kp 100 sagged this much)
+SAG = 0.25  # rad: how far short of a goal the joint controller may settle (OpenSai's shoulder tracking is weak: 7 deg seen)
 STALL_S = 4.0  # no progress for this long: settled there, or stuck
 STEP_TIMEOUT_S = 30.0
 
