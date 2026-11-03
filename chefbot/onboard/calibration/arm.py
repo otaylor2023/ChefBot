@@ -2,7 +2,7 @@
 sensors): slow joint moves, each shown and confirmed at the keyboard first, and still-arm readings.
 
     arm = Arm()
-    arm.move_to(q)            # prints the move, waits for Enter, ramps the joint goal at <= max_speed, waits to settle
+    arm.move_to(q)            # prints the move, waits for Enter, then leads the arm there a small step at a time
     arm.still(2.0)            # {"q", "tau_J", "gravity"} averaged over 2 s with the arm still
 """
 
@@ -21,8 +21,11 @@ GRAVITY = "opensai::sensors::FrankaRobot::model::robot_gravity"  # libfranka's m
 LIMITS = np.array([[-2.7437, 2.7437], [-1.7837, 1.7837], [-2.9007, 2.9007], [-3.0421, -0.1518], [-2.8065, 2.8065],
                    [0.5445, 4.5169], [-3.0159, 3.0159]])  # fmt: skip
 MARGIN = 0.1
-RAMP_HZ = 50.0
-MAX_LAG = 0.25  # rad behind the ramp: the arm is not following (blocked, or the controller is off): stop and hold
+STEP = 0.05  # rad: how far ahead of the arm the goal goes (the largest-moving joint's share)
+CAUGHT_UP = 0.04  # rad from the step's goal: on to the next
+SAG = 0.12  # rad: how far short of a goal the soft joint controller (zitibot_panda.xml: kp 100, kv 20) may settle
+STALL_S = 4.0  # no progress for this long: settled there, or stuck
+STEP_TIMEOUT_S = 30.0
 
 
 class Stop(Exception):
@@ -37,12 +40,10 @@ def _array(raw) -> np.ndarray | None:
 
 
 class Arm:
-    def __init__(self, host: str = "127.0.0.1", port: int = 6379, max_speed: float = 0.1):
+    def __init__(self, host: str = "127.0.0.1", port: int = 6379):
         import redis
 
         self.r = redis.Redis(host=host, port=port)
-        self.max_speed = max_speed  # rad/s, every joint, on average (the ramp's peak is pi/2 of it): ZitiBot's joint
-        # controller (zitibot_panda.xml: kp 100, kv 20, velocity saturation) trails faster ramps by over 0.15 rad
         if self.q() is None:
             raise RuntimeError(f"no {K.JOINT_POSITIONS} on Redis: is the Franka driver running?")
 
@@ -69,28 +70,35 @@ class Arm:
             raise ValueError(f"target outside the joint limits (less {MARGIN} rad) at joints {bad}: {np.round(target, 3)}")
         q0 = self.q()
         delta = target - q0
-        T = max(float(np.abs(delta).max()) / self.max_speed, 0.5)
+        n = max(1, int(np.ceil(np.abs(delta).max() / STEP)))
         if confirm:
             print(f"\n{label}\n  joints now    {np.round(q0, 3).tolist()}\n  joints target {np.round(target, 3).tolist()}"
-                  f"\n  largest change {np.degrees(np.abs(delta).max()):.1f} deg (joint {int(np.abs(delta).argmax()) + 1}), {T:.1f} s")  # fmt: skip
+                  f"\n  largest change {np.degrees(np.abs(delta).max()):.1f} deg (joint {int(np.abs(delta).argmax()) + 1}), in {n} steps")  # fmt: skip
             if input("  Enter to move, q then Enter to stop: ").strip().lower() == "q":
                 raise Stop()
         self.r.set(K.JOINT_GOAL_VELOCITY, json.dumps([0.0] * 7))
         self.r.set(K.JOINT_GOAL_ACCELERATION, json.dumps([0.0] * 7))
         self.r.set(K.JOINT_GOAL_POSITION, json.dumps(q0.tolist()))
         self.r.set(K.ACTIVE_CONTROLLER, K.JOINT_CONTROLLER)
-        t0 = time.time()
-        while True:  # a smooth ramp of the goal (the controller tracks it)
-            s = min((time.time() - t0) / T, 1.0)
-            w = 0.5 - 0.5 * np.cos(np.pi * s)
-            self.r.set(K.JOINT_GOAL_POSITION, json.dumps((q0 + w * delta).tolist()))
-            if s >= 1.0:
-                break
-            time.sleep(1.0 / RAMP_HZ)
-            lag = np.abs(self.q() - (q0 + w * delta)).max()
-            if lag > MAX_LAG:
-                self.r.set(K.JOINT_GOAL_POSITION, json.dumps(self.q().tolist()))  # hold where it is
-                raise RuntimeError(f"the arm is not following ({np.degrees(lag):.0f} deg behind): stopped, holding")
+        for k in range(1, n + 1):  # the goal a small step ahead, the next one once the arm has (nearly) caught up
+            w = q0 + delta * (k / n)
+            self.r.set(K.JOINT_GOAL_POSITION, json.dumps(w.tolist()))
+            best, t_best, t0 = np.inf, time.time(), time.time()
+            while True:
+                time.sleep(0.02)
+                d = float(np.abs(self.q() - w).max())
+                if d < CAUGHT_UP:
+                    break
+                if d < best - 0.003:
+                    best, t_best = d, time.time()
+                if time.time() - t_best > STALL_S:  # no progress: the controller's own sag is fine, anything more is not
+                    if d < SAG:
+                        break
+                    self.r.set(K.JOINT_GOAL_POSITION, json.dumps(self.q().tolist()))  # hold where it is
+                    raise RuntimeError(f"the arm stopped {np.degrees(d):.0f} deg short of step {k}/{n} (blocked, or the controller is off): holding")
+                if time.time() - t0 > STEP_TIMEOUT_S:
+                    self.r.set(K.JOINT_GOAL_POSITION, json.dumps(self.q().tolist()))
+                    raise RuntimeError(f"step {k}/{n} took over {STEP_TIMEOUT_S:.0f} s: holding")
         t1 = time.time()
         while time.time() - t1 < 10.0:
             dq = self.dq()
