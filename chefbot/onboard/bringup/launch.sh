@@ -52,8 +52,18 @@ cleanup() {
 	trap - INT TERM EXIT
 	echo "stopping drivers..." >&2
 	if $ARM_DRIVER; then  # first: once its torque loop stops, the arm's brakes hold it
-		pkill -INT -f "sai_franka_robot_redis_driver" 2>/dev/null || true
-		sleep 1
+		# SIGTERM, not SIGINT: started in the background by safe_launch_driver.sh, the driver ignores SIGINT
+		# (2026-11-03: Ctrl-C left it running, the arm floating on zero torque)
+		pkill -TERM -f "[s]ai_franka_robot_redis_driver" 2>/dev/null || true
+		for _ in 1 2 3 4 5 6; do
+			pgrep -f "[s]ai_franka_robot_redis_driver" >/dev/null || break
+			sleep 0.5
+		done
+		if pgrep -f "[s]ai_franka_robot_redis_driver" >/dev/null; then
+			pkill -KILL -f "[s]ai_franka_robot_redis_driver" 2>/dev/null || true
+			echo "the arm driver didn't stop on SIGTERM: killed" >&2
+		fi
+		pgrep -f "[s]ai_franka_robot_redis_driver" >/dev/null && echo "THE ARM DRIVER IS STILL RUNNING: stop it (E-stop, or Desk)" >&2 || echo "arm driver stopped" >&2
 	fi
 	for pid in "${PIDS[@]}"; do
 		pkill -TERM -P "$pid" 2>/dev/null || true
@@ -74,7 +84,7 @@ wait_for_key() {  # key, what must be in its value, timeout
 }
 
 if $ARM_DRIVER; then
-	if pgrep -f sai_franka_robot_redis_driver >/dev/null; then
+	if pgrep -f "[s]ai_franka_robot_redis_driver" >/dev/null; then
 		echo "an arm driver is already running: stop it first (or leave out --arm-driver)" >&2
 		exit 1
 	fi
