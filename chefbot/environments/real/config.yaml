@@ -19,16 +19,23 @@ cameras:
         [0.87848, 0.47746, -0.01743, -0.04361],
         [0.02151, -0.00308, 0.99976, 0.01946],
         [0, 0, 0, 1]]
-  # The pole D455 (onboard/calibration/pole.py, 2026-11-03: the 70 mm marker on the hand, 15 poses, 1.2 px rms):
-  # 0.25 m behind the base center, 0.26 m left, 1.04 m up, looking forward and 7.7 deg down. Its height comes
-  # through config/robot_tidybot_fr3.yaml's arm_mount (0.335 m; TODO(verify) on the real base).
-  # Its mount isn't very stable: with the hand card (onboard/calibration/targets.py) glued on the hand and its pose
-  # there calibrated (pole.py record --card, then solve: T_flange_card), a `track: {T_flange_card: ...}` entry here
-  # has environments/real keep this pose current from the card in the pole camera's frames (mount_track.py); until
-  # then it stays this. TODO: mount the card, calibrate, add `track`.
+  # The pole D455 (onboard/calibration/pole.py --card, 2026-11-03: the hand card, 26 poses spread over the workspace,
+  # 1.0 px rms): 0.25 m behind the base center, 0.26 m left, 1.04 m up, looking forward 7.4 deg down. Its height comes
+  # through config/robot_tidybot_fr3.yaml's arm_mount (0.335 m; TODO(verify) on the real base). Its mount isn't very
+  # stable: `track` has environments/real keep the pose current from the hand card in its frames (mount_track.py).
+  # The one before (one 70 mm marker on the hand, 15 poses, 1.2 px rms; data_2026-11-03/pole.json) put points 2-7 mm
+  # away from this one at 0.9 m:
+  #   [[-0.22954, -0.17202, 0.95798, -0.24949], [-0.95765, -0.13588, -0.25386, 0.2612],
+  #    [0.17383, -0.97568, -0.13355, 1.0381], [0, 0, 0, 1]]
   pole:
     parent: base
-    T: [[-0.22954, -0.17202, 0.95798, -0.24949],
-        [-0.95765, -0.13588, -0.25386, 0.2612],
-        [0.17383, -0.97568, -0.13355, 1.0381],
+    T: [[-0.2232, -0.17032, 0.95978, -0.25133],
+        [-0.9567, -0.15043, -0.24918, 0.26013],
+        [0.18682, -0.97384, -0.12937, 1.03593],
         [0, 0, 0, 1]]
+    track:
+      # the hand card (targets.py, ids 4-6) on the flange, from the same calibration (data_2026-11-03/pole_card.json)
+      T_flange_card: [[-0.72499, -0.03757, -0.68773, -0.02031],
+                      [-0.68808, -0.00462, 0.72562, 0.01094],
+                      [-0.03044, 0.99928, -0.0225, 0.06202],
+                      [0, 0, 0, 1]]
