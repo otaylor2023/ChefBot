@@ -1,0 +1,19 @@
+# The SRC kitchen test area around Jack's counter top, in the mocap (Motive) world frame, z up. 2026-11-03.
+#
+# counter: from the Motive rigid body `Chef-botcounter-top` (4 markers on its corners, ID 25), tracked 717/721 frames,
+#   marker error 0.03 mm; `real_map body runs/counter/probe_20261103.log Chef-botcounter-top`. Box covering the markers
+#   (both readings of the y-up/z-up mirror), markers 0.93 m up. Re-run `body` when the markers are back if it moved.
+#
+# bounds: PROVISIONAL, NOT MEASURED. The counter plus ~1 m all round, and the places the base has been today.
+#   Replace with the room's real free floor (walls, cabinets, the Motive table) before driving outside known space.
+resolution: 0.05
+bounds: [[-1.40, 0.10], [3.60, 3.60]]
+obstacles:
+  - name: Chef-botcounter-top
+    box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
+places:
+  # base poses (x, y, yaw); the base faces yaw (the way the arm faces)
+  near_side: {x: 1.49, y: 1.00, yaw_deg: 90}       # in front of the counter's -y long side, facing it
+  west_end: {x: -0.15, y: 2.06, yaw_deg: 0}        # off its -x end, facing it
+  far_side: {x: 1.49, y: 3.05, yaw_deg: -90}       # behind its +y long side, facing it (goes around)
+  east_end: {x: 3.10, y: 2.06, yaw_deg: 180}       # off its +x end, facing it

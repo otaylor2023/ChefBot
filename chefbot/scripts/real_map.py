@@ -2,6 +2,12 @@
 
     python -m chefbot.scripts.real_map build maps/src_kitchen/spec.yaml      # -> grid.npy, grid.yaml, places.yaml beside it
     python -m chefbot.scripts.real_map show maps/src_kitchen [--footprint 0.33 --margin 0.10] [--from X Y --to X Y]
+    python -m chefbot.scripts.real_map body probe.log Chef-botcounter-top      # an obstacle from a tracked rigid body
+
+`body` reads a log of bringup/mocap.sh run without --quiet (it prints Motive's rigid-body descriptions and every
+frame): the body's marker offsets and its last tracked pose give the obstacle, as a box covering the markers. Put
+markers on the corners of a counter, make them a rigid body in Motive, and the counter maps itself; when the
+markers are off, the saved spec keeps the last measurement.
 
 The spec (all in metres, world frame, as real_pose / real_nav print poses):
 
@@ -109,11 +115,50 @@ def render(grid: OccupancyGrid, inflated: OccupancyGrid | None = None, path=None
     return "\n".join("".join(row) for row in chars[::-1])
 
 
+def body_from_probe(text: str, name: str) -> dict:
+    """The rigid body `name` in a mocap.sh probe log: its marker offsets (body frame), last tracked pose, and the
+    floor box covering its markers in the world.
+
+    Motive's descriptions give the offsets in its internal y-up convention (here: x and z spread, y ~ 0), while the
+    stream is z up. Converting, the floor axes are x and +-z: which sign is not settled from this data (a mirror),
+    so the box covers the markers both ways (for near-symmetric corner markers, a few cm more)."""
+    lines = text.splitlines()
+    try:
+        i = next(k for k, line in enumerate(lines) if line.strip() == f"RigidBody Name : {name}")
+    except StopIteration:
+        raise SystemExit(f"no rigid body {name!r} in the log (names: "
+                         + ", ".join(sorted({l.split(':', 1)[1].strip() for l in lines if l.startswith('RigidBody Name')})) + ")")
+    offsets = []
+    for line in lines[i + 1 :]:
+        t = line.strip()
+        if t.startswith("Position:"):
+            offsets.append([float(v) for v in t.split(":", 1)[1].split(",")])
+        elif t.startswith("Data Description") or t.startswith("RigidBody Name"):
+            break
+    pose = None
+    for k, line in enumerate(lines):
+        if line.startswith(f"{name} [") and "Tracked=1" in line and k + 2 < len(lines):
+            pose = [float(v) for v in lines[k + 2].split()]
+    if pose is None:
+        raise SystemExit(f"{name} was never tracked in the log")
+    x, y, z, qx, qy, qz, qw = pose
+    yaw = math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+    O = np.asarray(offsets)
+    along = float(np.abs(O[:, 0]).max())
+    across = float(np.abs(O[:, 2]).max())  # +-z: covers both readings of the mirror
+    return {"name": name, "markers_body": offsets, "pose": pose, "yaw_deg": math.degrees(yaw),
+            "box": {"center": [x, y], "size": [2 * along, 2 * across], "yaw_deg": math.degrees(yaw)},
+            "height_m": z}  # fmt: skip
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build")
     b.add_argument("spec", type=Path)
+    o = sub.add_parser("body")
+    o.add_argument("probe", type=Path)
+    o.add_argument("name")
     s = sub.add_parser("show")
     s.add_argument("map_dir", type=Path)
     s.add_argument("--footprint", type=float, default=0.33)
@@ -121,6 +166,12 @@ def main() -> None:
     s.add_argument("--from", dest="start", type=float, nargs=2)
     s.add_argument("--to", dest="goal", type=float, nargs=2)
     args = ap.parse_args()
+    if args.cmd == "body":
+        b = body_from_probe(args.probe.read_text(), args.name)
+        print(yaml.safe_dump({"obstacles": [{"name": b["name"], "box": {k: [round(v, 3) for v in val] if isinstance(val, list) else round(val, 2)
+                                                                          for k, val in b["box"].items()}}]}, sort_keys=False))  # fmt: skip
+        print(f"# from {len(b['markers_body'])} markers; pose x {b['pose'][0]:.3f} y {b['pose'][1]:.3f} z {b['height_m']:.3f}, yaw {b['yaw_deg']:.2f} deg")
+        return
     if args.cmd == "build":
         spec = yaml.safe_load(args.spec.read_text())
         grid, places = build(spec)
