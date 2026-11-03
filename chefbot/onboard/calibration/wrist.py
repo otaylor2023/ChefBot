@@ -113,12 +113,17 @@ def ik(q0, T_goal, iters: int = 500) -> np.ndarray | None:
 
     lo, hi = LIMITS[:, 0] + MARGIN, LIMITS[:, 1] - MARGIN
     q = np.clip(np.array(q0, float), lo, hi)
+    best, since = np.inf, 0
     for _ in range(iters):
         T = fr3.flange(q)
         dp = T_goal[:3, 3] - T[:3, 3]
         dr = cv2.Rodrigues(T_goal[:3, :3] @ T[:3, :3].T)[0].ravel()
         if np.linalg.norm(dp) < 2e-4 and np.linalg.norm(dr) < 2e-3:
             return q
+        err = np.linalg.norm(dp) + 0.1 * np.linalg.norm(dr)
+        best, since = (err, 0) if err < 0.98 * best else (best, since + 1)
+        if since > 40:  # no progress in 40 steps: stuck (on a limit, or out of reach)
+            return None
         J = fr3.jacobian(q)
         Jinv = J.T @ np.linalg.inv(J @ J.T + 1e-3 * np.eye(6))
         dq = Jinv @ np.concatenate([dp, dr])
