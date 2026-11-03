@@ -18,6 +18,22 @@ hug_c:
   x: 2.4
   y: 0.86
   yaw_deg: 0.0
+lap_east:
+  x: 3.27
+  y: 2.06
+  yaw_deg: 180.0
+lap_far:
+  x: 1.49
+  y: 3.19
+  yaw_deg: -90.0
+lap_near:
+  x: 1.49
+  y: 0.93
+  yaw_deg: 90.0
+lap_west:
+  x: -0.29
+  y: 2.06
+  yaw_deg: 0.0
 near_side:
   x: 1.49
   y: 1.0
