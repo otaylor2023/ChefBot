@@ -19,4 +19,12 @@ cameras:
         [0.87848, 0.47746, -0.01743, -0.04361],
         [0.02151, -0.00308, 0.99976, 0.01946],
         [0, 0, 0, 1]]
-  # TODO(calibrate): the pole D455 (049122252230), parent base.
+  # The pole D455 (onboard/calibration/pole.py, 2026-11-03: the 70 mm marker on the hand, 15 poses, 1.2 px rms):
+  # 0.25 m behind the base center, 0.26 m left, 1.04 m up, looking forward and 7.7 deg down. Its height comes
+  # through config/robot_tidybot_fr3.yaml's arm_mount (0.335 m; TODO(verify) on the real base).
+  pole:
+    parent: base
+    T: [[-0.22954, -0.17202, 0.95798, -0.24949],
+        [-0.95765, -0.13588, -0.25386, 0.2612],
+        [0.17383, -0.97568, -0.13355, 1.0381],
+        [0, 0, 0, 1]]

@@ -34,4 +34,4 @@ limits:
 # The RealSenses (serials: `rs-enumerate-devices -s`).
 cameras:
   - {name: wrist, serial: "323622271565", width: 640, height: 480, fps: 15}   # D405
-#  - {name: pole, serial: "049122252230", width: 640, height: 480, fps: 15}   # D455: off the robot for now
+  - {name: pole, serial: "049122252230", width: 640, height: 480, fps: 15}    # D455
