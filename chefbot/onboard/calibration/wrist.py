@@ -4,8 +4,9 @@
                                                                              # which markers the camera sees (look.png)
     python -m chefbot.onboard.calibration.wrist record out.json   # from where the marker is in view: orbits the
                                                                   # camera around it (Enter once), corners per pose
-    python -m chefbot.onboard.calibration.wrist solve out.json    # the camera in the flange frame (and the marker's
-                                                                  # size, fitted: the marker must stay put in the base)
+    python -m chefbot.onboard.calibration.wrist solve out.json [--skip 12 13] [--size 0.132]
+        # the camera in the flange frame; the marker's size fitted unless measured (--size: the black square, m).
+        # The camera's offset along its view axis trades off against the size: measure it if you can.
 
 The marker: DICT_4X4_50 id 0, its black square about 0.134 m (from depth). The camera's pose comes out in ChefBot's
 convention (environments/real/config.yaml cameras): OpenCV axes (x right, y down, z forward) in the flange frame.
@@ -200,45 +201,118 @@ def _object_points(size: float) -> np.ndarray:
     return np.array([[-h, h, 0], [h, h, 0], [h, -h, 0], [-h, -h, 0]], dtype=np.float64)
 
 
-def _hand_eye(samples, K, D, size):
+def _T(R, t) -> np.ndarray:
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = R, np.ravel(t)
+    return T
+
+
+def _pnp(samples, K, D, size) -> list[np.ndarray]:
+    """The marker in the camera at each pose (the marker's frame: z out of it, x to the right)."""
+    import cv2
+
+    out = []
+    for s in samples:
+        ok, rvec, tvec = cv2.solvePnP(_object_points(size), np.array(s["corners"]), K, D, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+        out.append(_T(cv2.Rodrigues(rvec)[0], tvec))
+    return out
+
+
+def _park(G: list[np.ndarray], C: list[np.ndarray]) -> np.ndarray:
+    """Eye-in-hand AX = XB (Park & Martin): X the camera in the flange, from the flange poses G (in the base) and the
+    marker's poses C (in the camera); the marker G_i X C_i is the same at every pose."""
+    import cv2
+
+    A, B = [], []
+    for i in range(len(G)):
+        for j in range(i + 1, len(G)):
+            A.append(np.linalg.inv(G[j]) @ G[i])
+            B.append(C[j] @ np.linalg.inv(C[i]))
+    alpha = np.array([cv2.Rodrigues(a[:3, :3])[0].ravel() for a in A])
+    beta = np.array([cv2.Rodrigues(b[:3, :3])[0].ravel() for b in B])
+    M = beta.T @ alpha
+    w, V = np.linalg.eigh(M.T @ M)
+    R = V @ np.diag(w**-0.5) @ V.T @ M.T
+    lhs = np.vstack([a[:3, :3] - np.eye(3) for a in A])
+    rhs = np.concatenate([R @ b[:3, 3] - a[:3, 3] for a, b in zip(A, B)])
+    return _T(R, np.linalg.lstsq(lhs, rhs, rcond=None)[0])
+
+
+def _refine(samples, K, D, X, Mk, size, fit_size: bool = True, iters: int = 30):
+    """X (camera in flange), Mk (marker in base) and (fit_size) the marker's size, least squares on the corners'
+    reprojection."""
     import cv2
 
     from chefbot.onboard.calibration import fr3
 
-    Rg, tg, Rt, tt = [], [], [], []
-    for s in samples:
-        T = fr3.flange(s["q"])
-        ok, rvec, tvec = cv2.solvePnP(_object_points(size), np.array(s["corners"]), K, D, flags=cv2.SOLVEPNP_IPPE_SQUARE)
-        Rg.append(T[:3, :3]), tg.append(T[:3, 3]), Rt.append(cv2.Rodrigues(rvec)[0]), tt.append(tvec.ravel())
-    R, t = cv2.calibrateHandEye(Rg, tg, Rt, tt, method=cv2.CALIB_HAND_EYE_PARK)
-    X = np.eye(4)
-    X[:3, :3], X[:3, 3] = R, t.ravel()
-    # the marker in the base from each pose: it lies still, so their spread is the calibration's error
-    M = []
-    for Rgi, tgi, Rti, tti in zip(Rg, tg, Rt, tt):
-        Tg, Tt = np.eye(4), np.eye(4)
-        Tg[:3, :3], Tg[:3, 3], Tt[:3, :3], Tt[:3, 3] = Rgi, tgi, Rti, tti
-        M.append(Tg @ X @ Tt)
-    pos = np.array([m[:3, 3] for m in M])
-    ang = [np.degrees(np.linalg.norm(cv2.Rodrigues(m[:3, :3] @ M[0][:3, :3].T)[0])) for m in M]
-    return X, pos, np.array(ang)
+    G = [fr3.flange(s["q"]) for s in samples]
+    obs = np.concatenate([np.array(s["corners"]).ravel() for s in samples])
+
+    def unpack(x):
+        return (_T(cv2.Rodrigues(x[0:3])[0], x[3:6]), _T(cv2.Rodrigues(x[6:9])[0], x[9:12]), size * np.exp(x[12]))
+
+    def residual(x):
+        Xx, Mx, sz = unpack(x)
+        out = []
+        for g in G:
+            C = np.linalg.inv(g @ Xx) @ Mx  # the marker in the camera
+            pts, _ = cv2.projectPoints(_object_points(sz), cv2.Rodrigues(C[:3, :3])[0], C[:3, 3], K, D)
+            out.append(pts.ravel())
+        return np.concatenate(out) - obs
+
+    x = np.concatenate([cv2.Rodrigues(X[:3, :3])[0].ravel(), X[:3, 3], cv2.Rodrigues(Mk[:3, :3])[0].ravel(), Mk[:3, 3], [0.0]])
+    lam = 1e-3
+    r = residual(x)
+    for _ in range(iters):
+        J = np.empty((r.size, x.size))
+        for k in range(x.size):
+            dx = np.zeros_like(x)
+            dx[k] = 1e-6
+            J[:, k] = (residual(x + dx) - r) / 1e-6
+        if not fit_size:
+            J[:, 12] = 0.0
+        H, g = J.T @ J, J.T @ r
+        step = -np.linalg.solve(H + lam * np.diag(np.diag(H)) + 1e-12 * np.eye(x.size), g)
+        r_new = residual(x + step)
+        if r_new @ r_new < r @ r:
+            x, r, lam = x + step, r_new, lam / 3
+            if np.abs(step).max() < 1e-9:
+                break
+        else:
+            lam *= 5
+    Xx, Mx, sz = unpack(x)
+    return Xx, Mx, sz, r.reshape(len(samples), 4, 2)
 
 
-def solve(path: Path) -> dict:
+def solve(path: Path, skip=(), size: float | None = None) -> dict:
+    """skip: poses (from 1) to leave out; size: the marker's black square measured (m), else fitted."""
     import json
 
+    from chefbot.onboard.calibration import fr3
+
     d = json.loads(path.read_text())
-    K, D, samples = np.array(d["K"]), np.array(d["D"]), d["samples"]
+    K, D = np.array(d["K"]), np.array(d["D"])
+    samples = [s for i, s in enumerate(d["samples"]) if i + 1 not in set(skip)]
     if len(samples) < 5:
         raise SystemExit(f"{len(samples)} poses: need at least 5")
-    spread = lambda size: np.linalg.norm(_hand_eye(samples, K, D, size)[1].std(0))
-    sizes = np.linspace(0.9 * MARKER_SIZE, 1.1 * MARKER_SIZE, 41)
-    size = float(sizes[int(np.argmin([spread(s) for s in sizes]))])
-    X, pos, ang = _hand_eye(samples, K, D, size)
-    out = {"poses": len(samples), "marker_size_m": round(size, 4), "T_flange_camera": np.round(X, 5).tolist(),
+    G = [fr3.flange(s["q"]) for s in samples]
+    C = _pnp(samples, K, D, size or MARKER_SIZE)
+    X0 = _park(G, C)
+    Ms = [g @ X0 @ c for g, c in zip(G, C)]
+    M0 = _T(Ms[0][:3, :3], np.mean([m[:3, 3] for m in Ms], 0))
+    X, Mk, size, res = _refine(samples, K, D, X0, M0, size or MARKER_SIZE, fit_size=size is None)
+    # the marker from each pose on its own (PnP at the fitted size, through X): it lies still, so this is the error
+    pos = np.array([(g @ X @ c)[:3, 3] for g, c in zip(G, _pnp(samples, K, D, size))])
+    px = np.linalg.norm(res, axis=2)
+    look = X[:3, 2]  # the camera's view axis in the flange frame
+    out = {"poses": len(samples), "skipped": sorted(skip), "marker_size_m": round(float(size), 4), "T_flange_camera": np.round(X, 5).tolist(),
            "camera_from_flange_m": np.round(X[:3, 3], 4).tolist(),
-           "marker_in_base_m": np.round(pos.mean(0), 4).tolist(), "marker_spread_mm": np.round(pos.std(0) * 1000, 1).tolist(),
-           "marker_turn_spread_deg": round(float(ang.std()), 2)}  # fmt: skip
+           "camera_axis_from_flange_z_deg": round(float(np.degrees(np.arccos(np.clip(look[2], -1, 1)))), 1),
+           "reprojection_px": {"rms": round(float(np.sqrt(np.mean(px**2))), 2), "max": round(float(px.max()), 2)},
+           "reprojection_rms_px_per_pose": np.round(np.sqrt(np.mean(px**2, 1)), 2).tolist(),
+           "marker_in_base_m": np.round(Mk[:3, 3], 4).tolist(),
+           "marker_per_pose_spread_mm": np.round(np.linalg.norm(pos - Mk[:3, 3], axis=1) * 1000, 1).tolist(),
+           "park_start_vs_fit_mm": round(float(np.linalg.norm(X0[:3, 3] - X[:3, 3]) * 1000), 1)}  # fmt: skip
     print(json.dumps(out, indent=1))
     return out
 
@@ -253,13 +327,15 @@ def main() -> None:
     b.add_argument("out", type=Path)
     c = sub.add_parser("solve")
     c.add_argument("data", type=Path)
+    c.add_argument("--skip", type=int, nargs="*", default=[], help="poses (from 1) to leave out")
+    c.add_argument("--size", type=float, default=None, help="the marker's black square, measured (m): else fitted")
     args = ap.parse_args()
     if args.cmd == "look":
         look(args.pose, args.out)
     elif args.cmd == "record":
         record(args.out)
     else:
-        solve(args.data)
+        solve(args.data, args.skip, args.size)
 
 
 if __name__ == "__main__":

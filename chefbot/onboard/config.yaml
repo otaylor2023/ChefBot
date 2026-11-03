@@ -31,7 +31,7 @@ limits:
   base_max_vel_xy: 0.125
   base_max_vel_yaw: 0.4
 
-# The RealSenses. Not set up yet: add each one's serial (`rs-enumerate-devices -s`).
-cameras: []
-#  - {name: wrist, serial: "000000000000", width: 640, height: 480, fps: 15}
-#  - {name: base, serial: "000000000000", width: 640, height: 480, fps: 15}
+# The RealSenses (serials: `rs-enumerate-devices -s`).
+cameras:
+  - {name: wrist, serial: "323622271565", width: 640, height: 480, fps: 15}   # D405
+#  - {name: pole, serial: "049122252230", width: 640, height: 480, fps: 15}   # D455: off the robot for now
