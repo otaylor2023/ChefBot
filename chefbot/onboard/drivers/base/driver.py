@@ -136,8 +136,12 @@ def main() -> None:
     if not (0 < args.max_vel_xy <= 0.25 and 0 < args.max_vel_yaw <= 0.8 and 0 < args.command_timeout <= 1.0):
         sys.exit("refusing: --max-vel-xy <= 0.25 m/s, --max-vel-yaw <= 0.8 rad/s, --command-timeout <= 1 s")
 
+    import signal
+
     import redis
 
+    # SIGTERM as Ctrl-C, so the `finally` below stops the Vehicle (Python's default for TERM would skip it).
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     sys.path.insert(0, str(Path(__file__).resolve().parent))  # base_controller imports constants / utils by name
     from base_controller import Vehicle
 
@@ -153,6 +157,8 @@ def main() -> None:
         while loop.step():
             time.sleep(0.01)
         print("[base] killed", flush=True)
+    except KeyboardInterrupt:
+        print("[base] interrupted", flush=True)
     finally:
         vehicle.stop_control()
         print("[base] stopped", flush=True)
