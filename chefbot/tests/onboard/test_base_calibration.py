@@ -164,3 +164,15 @@ def test_the_line_fit_ignores_a_wobble_at_the_end(tmp_path):
     rows[-1] = dict(rows[-1], pos=(np.array(rows[-1]["pos"]) + [0.0, 0.0, 0.03]).tolist())  # 3 cm sideways at the stop
     X, Y, _ = B.floor_frame(1)
     assert B.heading_offset(rows, X, Y)["offset_deg"] == pytest.approx(30.0, abs=0.6)
+
+
+def test_echo_shows_what_gamepad_teleop_would_send():
+    from chefbot.onboard.bringup.gamepad import command
+
+    # Stick pushed up and a bit right (pygame: up is negative axis 1, right is positive axis 0), right stick nudged.
+    vx, vy, w = command(-1.0, 0.3, 0.4, vel=0.2, yaw_vel=0.5, snap=True)
+    assert vx == pytest.approx(0.2) and vy == 0.0 and w == 0.0  # exactly forward at the limit
+    vx, vy, w = command(-1.0, 0.3, 0.4, vel=0.2, yaw_vel=0.5, snap=False)
+    assert vy < 0 and w < 0  # without snapping: right and turning right too
+    assert command(0.0, -1.0, 0.0, 0.2, 0.5, True) == pytest.approx((0.0, 0.2, 0.0))  # stick left: left
+    assert command(0.0, 0.0, -1.0, 0.2, 0.5, True) == pytest.approx((0.0, 0.0, 0.5))  # right stick left: turn left
