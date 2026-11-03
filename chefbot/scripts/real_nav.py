@@ -78,10 +78,61 @@ def relative_point(origin: dict, forward: float, left: float, turn_deg: float) -
             "relative_to": {"forward": forward, "left": left, "turn_deg": turn_deg}}  # fmt: skip
 
 
+class Fence:
+    """A square the base centre must stay in: centred at (x, y), sides along `yaw_deg`, half-width `half` (m)."""
+
+    def __init__(self, x: float, y: float, yaw_deg: float, half: float):
+        self.x, self.y, self.yaw, self.half = float(x), float(y), math.radians(yaw_deg), float(half)
+
+    def local(self, x: float, y: float) -> tuple[float, float]:
+        c, s = math.cos(self.yaw), math.sin(self.yaw)
+        dx, dy = x - self.x, y - self.y
+        return c * dx + s * dy, -s * dx + c * dy
+
+    def contains(self, x: float, y: float, margin: float = 0.0) -> bool:
+        u, v = self.local(x, y)
+        return abs(u) <= self.half + margin and abs(v) <= self.half + margin
+
+
+def summarize_move(samples: list[dict], start: Pose2D, goal: Pose2D) -> dict:
+    """From a move's samples: overshoot past the goal along the line, max off-line, peak speed, time to 5 cm."""
+    if len(samples) < 2:
+        return {}
+    P = np.array([s["pose"] for s in samples])
+    T = np.array([s["t"] for s in samples])
+    line = np.array([goal.x - start.x, goal.y - start.y])
+    L = float(np.linalg.norm(line))
+    out = {"samples": len(samples), "max_off_line_m": float(max(s["off_line"] for s in samples))}
+    if L > 0.02:
+        along = (P[:, :2] - [start.x, start.y]) @ (line / L)
+        out["overshoot_m"] = float(max(0.0, along.max() - L))
+        within = np.where(np.hypot(P[:, 0] - goal.x, P[:, 1] - goal.y) <= 0.05)[0]
+        out["time_to_5cm_s"] = float(T[within[0]]) if len(within) else None
+    turned = np.degrees(np.unwrap(P[:, 2]) - P[0, 2])
+    target_turn = math.degrees(wrap(goal.yaw - start.yaw))
+    if abs(target_turn) > 2:
+        out["yaw_overshoot_deg"] = float(max(0.0, (turned * np.sign(target_turn)).max() - abs(target_turn)))
+    dt = np.diff(T)
+    ok = dt > 1e-3
+    if ok.any():
+        v = np.hypot(np.diff(P[:, 0]), np.diff(P[:, 1]))[ok] / dt[ok]
+        w = np.abs(np.diff(np.unwrap(P[:, 2])))[ok] / dt[ok]
+        out["peak_speed_mps"] = float(np.percentile(v, 98))
+        out["peak_yaw_rate_dps"] = float(np.degrees(np.percentile(w, 98)))
+    odom = [s for s in samples if s.get("odom_world")]
+    if len(odom) >= 2 and L > 0.05:
+        m = np.linalg.norm(P[-1, :2] - P[0, :2])
+        o = np.linalg.norm(np.array(odom[-1]["odom_world"][:2]) - np.array(odom[0]["odom_world"][:2]))
+        out["odom_over_mocap"] = float(o / m) if m > 1e-3 else None  # wheel odometry's distance / the true distance
+    return out
+
+
 def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
        yaw_tol_deg: float = 3.0, corridor: float = 0.15, max_dist: float = 1.5, timeout_s: float | None = None,
-       confirm=input, log_path: Path | None = None, rate_hz: float = 10.0) -> dict:  # fmt: skip
-    """Drive to `goal` (world). Returns a result dict; the base is held on every exit."""
+       confirm=input, log_path: Path | None = None, rate_hz: float = 20.0, fence: Fence | None = None,
+       tail_s: float = 1.0, quiet: bool = False) -> dict:  # fmt: skip
+    """Drive to `goal` (world). Returns a result dict; the base is held on every exit. With a `fence`, a goal outside
+    it is refused and leaving it (plus 5 cm) stops the move. `tail_s`: keep logging this long after the hold."""
     loc, raw = env.localization(), env.raw_state()
     problems = []
     if not loc.live:
@@ -95,10 +146,13 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
     turn = math.degrees(wrap(goal.yaw - start.yaw))
     if d0 > max_dist:
         return {"ok": False, "reason": f"the target is {d0:.2f} m away (> --max-dist {max_dist} m)", "moved": False}
+    if fence is not None and not (fence.contains(goal.x, goal.y) and fence.contains(start.x, start.y, 0.05)):
+        return {"ok": False, "reason": "the start or the target is outside the fence", "moved": False}
     timeout_s = timeout_s or 10.0 + 3.0 * max(d0 / speed, abs(math.radians(turn)) / yaw_speed)
-    print(f"from  x {start.x:.3f}  y {start.y:.3f}  yaw {math.degrees(start.yaw):7.2f}")
-    print(f"to    x {goal.x:.3f}  y {goal.y:.3f}  yaw {math.degrees(goal.yaw):7.2f}   ({d0:.3f} m, turn {turn:+.1f} deg)")
-    print(f"at most {speed} m/s, {yaw_speed} rad/s; stops if > {corridor} m off the line, timeout {timeout_s:.0f} s")
+    if not quiet:
+        print(f"from  x {start.x:.3f}  y {start.y:.3f}  yaw {math.degrees(start.yaw):7.2f}")
+        print(f"to    x {goal.x:.3f}  y {goal.y:.3f}  yaw {math.degrees(goal.yaw):7.2f}   ({d0:.3f} m, turn {turn:+.1f} deg)")
+        print(f"at most {speed} m/s, {yaw_speed} rad/s; stops if > {corridor} m off the line, timeout {timeout_s:.0f} s")
     try:
         confirm("Floor clear and e-stop in hand? Enter to drive, Ctrl-C to cancel: ")
     except (KeyboardInterrupt, EOFError):
@@ -109,8 +163,24 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
     u = line / line_len if line_len > 1e-6 else np.zeros(2)
     best, settled_since, errors_seen = float("inf"), None, len(env.errors)
     log = log_path.open("w") if log_path else None
+    samples: list[dict] = []
     t0 = time.monotonic()
-    result = {"ok": False, "reason": "?", "moved": True}
+    result = {"ok": False, "reason": "?", "moved": True, "wall_start": time.time(),
+              "start": [start.x, start.y, start.yaw], "goal": [goal.x, goal.y, goal.yaw], "speed": speed, "yaw_speed": yaw_speed}
+
+    def sample(t, loc, raw, phase):
+        p = loc.mocap_pose
+        rel = np.array([p.x - start.x, p.y - start.y])
+        row = {"t": t, "wall": time.time(), "phase": phase, "pose": [p.x, p.y, p.yaw],
+               "off_line": float(abs(rel[0] * u[1] - rel[1] * u[0])) if line_len > 1e-6 else float(np.linalg.norm(rel)),
+               "dist": math.hypot(goal.x - p.x, goal.y - p.y), "yaw_err_deg": math.degrees(wrap(goal.yaw - p.yaw)),
+               "odom_world": None if loc.base_pose is None else [loc.base_pose.x, loc.base_pose.y, loc.base_pose.yaw],
+               "base_velocity": None if raw.get("base_velocity") is None else [float(v) for v in raw["base_velocity"]],
+               "mocap_age_s": loc.mocap_age_s, "state_age_s": loc.state_age_s, "seq": loc.seq}  # fmt: skip
+        samples.append(row)
+        if log:
+            log.write(json.dumps(row) + "\n")
+        return row
     try:
         while True:
             t = time.monotonic() - t0
@@ -127,16 +197,14 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
             if not loc.live or not raw.get("base_driver_live"):
                 result["reason"] = "lost the live mocap pose" if not loc.live else "the base driver stopped"
                 break
-            p = loc.mocap_pose
-            rel = np.array([p.x - start.x, p.y - start.y])
-            off_line = float(abs(rel[0] * u[1] - rel[1] * u[0])) if line_len > 1e-6 else float(np.linalg.norm(rel))
-            dist = math.hypot(goal.x - p.x, goal.y - p.y)
-            yaw_err = math.degrees(wrap(goal.yaw - p.yaw))
-            if log:
-                log.write(json.dumps({"t": t, "pose": [p.x, p.y, p.yaw], "dist": dist, "yaw_err_deg": yaw_err,
-                                      "off_line": off_line, "mocap_age_s": loc.mocap_age_s}) + "\n")  # fmt: skip
-            print(f"\r{t:5.1f}s  to go {dist:6.3f} m  yaw {yaw_err:+6.1f} deg  off line {off_line:5.3f} m", end="", flush=True)
+            row = sample(t, loc, raw, "drive")
+            p, off_line, dist, yaw_err = loc.mocap_pose, row["off_line"], row["dist"], row["yaw_err_deg"]
+            if not quiet:
+                print(f"\r{t:5.1f}s  to go {dist:6.3f} m  yaw {yaw_err:+6.1f} deg  off line {off_line:5.3f} m", end="", flush=True)
             best = min(best, dist)
+            if fence is not None and not fence.contains(p.x, p.y, 0.05):
+                result["reason"] = "left the fence"
+                break
             if off_line > corridor:
                 result["reason"] = f"{off_line:.2f} m off the line A-B (> {corridor} m)"
                 break
@@ -159,14 +227,31 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
         result["reason"] = "stopped (Ctrl-C)"
     finally:
         env.set_base_velocity(0.0, 0.0, 0.0)  # base_hold: decelerate and hold
+        t_hold = time.monotonic()
+        try:
+            while time.monotonic() - t_hold < tail_s:  # how it comes to rest after the hold
+                loc = env.localization()
+                if not loc.live:
+                    break
+                sample(time.monotonic() - t0, loc, env.raw_state(), "hold")
+                time.sleep(1.0 / rate_hz)
+        except Exception:  # the server may be gone (a stop test): the tail is best-effort
+            pass
         if log:
             log.close()
-        print()
+        if not quiet:
+            print()
     end = env.localization().mocap_pose
     if end is not None:
         result.update(final_error_m=math.hypot(goal.x - end.x, goal.y - end.y),
                       final_yaw_error_deg=math.degrees(wrap(goal.yaw - end.yaw)))  # fmt: skip
-    result.update(seconds=time.monotonic() - t0, distance_m=d0)
+    result.update(seconds=time.monotonic() - t0, distance_m=d0, turn_deg=turn)
+    result.update(summarize_move([s for s in samples], start, goal))
+    if samples and samples[-1]["phase"] == "hold":
+        drive = [s for s in samples if s["phase"] == "drive"]
+        if drive:
+            last, rest = np.array(drive[-1]["pose"][:2]), np.array(samples[-1]["pose"][:2])
+            result["moved_after_hold_m"] = float(np.linalg.norm(rest - last))  # how far it rolled once held
     return result
 
 
