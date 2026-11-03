@@ -1,7 +1,14 @@
-"""The wrist D405's pose on the flange (eye-in-hand), from an ArUco / ChArUco board lying still in front of the robot.
+"""The wrist D405's pose on the flange (eye-in-hand), from an ArUco marker lying still in front of the robot.
 
     python -m chefbot.onboard.calibration.wrist look [--pose ready|forward]  # moves the arm (Enter first), then says
                                                                              # which markers the camera sees (look.png)
+    python -m chefbot.onboard.calibration.wrist record out.json   # from where the marker is in view: orbits the
+                                                                  # camera around it (Enter once), corners per pose
+    python -m chefbot.onboard.calibration.wrist solve out.json    # the camera in the flange frame (and the marker's
+                                                                  # size, fitted: the marker must stay put in the base)
+
+The marker: DICT_4X4_50 id 0, its black square about 0.134 m (from depth). The camera's pose comes out in ChefBot's
+convention (environments/real/config.yaml cameras): OpenCV axes (x right, y down, z forward) in the flange frame.
 """
 
 from __future__ import annotations
@@ -16,6 +23,13 @@ LOOK_POSES = {
     "ready": [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785],
     "forward": [0.0, -0.45, 0.0, -2.0, 0.0, 1.95, 0.785],
 }
+
+
+DICTIONARY, MARKER_ID = "DICT_4X4_50", 0
+MARKER_SIZE = 0.134  # m, the black square (measured with the D405's depth; solve refits it)
+FRAMES = 10  # corner averages per pose
+ORBIT_TILTS_DEG = (0, 12, 22)  # the camera's view axis from vertical, around the marker
+ORBIT_ROLLS_DEG = (-50, 0, 50)  # turns about the view axis (hand-eye needs rotations about different axes)
 
 
 def detect_markers(gray) -> list[tuple[str, np.ndarray, list]]:
@@ -56,15 +70,188 @@ def look(pose: str, out: Path) -> None:
     print(f"  image: {out}")
 
 
+def _detect(det, gray):
+    corners, ids, _ = det.detectMarkers(gray)
+    if ids is None or MARKER_ID not in ids.flatten():
+        return None
+    return corners[int(np.flatnonzero(ids.flatten() == MARKER_ID)[0])][0]
+
+
+def corners_now(cam, det, frames: int = FRAMES):
+    """The marker's 4 corners (px), averaged over frames; None if not seen in most of them."""
+    import cv2
+
+    seen = []
+    for _ in range(frames):
+        c = _detect(det, cv2.cvtColor(cam.frame()["bgr"], cv2.COLOR_BGR2GRAY))
+        if c is not None:
+            seen.append(c)
+    if len(seen) < frames // 2:
+        return None
+    return np.mean(seen, 0)
+
+
+def _rot(axis, deg):
+    import cv2
+
+    return cv2.Rodrigues(np.asarray(axis, float) * np.radians(deg))[0]
+
+
+def ik(q0, T_goal, iters: int = 300) -> np.ndarray | None:
+    """Joints putting the flange at T_goal (damped least squares from q0), within the joint limits less a margin."""
+    from chefbot.onboard.calibration import fr3
+    from chefbot.onboard.calibration.arm import LIMITS, MARGIN
+
+    import cv2
+
+    q = np.array(q0, float)
+    for _ in range(iters):
+        T = fr3.flange(q)
+        dp = T_goal[:3, 3] - T[:3, 3]
+        dr = cv2.Rodrigues(T_goal[:3, :3] @ T[:3, :3].T)[0].ravel()
+        if np.linalg.norm(dp) < 1e-4 and np.linalg.norm(dr) < 1e-3:
+            break
+        J = fr3.jacobian(q)
+        e = np.concatenate([dp, dr])
+        q += J.T @ np.linalg.solve(J @ J.T + 1e-4 * np.eye(6), e)
+        q += 0.05 * (np.mean(LIMITS, 1) - q) * np.array([0, 0, 1, 0, 0, 0, 0])  # keep joint 3 near the middle
+    else:
+        return None
+    lo, hi = LIMITS[:, 0] + MARGIN, LIMITS[:, 1] - MARGIN
+    return q if np.all(q > lo) and np.all(q < hi) else None
+
+
+def orbit(q_look, marker_cam) -> list[np.ndarray]:
+    """Joint poses around the look pose: the flange at the look pose's distance from the marker, its z axis tilted
+    off the vertical and turned about it, still pointing at the marker (as if the camera looked along the flange's
+    z from the flange; near enough to keep the marker in view)."""
+    from chefbot.onboard.calibration import fr3
+
+    T0 = fr3.flange(q_look)
+    target = T0[:3, 3] + T0[:3, :3] @ marker_cam  # the marker in the base, taking the camera as at the flange
+    dist = float(np.linalg.norm(target - T0[:3, 3]))
+    poses = []
+    for tilt in ORBIT_TILTS_DEG:
+        for az in ((0,) if tilt == 0 else (0, 90, 180, 270)):
+            for roll in ORBIT_ROLLS_DEG:
+                # tilt the view axis toward azimuth az (base frame, about the marker), then roll about it
+                R = _rot([0, 0, 1], az) @ _rot([0, 1, 0], tilt) @ _rot([0, 0, 1], -az) @ T0[:3, :3] @ _rot([0, 0, 1], roll)
+                p = target - R[:, 2] * dist
+                if p[0] < 0.15 or p[2] < target[2] + 0.3:  # not over the arm's own base, nor low over the marker
+                    continue
+                T = np.eye(4)
+                T[:3, :3], T[:3, 3] = R, p
+                q = ik(q_look, T)
+                if q is not None and np.abs(q - q_look).max() < np.radians(100):
+                    poses.append(q)
+    return poses
+
+
+def record(out: Path) -> None:
+    import json
+
+    import cv2
+
+    from chefbot.onboard.calibration.arm import Arm, Stop
+    from chefbot.onboard.calibration.camera import WRIST_D405, Camera
+
+    arm = Arm()
+    det = cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, DICTIONARY)), cv2.aruco.DetectorParameters())
+    samples = []
+    with Camera(WRIST_D405) as cam:
+        q_look = arm.q()
+        c = corners_now(cam, det)
+        if c is None:
+            raise SystemExit("the marker isn't in view: run look first (or move the board under the camera)")
+        ok, rvec, tvec = cv2.solvePnP(_object_points(MARKER_SIZE), c, cam.K, cam.D, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+        poses = [q_look] + orbit(q_look, tvec.ravel())
+        print(f"marker {np.linalg.norm(tvec):.2f} m away; {len(poses)} poses around it")
+        try:
+            for i, q in enumerate(poses):
+                arm.move_to(q, f"pose {i + 1}/{len(poses)}", confirm=i == 1)
+                arm.still(0.5)
+                c = corners_now(cam, det)
+                if c is None:
+                    print("  marker not seen: skipped")
+                    continue
+                qs = arm.still(0.5)["q"]
+                samples.append({"q": qs, "corners": c.tolist()})
+                print(f"  recorded ({len(samples)} so far)")
+                out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "samples": samples}, indent=1))
+        except (Stop, KeyboardInterrupt):
+            arm.hold()
+            print("stopped: holding")
+        finally:
+            out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "samples": samples}, indent=1))
+            print(f"{len(samples)} poses in {out}")
+        arm.move_to(q_look, "back to the look pose", confirm=False)
+
+
+def _object_points(size: float) -> np.ndarray:
+    h = size / 2  # OpenCV's corner order for IPPE_SQUARE: top left, top right, bottom right, bottom left
+    return np.array([[-h, h, 0], [h, h, 0], [h, -h, 0], [-h, -h, 0]], dtype=np.float64)
+
+
+def _hand_eye(samples, K, D, size):
+    import cv2
+
+    from chefbot.onboard.calibration import fr3
+
+    Rg, tg, Rt, tt = [], [], [], []
+    for s in samples:
+        T = fr3.flange(s["q"])
+        ok, rvec, tvec = cv2.solvePnP(_object_points(size), np.array(s["corners"]), K, D, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+        Rg.append(T[:3, :3]), tg.append(T[:3, 3]), Rt.append(cv2.Rodrigues(rvec)[0]), tt.append(tvec.ravel())
+    R, t = cv2.calibrateHandEye(Rg, tg, Rt, tt, method=cv2.CALIB_HAND_EYE_PARK)
+    X = np.eye(4)
+    X[:3, :3], X[:3, 3] = R, t.ravel()
+    # the marker in the base from each pose: it lies still, so their spread is the calibration's error
+    M = []
+    for Rgi, tgi, Rti, tti in zip(Rg, tg, Rt, tt):
+        Tg, Tt = np.eye(4), np.eye(4)
+        Tg[:3, :3], Tg[:3, 3], Tt[:3, :3], Tt[:3, 3] = Rgi, tgi, Rti, tti
+        M.append(Tg @ X @ Tt)
+    pos = np.array([m[:3, 3] for m in M])
+    ang = [np.degrees(np.linalg.norm(cv2.Rodrigues(m[:3, :3] @ M[0][:3, :3].T)[0])) for m in M]
+    return X, pos, np.array(ang)
+
+
+def solve(path: Path) -> dict:
+    import json
+
+    d = json.loads(path.read_text())
+    K, D, samples = np.array(d["K"]), np.array(d["D"]), d["samples"]
+    if len(samples) < 5:
+        raise SystemExit(f"{len(samples)} poses: need at least 5")
+    spread = lambda size: np.linalg.norm(_hand_eye(samples, K, D, size)[1].std(0))
+    sizes = np.linspace(0.9 * MARKER_SIZE, 1.1 * MARKER_SIZE, 41)
+    size = float(sizes[int(np.argmin([spread(s) for s in sizes]))])
+    X, pos, ang = _hand_eye(samples, K, D, size)
+    out = {"poses": len(samples), "marker_size_m": round(size, 4), "T_flange_camera": np.round(X, 5).tolist(),
+           "camera_from_flange_m": np.round(X[:3, 3], 4).tolist(),
+           "marker_in_base_m": np.round(pos.mean(0), 4).tolist(), "marker_spread_mm": np.round(pos.std(0) * 1000, 1).tolist(),
+           "marker_turn_spread_deg": round(float(ang.std()), 2)}  # fmt: skip
+    print(json.dumps(out, indent=1))
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("look")
     a.add_argument("--pose", choices=sorted(LOOK_POSES), default="ready")
     a.add_argument("--out", type=Path, default=Path("look.png"))
+    b = sub.add_parser("record")
+    b.add_argument("out", type=Path)
+    c = sub.add_parser("solve")
+    c.add_argument("data", type=Path)
     args = ap.parse_args()
     if args.cmd == "look":
         look(args.pose, args.out)
+    elif args.cmd == "record":
+        record(args.out)
+    else:
+        solve(args.data)
 
 
 if __name__ == "__main__":
