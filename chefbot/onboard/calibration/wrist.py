@@ -103,28 +103,30 @@ def _rot(axis, deg):
     return cv2.Rodrigues(np.asarray(axis, float) * np.radians(deg))[0]
 
 
-def ik(q0, T_goal, iters: int = 300) -> np.ndarray | None:
-    """Joints putting the flange at T_goal (damped least squares from q0), within the joint limits less a margin."""
+def ik(q0, T_goal, iters: int = 500) -> np.ndarray | None:
+    """Joints putting the flange at T_goal (damped least squares from q0, steps of at most 0.2 rad, kept inside the
+    joint limits less a margin every step: unclamped, a low reach wanders past the limits and never comes back)."""
+    import cv2
+
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.arm import LIMITS, MARGIN
 
-    import cv2
-
-    q = np.array(q0, float)
+    lo, hi = LIMITS[:, 0] + MARGIN, LIMITS[:, 1] - MARGIN
+    q = np.clip(np.array(q0, float), lo, hi)
     for _ in range(iters):
         T = fr3.flange(q)
         dp = T_goal[:3, 3] - T[:3, 3]
         dr = cv2.Rodrigues(T_goal[:3, :3] @ T[:3, :3].T)[0].ravel()
-        if np.linalg.norm(dp) < 1e-4 and np.linalg.norm(dr) < 1e-3:
-            break
+        if np.linalg.norm(dp) < 2e-4 and np.linalg.norm(dr) < 2e-3:
+            return q
         J = fr3.jacobian(q)
-        e = np.concatenate([dp, dr])
-        q += J.T @ np.linalg.solve(J @ J.T + 1e-4 * np.eye(6), e)
-        q += 0.05 * (np.mean(LIMITS, 1) - q) * np.array([0, 0, 1, 0, 0, 0, 0])  # keep joint 3 near the middle
-    else:
-        return None
-    lo, hi = LIMITS[:, 0] + MARGIN, LIMITS[:, 1] - MARGIN
-    return q if np.all(q > lo) and np.all(q < hi) else None
+        Jinv = J.T @ np.linalg.inv(J @ J.T + 1e-3 * np.eye(6))
+        dq = Jinv @ np.concatenate([dp, dr])
+        dq *= min(1.0, 0.2 / max(np.abs(dq).max(), 1e-12))
+        # keep the joints off their limits (joint 3 near its middle), in the null space: never off the goal
+        pull = 0.05 * (np.mean(LIMITS, 1) - q) * np.array([0, 0, 1, 0, 0.3, 0.3, 0])
+        q = np.clip(q + dq + (np.eye(7) - Jinv @ J) @ pull, lo, hi)
+    return None
 
 
 def wrist_mount() -> np.ndarray:

@@ -8,6 +8,9 @@ env:
 
 # The skill's camera names -> the sim's cameras, both RGB-D 640x480. `noise` as for panda_franka.
 cameras:
+  # TODO(sim vs real): the real pole D455 (environments/real/config.yaml, 2026-11-03) is 1.04 m up, 0.25 m behind
+  # and 0.26 m left of the base center, looking forward only 7.7 deg down: the sim's sees the workspace from far
+  # higher. Left as is for now.
   pole:  {sim: tb/pole,           depth: true, noise: {pos_m: 0.01, rot_deg: 1.0, fov: 0.02}}  # on a mast at the back of the base, 1.55 m up
   wrist: {sim: tb/fr3/hand/wrist, depth: true, noise: {pos_m: 0.003, rot_deg: 0.5, fov: 0.02}}
 
