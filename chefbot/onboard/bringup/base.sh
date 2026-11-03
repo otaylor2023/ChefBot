@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Just the base: ChefBot's base driver (onboard/drivers/base/driver.py, with its command timeout), the mocap
 # publisher (mocap.sh), then the onboard server in the foreground. No OpenSai, arm or gripper. Ctrl-C stops all
-# three: the server first, then the driver (kill: it brakes and exits), then mocap.
+# three: the driver first (hb1::kill: it brakes and exits), then the server and mocap (TERM, then KILL after 3 s).
+#
+# Stop it with Ctrl-C in its terminal, or `kill -TERM <its pid>` (SIGINT does not reach a backgrounded script).
 #
 # Usage: chefbot/onboard/bringup/base.sh [--allow-arm]
 #   Refuses while the Franka arm driver runs (the server's halt also holds the arm, which then belongs to whoever
@@ -21,7 +23,7 @@ ALLOW_ARM=false
 for arg in "$@"; do
 	case "$arg" in
 		--allow-arm) ALLOW_ARM=true ;;
-		-h | --help) sed -n '2,9p' "$0"; exit 0 ;;
+		-h | --help) sed -n '2,11p' "$0"; exit 0 ;;
 		*) echo "unknown option: $arg" >&2; exit 1 ;;
 	esac
 done
@@ -37,14 +39,20 @@ fi
 
 mkdir -p "$LOGS"
 PIDS=()
+stop_pid() {  # pid: TERM, up to 3 s, then KILL. (A script's background jobs ignore SIGINT, so INT would not do.)
+	kill -TERM "$1" 2>/dev/null || return 0
+	for _ in $(seq 30); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.1; done
+	echo "  pid $1 did not stop: KILL" >&2
+	kill -KILL "$1" 2>/dev/null || true
+}
 cleanup() {
 	trap - INT TERM EXIT
 	echo "stopping..." >&2
-	[[ -n "${SERVER_PID:-}" ]] && kill -INT "$SERVER_PID" 2>/dev/null && wait "$SERVER_PID" 2>/dev/null || true
-	redis-cli SET hb1::kill kill >/dev/null || true   # the driver brakes and exits
-	sleep 1
-	for pid in "${PIDS[@]}"; do kill -INT "$pid" 2>/dev/null || true; done
-	wait 2>/dev/null || true
+	redis-cli SET hb1::kill kill >/dev/null || true   # first: the driver brakes and exits by itself
+	[[ -n "${PIDS[0]:-}" ]] && for _ in $(seq 30); do kill -0 "${PIDS[0]}" 2>/dev/null || break; sleep 0.1; done
+	[[ -n "${SERVER_PID:-}" ]] && stop_pid "$SERVER_PID"
+	for pid in "${PIDS[@]}"; do stop_pid "$pid"; done
+	pkill -TERM -f "[b]uild/SampleClient_unicast" 2>/dev/null || true   # mocap.sh execs the client
 	redis-cli SET hb1::kill ok >/dev/null || true
 	echo "stopped; logs in $LOGS" >&2
 }
