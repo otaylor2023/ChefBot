@@ -1,9 +1,14 @@
 """The base's mocap frame from driving it by hand: Motive's up axis, the marker's heading offset and its place on
 the base. Recording only reads Redis; the driving is yours, with the gamepad (bringup/gamepad.py).
 
-    python -m chefbot.onboard.calibration.base record forward.jsonl   # drive ~1 m straight ahead, slowly, then stop
-    python -m chefbot.onboard.calibration.base record spin.jsonl      # spin in place, one slow full turn
-    python -m chefbot.onboard.calibration.base solve --forward forward.jsonl --spin spin.jsonl [more.jsonl ...]
+    python -m chefbot.onboard.calibration.base record forward.jsonl   # one recording per move, robot still at both ends:
+    python -m chefbot.onboard.calibration.base record back.jsonl      #   forward / back / left / right: straight, no turning,
+    python -m chefbot.onboard.calibration.base record left.jsonl      #   0.4-1 m (stop when out of room; pauses are fine)
+    python -m chefbot.onboard.calibration.base record right.jsonl     # "forward" is the way the arm faces; left is the arm's left
+    python -m chefbot.onboard.calibration.base record spin.jsonl      # spin in place to the LEFT (counter-clockwise from above),
+                                                                      #   slowly, as close to a full turn as you can
+    python -m chefbot.onboard.calibration.base solve --forward forward.jsonl --back back.jsonl --left left.jsonl \
+        --right right.jsonl --spin spin.jsonl
 
 record logs the raw mocap pose (`chefbot-tidy::pos`, `::ori` as Motive streams it), its tracking flag and freshness
 (onboard/mocap.py) at --hz, and the base driver's odometry if it is up, until Ctrl-C or --seconds.
@@ -11,8 +16,11 @@ record logs the raw mocap pose (`chefbot-tidy::pos`, `::ori` as Motive streams i
 solve, from every live sample:
   - the up axis, two ways that do not depend on each other: the axis the body turns about (spin) and the normal of
     the plane the positions lie in (all files). The floor is the other two axes.
-  - marker_yaw_offset_deg: the marker's heading (its body x on the floor) minus the direction the base drove in the
-    forward recording. frames.py: base heading = marker heading - offset.
+  - marker_yaw_offset_deg: the marker's heading (its body x on the floor) minus the base's heading, where the base's
+    heading is the direction of travel minus the move's direction on the base (forward 0, left 90, back 180, right
+    -90 deg). frames.py: base heading = marker heading - offset. Each straight move gives an estimate; they agree
+    if the floor frame is right. Forward and back alone cannot tell a mirrored frame (the wrong sign of up) from a
+    right one: left and right then come out 180 deg off. The spin to the left must turn the heading up (CCW).
   - marker_xy: the marker's origin in the base frame, from the circle it traces around the base centre in the spin.
 """
 
@@ -158,8 +166,11 @@ def marker_heading(ori, X: np.ndarray, Y: np.ndarray) -> float:
     return math.atan2(float(bx @ Y), float(bx @ X))
 
 
-def heading_offset(rows: list[dict], X, Y) -> dict:
-    """From a straight forward drive: marker heading minus the direction of travel."""
+MOVES_DEG = {"forward": 0.0, "left": 90.0, "back": 180.0, "right": -90.0}  # the move's direction in the base frame
+
+
+def heading_offset(rows: list[dict], X, Y, move_deg: float = 0.0) -> dict:
+    """From a straight drive in direction `move_deg` on the base: marker heading minus base heading."""
     P = np.array([[r["pos"] @ X, r["pos"] @ Y] for r in rows])
     d = P[-1] - P[0]
     travel = math.atan2(d[1], d[0])
@@ -170,7 +181,7 @@ def heading_offset(rows: list[dict], X, Y) -> dict:
         "distance_m": float(np.linalg.norm(d)),
         "travel_deg": math.degrees(travel),
         "marker_heading_deg": math.degrees(wrap(float(np.mean(headings)))),
-        "offset_deg": math.degrees(wrap(float(np.mean(headings)) - travel)),
+        "offset_deg": math.degrees(wrap(float(np.mean(headings)) - (travel - math.radians(move_deg)))),
         "heading_change_deg": math.degrees(float(headings.max() - headings.min())),  # should be ~0 for a straight drive
         "straightness": float(s[1] / max(s[0], 1e-9)),  # sideways scatter / along-track spread; ~0 for a line
     }
@@ -202,8 +213,10 @@ def marker_xy(rows: list[dict], X, Y, offset_rad: float) -> dict:
             "circle_rms_m": residual, "turned_deg": math.degrees(turned), "centre": centre.tolist()}  # fmt: skip
 
 
-def solve(forward: Path | None, spin: Path | None, others: list[Path]) -> dict:
-    files = {"forward": forward, "spin": spin} | {f"other{i}": p for i, p in enumerate(others)}
+def solve(forward: Path | None, spin: Path | None, others: list[Path], back: Path | None = None,
+          left: Path | None = None, right: Path | None = None) -> dict:  # fmt: skip
+    files = {"forward": forward, "back": back, "left": left, "right": right, "spin": spin}
+    files |= {f"other{i}": p for i, p in enumerate(others)}
     data = {name: live(load(p)) for name, p in files.items() if p is not None}
     out: dict = {"live_samples": {k: len(v) for k, v in data.items()}}
     everything = [r for rows in data.values() for r in rows]
@@ -226,13 +239,26 @@ def solve(forward: Path | None, spin: Path | None, others: list[Path]) -> dict:
     out["up_axis_agree"] = len(set(votes)) == 1
     X, Y, _ = floor_frame(up)
     out["floor_frame"] = {"X": X.tolist(), "Y": Y.tolist()}
+    estimates = {}
+    for move, move_deg in MOVES_DEG.items():
+        if data.get(move):
+            out[move] = heading_offset(data[move], X, Y, move_deg)
+            estimates[move] = math.radians(out[move]["offset_deg"])
     offset = 0.0
-    if data.get("forward"):
-        h = heading_offset(data["forward"], X, Y)
-        out["forward"] = h
-        offset = math.radians(h["offset_deg"])
+    if estimates:
+        offset = math.atan2(np.mean(np.sin(list(estimates.values()))), np.mean(np.cos(list(estimates.values()))))
+        spread = {m: math.degrees(wrap(e - offset)) for m, e in estimates.items()}
+        out["marker_yaw_offset_deg"] = math.degrees(offset)
+        out["offset_disagreement_deg"] = spread  # each move's estimate minus the mean; a few deg if consistent
+        if {"forward", "back"} <= estimates.keys() and ({"left", "right"} & estimates.keys()):
+            fb = math.atan2(math.sin(estimates["forward"]) + math.sin(estimates["back"]),
+                            math.cos(estimates["forward"]) + math.cos(estimates["back"]))  # fmt: skip
+            side = [abs(math.degrees(wrap(estimates[m] - fb))) for m in ("left", "right") if m in estimates]
+            out["mirrored"] = all(d > 135 for d in side)  # left / right 180 deg off forward / back: wrong-handed frame
     if data.get("spin"):
         out["spin"] = marker_xy(data["spin"], X, Y, offset)
+        headings = np.unwrap([marker_heading(r["ori"], X, Y) for r in data["spin"]])
+        out["spin"]["turned_left"] = bool(headings[-1] > headings[0])  # recorded as a spin to the left (CCW)
     return out
 
 
@@ -244,14 +270,15 @@ def main() -> None:
     a.add_argument("--hz", type=float, default=100.0)
     a.add_argument("--seconds", type=float, default=0.0, help="stop after this long (0: Ctrl-C)")
     b = sub.add_parser("solve")
-    b.add_argument("--forward", type=Path)
-    b.add_argument("--spin", type=Path)
+    for move in ("forward", "back", "left", "right"):
+        b.add_argument(f"--{move}", type=Path)
+    b.add_argument("--spin", type=Path, help="a spin to the left (counter-clockwise from above)")
     b.add_argument("others", type=Path, nargs="*", help="more recordings, for the up axis from positions")
     args = ap.parse_args()
     if args.cmd == "record":
         record(args.out, args.hz, args.seconds)
     else:
-        print(json.dumps(solve(args.forward, args.spin, args.others), indent=2))
+        print(json.dumps(solve(args.forward, args.spin, args.others, args.back, args.left, args.right), indent=2))
 
 
 if __name__ == "__main__":

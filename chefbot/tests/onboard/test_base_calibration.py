@@ -32,29 +32,52 @@ def motive_sample(t, base_x, base_y, heading, up: str) -> dict:
             "age_s": 0.0, "odom": None}  # fmt: skip
 
 
-def drives(tmp_path, up: str):
+def straight(heading: float, move_deg: float, up: str, n: int = 60) -> list[dict]:
+    d = heading + math.radians(move_deg)
+    return [motive_sample(i * 0.01, 1.0 + 0.01 * i * math.cos(d), 2.0 + 0.01 * i * math.sin(d), heading, up) for i in range(n)]
+
+
+def drives(tmp_path, up: str, moves=("forward",)):
     heading = 0.7
-    forward = [motive_sample(i * 0.01, 1.0 + 0.01 * i * math.cos(heading), 2.0 + 0.01 * i * math.sin(heading), heading, up)
-               for i in range(100)]  # fmt: skip
-    spin = [motive_sample(i * 0.01, 1.5, -0.5, 2 * math.pi * i / 200, up) for i in range(200)]
-    paths = []
-    for name, rows in (("forward", forward), ("spin", spin)):
+    rows_by = {m: straight(heading, B.MOVES_DEG[m], up, 100 if m == "forward" else 60) for m in moves}
+    rows_by["spin"] = [motive_sample(i * 0.01, 1.5, -0.5, 2 * math.pi * i / 200, up) for i in range(200)]
+    paths = {}
+    for name, rows in rows_by.items():
         p = tmp_path / f"{name}_{up}.jsonl"
         p.write_text("\n".join([json.dumps({"header": {}})] + [json.dumps(r) for r in rows]))
-        paths.append(p)
+        paths[name] = p
     return paths
 
 
 @pytest.mark.parametrize("up", ["y", "z"])
 def test_solve_finds_the_up_axis_offset_and_marker_place(tmp_path, up):
-    forward, spin = drives(tmp_path, up)
-    out = B.solve(forward, spin, [])
+    p = drives(tmp_path, up)
+    out = B.solve(p["forward"], p["spin"], [])
     assert out["up_axis"] == up and out["up_axis_agree"]
     assert out["up_from_rotation"]["off_deg"] < 1.0 and out["up_from_positions"]["off_deg"] < 1.0
     assert out["forward"]["offset_deg"] == pytest.approx(30.0, abs=0.5)
     assert out["forward"]["distance_m"] == pytest.approx(0.99, abs=0.01)
     np.testing.assert_allclose(out["spin"]["marker_xy"], MARKER_XY, atol=0.002)
-    assert out["spin"]["turned_deg"] > 350
+    assert out["spin"]["turned_deg"] > 350 and out["spin"]["turned_left"]
+
+
+@pytest.mark.parametrize("up", ["y", "z"])
+def test_all_four_moves_agree_and_the_frame_is_not_mirrored(tmp_path, up):
+    p = drives(tmp_path, up, moves=("forward", "back", "left", "right"))
+    out = B.solve(p["forward"], p["spin"], [], p["back"], p["left"], p["right"])
+    assert out["marker_yaw_offset_deg"] == pytest.approx(30.0, abs=0.5)
+    assert max(abs(d) for d in out["offset_disagreement_deg"].values()) < 1.0
+    assert out["mirrored"] is False
+
+
+def test_a_mirrored_frame_shows_up_as_left_and_right_180_off(tmp_path):
+    # The wrong sign of up mirrors the floor: forward and back still agree, left and right come out 180 deg off.
+    p = drives(tmp_path, "y", moves=("forward", "back", "left", "right"))
+    rows = {m: B.live(B.load(p[m])) for m in ("forward", "back", "left", "right")}
+    X, Y, _ = B.floor_frame(1)
+    est = {m: B.heading_offset(rows[m], X, -Y, B.MOVES_DEG[m])["offset_deg"] for m in rows}  # Y flipped: mirrored
+    assert abs(B.wrap(math.radians(est["forward"] - est["back"]))) < math.radians(1)
+    assert abs(abs(math.degrees(B.wrap(math.radians(est["left"] - est["forward"])))) - 180) < 1
 
 
 def test_the_z_up_yaw_of_y_up_data_is_only_ever_0_or_180():
@@ -72,8 +95,8 @@ def test_floor_frames_are_right_handed():
 
 
 def test_the_solved_offsets_put_frames_py_on_the_base_for_z_up_data(tmp_path):
-    forward, spin = drives(tmp_path, "z")
-    out = B.solve(forward, spin, [])
+    p = drives(tmp_path, "z")
+    out = B.solve(p["forward"], p["spin"], [])
     frames = BaseFrames(math.radians(out["forward"]["offset_deg"]), out["spin"]["marker_xy"])
     s = motive_sample(0, 1.5, -0.5, 1.0, "z")
     x, y, yaw = frames.base_from_mocap(s["pos"], s["ori"])
