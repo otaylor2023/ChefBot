@@ -9,6 +9,7 @@ import yaml
 
 from chefbot.onboard.cameras import Cameras
 from chefbot.onboard.frames import BaseFrames
+from chefbot.onboard.mocap import MocapFreshness
 from chefbot.onboard.robot_io import RedisRobot
 
 CONFIG = Path(__file__).resolve().parent / "config.yaml"
@@ -26,7 +27,8 @@ def build_robot(config: dict, redis_client=None) -> RedisRobot:
         redis_client.ping()
     base = config["base"]
     frames = BaseFrames(np.radians(base["marker_yaw_offset_deg"]), base["marker_xy"])
-    return RedisRobot(redis_client, frames, config["gripper"], (base["driver_max_vel_xy"], base["driver_max_vel_yaw"]))
+    mocap = MocapFreshness(base.get("mocap_stale_s", 0.25))
+    return RedisRobot(redis_client, frames, config["gripper"], (base["driver_max_vel_xy"], base["driver_max_vel_yaw"]), mocap)
 
 
 def build_cameras(config: dict) -> Cameras:

@@ -14,6 +14,7 @@ import numpy as np
 
 from chefbot.onboard import keys as K
 from chefbot.onboard.frames import BaseFrames
+from chefbot.onboard.mocap import MocapFreshness
 
 _STATE_KEYS = (
     K.JOINT_POSITIONS, K.JOINT_VELOCITIES, K.GRIPPER_CURRENT_WIDTH, K.GRIPPER_GRASP_SUCCESS, K.GRIPPER_READY,
@@ -56,9 +57,11 @@ def _list(values) -> str:
 class RedisRobot:
     """`redis` is a client with get / set / mget (redis.Redis, or a fake in tests)."""
 
-    def __init__(self, redis, frames: BaseFrames, gripper: dict, base_max_vel: tuple[float, float]):
+    def __init__(self, redis, frames: BaseFrames, gripper: dict, base_max_vel: tuple[float, float],
+                 mocap: MocapFreshness | None = None):  # fmt: skip
         self.r = redis
         self.frames = frames
+        self.mocap = mocap or MocapFreshness()
         self.gripper_speed = float(gripper["speed"])
         self.gripper_force = float(gripper["force"])
         self.base_max_vel = base_max_vel  # the base driver's --max-vel-xy, --max-vel-yaw
@@ -71,16 +74,25 @@ class RedisRobot:
         v = dict(zip(_STATE_KEYS, self.r.mget(_STATE_KEYS)))
         odom = _array(v[K.BASE_POSE])
         mocap_valid = _flag(v[K.MOCAP_VALID])
+        mocap_age = self.mocap.update(v[K.MOCAP_POSITION], v[K.MOCAP_ORIENTATION])
+        mocap_fresh = self.mocap.is_fresh(mocap_age)
         position, quat = _array(v[K.MOCAP_POSITION]), _array(v[K.MOCAP_ORIENTATION])
-        if mocap_valid and position is not None and quat is not None and odom is not None:
-            self.frames.tie(self.frames.base_from_mocap(position, quat), odom[:3])
+        # The base pose from mocap alone (no odometry needed), only when the publisher is live and tracking.
+        mocap_pose = None
+        if mocap_valid and mocap_fresh and position is not None and quat is not None:
+            mocap_pose = self.frames.base_from_mocap(position, quat)
+            if odom is not None:
+                self.frames.tie(mocap_pose, odom[:3])
         base_velocity = _array(v[K.BASE_VELOCITY])
         cart_position, cart_orientation = _array(v[K.CARTESIAN_CURRENT_POSITION]), _array(v[K.CARTESIAN_CURRENT_ORIENTATION])
         return {
             "base_pose": None if odom is None else self.frames.to_world(odom[:3]),
             "base_velocity": None if base_velocity is None else self.frames.velocity_to_world(base_velocity[:3]),
             "localized": self.frames.tied,  # False: never seen mocap; the world frame is odometry
-            "mocap_valid": mocap_valid,
+            "mocap_valid": mocap_valid,  # the publisher's tracking flag, as stored (may be stale)
+            "mocap_fresh": mocap_fresh,  # the pose changed within mocap.stale_after_s
+            "mocap_age_s": mocap_age,  # seconds since the pose last changed; None: not since the server started
+            "mocap_pose": mocap_pose,  # (x, y, yaw) world, from mocap alone; None unless valid and fresh
             "arm_q": _array(v[K.JOINT_POSITIONS]),
             "arm_qd": _array(v[K.JOINT_VELOCITIES]),
             "gripper_width": _number(v[K.GRIPPER_CURRENT_WIDTH]),
