@@ -7,7 +7,7 @@
 # bounds: PROVISIONAL, NOT MEASURED. The counter plus ~1 m all round, and the places the base has been today.
 #   Replace with the room's real free floor (walls, cabinets, the Motive table) before driving outside known space.
 resolution: 0.05
-bounds: [[-1.40, -0.05], [3.60, 3.60]]   # ymin: the base stood at y 0.276 in HT-3b (body to ~-0.05): known floor
+bounds: [[-1.40, -0.05], [3.90, 3.85]]   # ymin: HT-3b's known floor. xmax / ymax: Jack, 2026-11-03 "move around the full counter" (not measured)
 obstacles:
   - name: Chef-botcounter-top
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
@@ -22,3 +22,8 @@ places:
   hug_a: {x: 0.50, y: 0.86, yaw_deg: 0}
   hug_b: {x: 1.49, y: 0.86, yaw_deg: 0}
   hug_c: {x: 2.40, y: 0.86, yaw_deg: 0}
+  # The lap (HT-4b): 0.65 m from each edge (footprint 0.55 + margin 0.05 + 0.05), facing the counter on each side.
+  lap_near: {x: 1.49, y: 0.93, yaw_deg: 90}
+  lap_east: {x: 3.27, y: 2.06, yaw_deg: 180}
+  lap_far: {x: 1.49, y: 3.19, yaw_deg: -90}
+  lap_west: {x: -0.29, y: 2.06, yaw_deg: 0}
