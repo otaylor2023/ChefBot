@@ -4,11 +4,12 @@
 #   1) OpenSai with chefbot_fr3.xml, next to this script (arm joint + Cartesian controllers, Redis, web UI)
 #   2) the Franka gripper driver (OpenSai's drivers/FrankaPanda/redis_driver/launch_gripper.sh)
 #   3) the hb1 base driver (ZitiBot's controllers/tidybot_base/redis_driver.py)
-#   4) python -m chefbot.onboard.server, in the foreground
-# Ctrl-C stops all four. Not started here, as with ZitiBot: the Franka arm driver (real-time torque
-# loop) and the mocap publisher; see README.md.
+#   4) the mocap publisher (mocap.sh, next to this script; skipped with a warning off SRC wifi)
+#   5) python -m chefbot.onboard.server, in the foreground
+# Ctrl-C stops them all. Not started here, as with ZitiBot: the Franka arm driver (real-time torque
+# loop); see README.md.
 #
-# Usage: chefbot/onboard/bringup/launch.sh [--no-gripper] [--no-base] [--no-server]
+# Usage: chefbot/onboard/bringup/launch.sh [--no-gripper] [--no-base] [--no-mocap] [--no-server]
 # Paths and limits come from the environment, with these defaults:
 set -euo pipefail
 
@@ -23,13 +24,14 @@ MAX_ACCEL_XY="${MAX_ACCEL_XY:-0.1}"
 MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-0.5}"
 READY_TIMEOUT_S=90
 
-GRIPPER=true BASE=true SERVER=true
+GRIPPER=true BASE=true MOCAP=true SERVER=true
 for arg in "$@"; do
 	case "$arg" in
 		--no-gripper) GRIPPER=false ;;
 		--no-base) BASE=false ;;
+		--no-mocap) MOCAP=false ;;
 		--no-server) SERVER=false ;;
-		-h | --help) sed -n '2,16p' "$0"; exit 0 ;;
+		-h | --help) sed -n '2,17p' "$0"; exit 0 ;;
 		*) echo "unknown option: $arg" >&2; exit 1 ;;
 	esac
 done
@@ -88,11 +90,28 @@ else
 	echo "3) base driver skipped"
 fi
 
+if $MOCAP; then
+	echo "4) mocap publisher"
+	redis-cli DEL chefbot-tidy::tracking_valid >/dev/null  # a stale value from an earlier run would look live
+	bash "$(dirname "$0")/mocap.sh" --quiet 2>"$LOGS/mocap.log" &
+	PIDS+=($!)
+	deadline=$((SECONDS + 10))
+	until [[ -n "$(redis-cli GET chefbot-tidy::tracking_valid 2>/dev/null)" ]]; do
+		if ! kill -0 "${PIDS[-1]}" 2>/dev/null || (( SECONDS >= deadline )); then
+			echo "   no mocap (not localized; see $LOGS/mocap.log)" >&2
+			break
+		fi
+		sleep 0.5
+	done
+else
+	echo "4) mocap skipped"
+fi
+
 echo "drivers up; logs in $LOGS"
 if $SERVER; then
-	echo "4) onboard server"
+	echo "5) onboard server"
 	"$CHEFBOT_PYTHON" -m chefbot.onboard.server
 else
-	echo "4) server skipped; Ctrl-C stops the drivers"
+	echo "5) server skipped; Ctrl-C stops the drivers"
 	wait
 fi
