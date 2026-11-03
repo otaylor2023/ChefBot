@@ -15,6 +15,7 @@ base:
   # The hb1 driver's own limits (launch: --max-vel-xy, --max-vel-yaw). Targets never go faster.
   driver_max_vel_xy: 0.125
   driver_max_vel_yaw: 0.4
+  # TODO(re-measure for chefbot-tidy, a new rigid body): the offset below was for ZitiBot's tidybot01 body.
   # The mocap marker on the base: its yaw relative to the base's heading (ZitiBot's
   # DEFAULT_MARKER_YAW_OFFSET_DEG), and its position in the base frame.
   # TODO(measure): marker_xy (ZitiBot's tune_marker_offset.py measures the yaw; the xy is unmeasured).
