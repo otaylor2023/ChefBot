@@ -268,7 +268,7 @@ def solve_card(d: dict, K, D, skip=()) -> dict:
     return out
 
 
-def track_test(poses: int = 10, frames: int = 3, width: int = 640, height: int = 480) -> None:
+def track_test(poses: int = 10, frames: int = 3, width: int = 640, height: int = 480, save: Path | None = None) -> None:
     """The mount tracker (environments/real/mount_track.py) on the real pole camera and arm: it starts from the
     calibrated pose knocked 2 cm and 1 deg, the hand goes through some of record's poses (Enter once), and it should
     come back to the calibration. Frames as environments/real gets them (640 x 480, RGB)."""
@@ -294,6 +294,7 @@ def track_test(poses: int = 10, frames: int = 3, width: int = 640, height: int =
         return np.linalg.norm(A[:3, 3] - T_cal[:3, 3]) * 1000, np.degrees(np.linalg.norm(c.Rodrigues(A[:3, :3] @ T_cal[:3, :3].T)[0]))
 
     print("start: %.1f mm, %.2f deg off the calibration (knocked on purpose)" % apart(tracker.pose))
+    log = []  # every frame's card corners (base and image) and how it went: for replaying the tracker offline
     arm = Arm()
     route = [np.array(START)] + poses_around(np.array(START))[:poses]  # in order: each move checked from the one before
     try:
@@ -301,14 +302,27 @@ def track_test(poses: int = 10, frames: int = 3, width: int = 640, height: int =
             for i, q in enumerate(route):
                 arm.move_to(q, f"pose {i + 1}/{len(route)}", confirm=i == 0, margin=MARKER_MARGIN)
                 arm.still(0.3)
+                seen = 0
                 for _ in range(frames):
                     f = cam.frame()
-                    used = tracker.update(cv2.cvtColor(f["bgr"], cv2.COLOR_BGR2RGB), f["K"], arm.q(), arm.dq(), flange_in_base, f["D"])
+                    rgb, q_now, dq_now = cv2.cvtColor(f["bgr"], cv2.COLOR_BGR2RGB), arm.q(), arm.dq()
+                    ob = tracker.observe(rgb, f["K"], q_now, flange_in_base, f["D"])
+                    used = tracker.update(rgb, f["K"], q_now, dq_now, flange_in_base, f["D"])
+                    seen += ob is not None
+                    log.append({"pose": i, "q": q_now.tolist(), "qd_max": float(np.abs(dq_now).max()), "used": bool(used),
+                                "base": None if ob is None else ob[0].tolist(), "image": None if ob is None else ob[1].tolist(),
+                                "K": f["K"].tolist(), "D": f["D"].tolist()})  # fmt: skip
+                centers = np.array([fr[0].mean(0) for fr in tracker.frames]) if tracker.frames else np.zeros((1, 3))
+                spread = np.sort(np.linalg.svd(centers - centers.mean(0), compute_uv=False))[::-1] / np.sqrt(len(centers))
                 m, deg = apart(tracker.pose)
-                print(f"  {'used' if used else 'not used'}; {len(tracker.frames)} frames pooled, full fit {tracker.full}: now {m:.1f} mm, {deg:.2f} deg off the calibration")
+                print(f"  card seen in {seen}/{frames} frames; {len(tracker.frames)} pooled, spread {np.round(spread[:2] * 100, 1).tolist()} cm, "
+                      f"full fit {tracker.full}: now {m:.1f} mm, {deg:.2f} deg off the calibration")  # fmt: skip
     except (Stop, KeyboardInterrupt):
         arm.hold()
         print("stopped: holding")
+    if save is not None:
+        save.write_text(json.dumps({"T_cal": T_cal.tolist(), "T_flange_card": Z.tolist(), "knocked": knocked.tolist(), "frames": log}))
+        print(f"frames saved: {save}")
     arm.move_to(np.array(START), "back to the start", confirm=False, margin=MARKER_MARGIN)
 
 
@@ -327,10 +341,11 @@ def main() -> None:
     c.add_argument("data", type=Path)
     c.add_argument("--skip", type=int, nargs="*", default=[])
     c.add_argument("--size", type=float, default=None)
-    sub.add_parser("track-test", help="the mount tracker on the real pole camera (moves the arm: Enter once)")
+    t = sub.add_parser("track-test", help="the mount tracker on the real pole camera (moves the arm: Enter once)")
+    t.add_argument("--save", type=Path, default=None, help="every frame's card corners, for replaying offline")
     args = ap.parse_args()
     if args.cmd == "track-test":
-        track_test()
+        track_test(save=args.save)
         return
     if args.cmd == "look":
         look(args.out)
