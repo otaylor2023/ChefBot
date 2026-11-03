@@ -67,7 +67,11 @@ def poses_around(q_look) -> list[np.ndarray]:
     pivot = T0[:3, 3] + T0[:3, 2] * TCP_Z
     poses = []
     for k, shift in enumerate(SHIFTS_M):
-        for axis, deg in (TURNS_DEG[k % len(TURNS_DEG)], TURNS_DEG[(k + 3) % len(TURNS_DEG)]):
+        found = 0
+        for n in range(len(TURNS_DEG)):  # the first two turns that work, starting from a different one each shift
+            axis, deg = TURNS_DEG[(k + 2 * n) % len(TURNS_DEG)]
+            if found == 2 or (not any(shift) and deg == 0):  # (the look pose itself is already the first)
+                continue
             R = _rot(axis, deg)
             T = np.eye(4)
             T[:3, :3] = R @ T0[:3, :3]
@@ -75,6 +79,7 @@ def poses_around(q_look) -> list[np.ndarray]:
             q = ik(q_look, T)
             if q is not None and np.abs(q - q_look).max() < np.radians(90) and path_clear(q_look, q, margin=MARKER_MARGIN):
                 poses.append(q)
+                found += 1
     out, prev = [], np.asarray(q_look, float)
     for q in poses:  # each move from the one before clear too, else by way of the look pose
         if not path_clear(prev, q, margin=MARKER_MARGIN):
