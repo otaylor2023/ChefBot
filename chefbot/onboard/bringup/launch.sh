@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start the robot's drivers (the existing ones, in place), then the onboard server.
 #
-#   1) OpenSai with zitibot_panda.xml (arm joint + Cartesian controllers, Redis, web UI)
+#   1) OpenSai with chefbot_fr3.xml, next to this script (arm joint + Cartesian controllers, Redis, web UI)
 #   2) the Franka gripper driver (OpenSai's drivers/FrankaPanda/redis_driver/launch_gripper.sh)
 #   3) the hb1 base driver (ZitiBot's controllers/tidybot_base/redis_driver.py)
 #   4) python -m chefbot.onboard.server, in the foreground
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 OPENSAI_DIR="${OPENSAI_DIR:-$HOME/OpenSai}"
-OPENSAI_CONFIG="${OPENSAI_CONFIG:-config_folder/xml_config_files/zitibot_panda.xml}"
+OPENSAI_CONFIG="${OPENSAI_CONFIG:-$(cd "$(dirname "$0")" && pwd)/chefbot_fr3.xml}"  # ChefBot's own (not ZitiBot's zitibot_panda.xml)
 BASE_DRIVER_DIR="${BASE_DRIVER_DIR:-$OPENSAI_DIR/ZitiBot/controllers/tidybot_base}"
 BASE_PYTHON="${BASE_PYTHON:-$HOME/miniforge3/envs/zitibot/bin/python}"  # has phoenix6, ruckig
 CHEFBOT_PYTHON="${CHEFBOT_PYTHON:-$HOME/miniforge3/envs/chefbot/bin/python}"

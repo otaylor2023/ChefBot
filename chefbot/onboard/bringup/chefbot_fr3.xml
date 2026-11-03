@@ -1,0 +1,49 @@
+<?xml version="1.0" ?>
+<!-- ChefBot's OpenSai config for the FR3 (instead of ZitiBot's zitibot_panda.xml, whose joint task saturates velocity
+     at OpenSai's default with soft gains: the arm crawled and stalled). From the pickleball project's
+     picklebot_j5_otg.xml: OpenSai's stock Panda model (its end-effector is the flange), a jerk-limited OTG on the joint
+     task so goals move smoothly, stiffer gains; slower limits for ChefBot. The Cartesian task's point is ChefBot's TCP
+     (the Franka Hand on the 27.25 mm camera holder: 0.1034 + 0.02725 m along the flange's z).
+
+     cd ~/OpenSai && bash scripts/launch.sh ~/ChefBot/chefbot/onboard/bringup/chefbot_fr3.xml -->
+<redisConfiguration namespacePrefix="opensai" />
+
+<robotControlConfiguration robotName="FrankaRobot"
+	robotModelFile="${SAI_MODEL_URDF_FOLDER}/panda/panda_arm_sphere.urdf">
+
+	<logger logFolderName="log_files/chefbot/controllers"
+		enabledAtStartup="false"
+		addTimestampToFilename="true" />
+
+	<controller name="joint_controller">
+		<jointTask name="joint_task">
+			<velocitySaturation enabled="false" />
+			<otg type="jerk"
+				maxVelocity="0.5 0.5 0.5 0.5 0.6 0.6 0.6"
+				maxAcceleration="1.0 1.0 1.0 1.0 1.5 1.5 1.5"
+				maxJerk="5 5 5 5 8 8 8" />
+			<gains kp="400 250 400 250 400 400 400"
+				kv=" 32  24  32  24  32  32  32"
+				ki="  0   0   0   0   0   0   0" />
+		</jointTask>
+	</controller>
+
+	<controller name="cartesian_controller">
+		<motionForceTask name="cartesian_task"
+			linkName="end-effector">
+			<velocitySaturation enabled="false" />
+			<otg type="acceleration"
+				maxLinearVelocity="0.1"
+				maxAngularVelocity="0.5"
+				maxLinearAcceleration="0.5"
+				maxAngularAcceleration="1.0"
+				maxLinearJerk="5.0"
+				maxAngularJerk="10.0" />
+			<compliantFrame xyz="0 0 0.13065"
+							rpy="0 0 0" />
+			<positionGains kp="100.0" kv="20.0" ki="0.0"/>
+			<orientationGains kp="100.0" kv="20.0" ki="0.0"/>
+		</motionForceTask>
+	</controller>
+
+</robotControlConfiguration>

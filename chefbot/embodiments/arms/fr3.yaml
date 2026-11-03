@@ -25,10 +25,10 @@ postures:
 # The arm's own controller on the real robot. Pose targets (Env.set_arm_pose_target) are for the
 # point it moves, given here relative to the flange; the onboard side passes them through unchanged.
 driver:
-  # OpenSai's cartesian_task (zitibot_panda.xml): its `end-effector` link plus compliantFrame
-  # (0 0 0.1224). With OpenSai's own panda_arm_sphere.urdf the end-effector is the flange (link7 +
-  # 0.107); ZitiBot's copy puts it at link7 + 0.14, which would make this 0.1554.
+  # OpenSai's cartesian_task (onboard/bringup/chefbot_fr3.xml): OpenSai's own panda_arm_sphere.urdf, whose
+  # `end-effector` is the flange (link7 + 0.107), plus compliantFrame (0 0 0.13065): the Franka Hand's TCP
+  # (0.1034) on the 27.25 mm camera holder. (ZitiBot's zitibot_panda.xml had 0.1224.)
   # TODO(verify on the robot): `python -m chefbot.environments.real.check` compares this against OpenSai.
   control_point:
-    xyz: [0.0, 0.0, 0.1224]
+    xyz: [0.0, 0.0, 0.13065]
     yaw_deg: 0.0

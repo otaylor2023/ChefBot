@@ -8,7 +8,7 @@ gripper driver plain numbers ("0.08"); the hb1 base driver "[x, y, yaw]"; the mo
 
 _ARM = "opensai::controllers::FrankaRobot"
 
-# OpenSai arm controllers (zitibot_panda.xml)
+# OpenSai arm controllers (onboard/bringup/chefbot_fr3.xml)
 ACTIVE_CONTROLLER = f"{_ARM}::active_controller_name"
 JOINT_CONTROLLER = "joint_controller"
 CARTESIAN_CONTROLLER = "cartesian_controller"
