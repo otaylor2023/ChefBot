@@ -32,6 +32,9 @@ MARKER_SIZE = 0.134  # m, the black square, when not given (2026-11-02's flimsy 
 FRAMES = 10  # corner averages per pose
 ORBIT_TILTS_DEG = (0, 12, 22)  # the camera's view axis from vertical, around the marker
 ORBIT_ROLLS_DEG = (-50, 0, 50)  # turns about the view axis (hand-eye needs rotations about different axes)
+# straight-on views nearer and farther (times the distance): at one distance only, the camera's offset along its
+# view axis and the marker's size trade off (a smaller marker looks like a nearer camera)
+ORBIT_RANGES = (1.0, 1.3, 1.6)  # (nearer than 0.4 m folds the elbow past its limit)
 
 
 def detect_markers(gray) -> list[tuple[str, np.ndarray, list]]:
@@ -135,7 +138,7 @@ def wrist_mount() -> np.ndarray:
 
 def orbit(q_look, marker_cam, distance: float | None = None) -> list[np.ndarray]:
     """Joint poses with the camera `distance` from the marker (else the look pose's), its view axis tilted off the
-    look pose's and turned about it, still pointing at the marker; the first one straight on."""
+    look pose's and turned about it, still pointing at the marker; first straight on, nearer and farther."""
     import cv2
 
     from chefbot.onboard.calibration import fr3
@@ -150,17 +153,17 @@ def orbit(q_look, marker_cam, distance: float | None = None) -> list[np.ndarray]
     turn = np.arcsin(np.clip(np.linalg.norm(axis), 0, 1))
     R_aim = (cv2.Rodrigues(axis / np.linalg.norm(axis) * turn)[0] if turn > 1e-6 else np.eye(3)) @ Tc0[:3, :3]
     poses = []
-    for tilt in ORBIT_TILTS_DEG:
-        for az in ((0,) if tilt == 0 else (0, 90, 180, 270)):
-            for roll in ORBIT_ROLLS_DEG:
-                # tilt the view axis toward azimuth az (base frame, about the marker), then roll about it
-                Rc = _rot([0, 0, 1], az) @ _rot([0, 1, 0], tilt) @ _rot([0, 0, 1], -az) @ R_aim @ _rot([0, 0, 1], roll)
-                T = _T(Rc, target - Rc[:, 2] * dist) @ np.linalg.inv(X)  # the flange, from the camera
-                if T[0, 3] < 0.15 or T[2, 3] < target[2] + 0.25:  # not over the arm's own base, nor low over the marker
-                    continue
-                q = ik(q_look, T)
-                if q is not None and np.abs(q - q_look).max() < np.radians(100) and path_clear(q_look, q):
-                    poses.append(q)
+    views = [(0, 0, roll, r) for r in ORBIT_RANGES for roll in ORBIT_ROLLS_DEG]
+    views += [(tilt, az, roll, 1.0) for tilt in ORBIT_TILTS_DEG if tilt for az in (0, 90, 180, 270) for roll in ORBIT_ROLLS_DEG]
+    for tilt, az, roll, r in views:
+        # tilt the view axis toward azimuth az (base frame, about the marker), then roll about it
+        Rc = _rot([0, 0, 1], az) @ _rot([0, 1, 0], tilt) @ _rot([0, 0, 1], -az) @ R_aim @ _rot([0, 0, 1], roll)
+        T = _T(Rc, target - Rc[:, 2] * dist * r) @ np.linalg.inv(X)  # the flange, from the camera
+        if T[0, 3] < 0.15 or T[2, 3] < target[2] + 0.25:  # not over the arm's own base, nor low over the marker
+            continue
+        q = ik(q_look, T)
+        if q is not None and np.abs(q - q_look).max() < np.radians(100) and path_clear(q_look, q):
+            poses.append(q)
     # in order, each move from the one before must be clear too (else go by the first pose)
     out, prev = [], np.asarray(q_look, float)
     for q in poses:
