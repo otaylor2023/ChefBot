@@ -6,6 +6,7 @@
         # from a pose where the camera sees it: moves the hand around (Enter once), corners per pose
     python -m chefbot.onboard.calibration.pole solve out.json [--skip 3 7]
         # the camera, and the card's pose on the flange (T_flange_card: what the mount tracker needs)
+    python -m chefbot.onboard.calibration.pole track-test        # the mount tracker on the real camera and arm
 
 record --card first moves the arm to START (Enter), where the pole camera sees the hand card; with one marker, start
 from a pose where it sees it instead (put the arm there by hand: Desk's guiding mode). The moves stay out of
@@ -267,6 +268,50 @@ def solve_card(d: dict, K, D, skip=()) -> dict:
     return out
 
 
+def track_test(poses: int = 10, frames: int = 3, width: int = 640, height: int = 480) -> None:
+    """The mount tracker (environments/real/mount_track.py) on the real pole camera and arm: it starts from the
+    calibrated pose knocked 2 cm and 1 deg, the hand goes through some of record's poses (Enter once), and it should
+    come back to the calibration. Frames as environments/real gets them (640 x 480, RGB)."""
+    import cv2
+    import yaml
+
+    from chefbot.environments.real.mount_track import MountTracker
+    from chefbot.onboard.calibration import fr3
+    from chefbot.onboard.calibration.arm import Arm, Stop
+    from chefbot.onboard.calibration.camera import POLE_D455, Camera
+    from chefbot.onboard.calibration.targets import hand_card_points
+
+    cfg = yaml.safe_load((Path(__file__).parents[2] / "environments" / "real" / "config.yaml").read_text())["cameras"]["pole"]
+    T_cal, Z = np.array(cfg["T"]), np.array(cfg["track"]["T_flange_card"])
+    knocked = T_cal @ _T(_rot([0, 1, 0], 1.0), [0.02, 0, 0])
+    mount = _arm_mount()
+    flange_in_base = lambda q: mount @ fr3.flange(q)
+    tracker = MountTracker(Z, hand_card_points(), pose=knocked)
+
+    def apart(A):
+        import cv2 as c
+
+        return np.linalg.norm(A[:3, 3] - T_cal[:3, 3]) * 1000, np.degrees(np.linalg.norm(c.Rodrigues(A[:3, :3] @ T_cal[:3, :3].T)[0]))
+
+    print("start: %.1f mm, %.2f deg off the calibration (knocked on purpose)" % apart(tracker.pose))
+    arm = Arm()
+    route = [np.array(START)] + poses_around(np.array(START))[:poses]  # in order: each move checked from the one before
+    try:
+        with Camera(POLE_D455, width, height) as cam:
+            for i, q in enumerate(route):
+                arm.move_to(q, f"pose {i + 1}/{len(route)}", confirm=i == 0, margin=MARKER_MARGIN)
+                arm.still(0.3)
+                for _ in range(frames):
+                    f = cam.frame()
+                    used = tracker.update(cv2.cvtColor(f["bgr"], cv2.COLOR_BGR2RGB), f["K"], arm.q(), arm.dq(), flange_in_base, f["D"])
+                m, deg = apart(tracker.pose)
+                print(f"  {'used' if used else 'not used'}; {len(tracker.frames)} frames pooled, full fit {tracker.full}: now {m:.1f} mm, {deg:.2f} deg off the calibration")
+    except (Stop, KeyboardInterrupt):
+        arm.hold()
+        print("stopped: holding")
+    arm.move_to(np.array(START), "back to the start", confirm=False, margin=MARKER_MARGIN)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -282,7 +327,11 @@ def main() -> None:
     c.add_argument("data", type=Path)
     c.add_argument("--skip", type=int, nargs="*", default=[])
     c.add_argument("--size", type=float, default=None)
+    sub.add_parser("track-test", help="the mount tracker on the real pole camera (moves the arm: Enter once)")
     args = ap.parse_args()
+    if args.cmd == "track-test":
+        track_test()
+        return
     if args.cmd == "look":
         look(args.out)
     elif args.cmd == "record":
