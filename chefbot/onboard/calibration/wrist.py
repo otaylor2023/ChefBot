@@ -134,6 +134,39 @@ def ik(q0, T_goal, iters: int = 500) -> np.ndarray | None:
     return None
 
 
+def _seed_bank(n: int = 24) -> list[np.ndarray]:
+    """IK starts spread over the joint ranges (the same every run), joint 3 near its middle."""
+    from chefbot.onboard.calibration.arm import LIMITS, MARGIN
+
+    rng = np.random.default_rng(12345)
+    lo, hi = LIMITS[:, 0] + MARGIN, LIMITS[:, 1] - MARGIN
+    seeds = rng.uniform(lo, hi, (n, 7))
+    seeds[:, 2] *= 0.3
+    return list(seeds)
+
+
+SEED_BANK = None
+
+
+def ik_any(T_goal, q_ref, accept=None, starts=()) -> np.ndarray | None:
+    """Joints putting the flange at T_goal from many IK starts (q_ref, `starts`, then a bank spread over the joint
+    ranges): of the solutions `accept(q)` passes, the one nearest q_ref (the largest joint change smallest)."""
+    global SEED_BANK
+    if SEED_BANK is None:
+        SEED_BANK = _seed_bank()
+    q_ref = np.asarray(q_ref, float)
+    best = None
+    for k, seed in enumerate([q_ref, *starts, *SEED_BANK]):
+        q = ik(seed, T_goal)
+        if q is None or (accept is not None and not accept(q)):
+            continue
+        if best is None or np.abs(q - q_ref).max() < np.abs(best - q_ref).max():
+            best = q
+        if k <= len(starts) and np.abs(q - q_ref).max() < np.radians(30):
+            break  # near where the arm is already: good enough
+    return best
+
+
 def wrist_mount() -> np.ndarray:
     """The wrist camera in the flange from environments/real/config.yaml (a provisional one aims well enough);
     the flange itself if there is none yet."""

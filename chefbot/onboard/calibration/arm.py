@@ -31,9 +31,17 @@ STALL_S = 4.0  # no progress for this long: settled there, or stuck
 STEP_TIMEOUT_S = 30.0
 
 
-# Keep out of the space behind the arm and to its left (the arm's own frame: x forward, y left), where a pole
-# stands about 10 cm back and left of the arm: no joint, link midpoint or fingertip there, above the base column.
-KEEP_OUT_X_BELOW, KEEP_OUT_Y_ABOVE, KEEP_OUT_Z_ABOVE = 0.0, 0.03, 0.2
+# Keep out of the pole behind the arm on its left (the arm's own frame: x forward, y left, z up from its mounting
+# plate) and the pole camera on its clamp: no joint, link midpoint or fingertip within these. The pole's center
+# measured 5 in back and 8 in left of the arm base's (2026-11-03); the camera where pole.py calibrated it
+# (environments/real/config.yaml: 1.04 m up, so 0.70 m above the plate). Radii are for the arm's centerline: the
+# pole's ~3 cm half-width, the links' ~8 cm, and ~4 cm to spare. (It replaced a quarter-space, everything behind
+# and left of the arm base, that also walled off the plate beside the arm.)
+POLE_XY = (-0.127, 0.203)
+POLE_RADIUS = 0.15
+POLE_TOP = 0.85  # m above the plate: the pole and its clamp
+POLE_CAMERA = (-0.25, 0.26, 0.70)
+POLE_CAMERA_RADIUS = 0.15
 TCP_Z = 0.13065  # m along the flange's z: the fingertips
 
 
@@ -46,9 +54,20 @@ def arm_points(q) -> np.ndarray:
     return np.array(p + [(a + b) / 2 for a, b in zip(p, p[1:])])
 
 
+def _segment_distance(p, a, b) -> np.ndarray:
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    t = np.clip((p - a) @ (b - a) / ((b - a) @ (b - a)), 0.0, 1.0)
+    return np.linalg.norm(p - (a + t[:, None] * (b - a)), axis=1)
+
+
 def _inside(p, margin: float) -> np.ndarray:
-    x_below, y_above = KEEP_OUT_X_BELOW + margin, KEEP_OUT_Y_ABOVE - margin
-    return (p[:, 0] < x_below) & (p[:, 1] > y_above) & (p[:, 2] > KEEP_OUT_Z_ABOVE)
+    """Points (N x 3, arm base frame) within the keep-out grown by margin: the pole's cylinder, and the camera on its
+    clamp (a capsule from the pole's top to the camera)."""
+    p = np.atleast_2d(p)
+    radial = np.linalg.norm(p[:, :2] - np.asarray(POLE_XY), axis=1)
+    pole = (radial < POLE_RADIUS + margin) & (p[:, 2] < POLE_TOP + margin)
+    clamp = _segment_distance(p, (*POLE_XY, POLE_TOP - 0.2), POLE_CAMERA) < POLE_CAMERA_RADIUS + margin
+    return pole | clamp
 
 
 def in_keep_out(q, margin: float = 0.0) -> bool:

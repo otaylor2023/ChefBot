@@ -7,8 +7,8 @@
     python -m chefbot.onboard.calibration.pole solve out.json [--skip 3 7]
         # the camera, and the card's pose on the flange (T_flange_card: what the mount tracker needs)
 
-Start with the marker facing the pole camera: put the arm there by hand (Desk's guiding mode, or the arm driver
-alone, floating, before OpenSai), then start OpenSai (it holds where the arm is) and record. The moves stay out of
+record --card first moves the arm to START (Enter), where the pole camera sees the hand card; with one marker, start
+from a pose where it sees it instead (put the arm there by hand: Desk's guiding mode). The moves stay out of
 the space behind the arm on its left (the pole) with extra room for the marker sticking out of the hand.
 
 The camera comes out in the arm base and in ChefBot's base frame (the floor under the base center: the arm base is
@@ -27,6 +27,8 @@ import numpy as np
 from chefbot.onboard.calibration.wrist import DICTIONARY, FRAMES, MARKER_ID, _object_points, _pnp, _refine, _rot, _T, ax_xb
 
 MARKER_MARGIN = 0.15  # m: the keep-out grown by this (the marker sticks out of the hand)
+# Where record starts: the hand card facing the pole camera (2026-11-03: it saw markers 5 and 6 from here)
+START = [-0.139, -0.1, -0.062, -1.735, -0.003, 1.275, 0.771]
 # The hand moved this far from the start (base frame, m), spread wide and low so the fit holds over the workspace
 # (2026-11-03: poses only +-8 cm around one spot left the camera's tilt loose: a marker 40 cm lower came out low)
 SHIFTS_M = ((0, 0, 0), (0.08, 0, 0), (-0.08, 0, 0), (0, 0.08, 0), (0, -0.08, 0), (0, 0, 0.08), (0, 0, -0.08),
@@ -123,6 +125,8 @@ def record(out: Path, dictionary: str, marker_id: int, size: float | None, card:
     marker = {"target": "hand_card", "dictionary": dictionary} if card else {"dictionary": dictionary, "id": marker_id, "size_m": size}
     seen = (lambda frames=FRAMES: card_corners(cam, det, frames)) if card else (lambda frames=FRAMES: corners_now(cam, det, marker_id, frames))
     samples = []
+    if card:
+        arm.move_to(np.array(START), "the start: the hand card toward the pole camera", margin=MARKER_MARGIN)
     with Camera(POLE_D455) as cam:
         q_look = arm.q()
         if in_keep_out(q_look, MARKER_MARGIN):
@@ -134,7 +138,7 @@ def record(out: Path, dictionary: str, marker_id: int, size: float | None, card:
         save = lambda: out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "marker": marker, "samples": samples}, indent=1))
         try:
             for i, q in enumerate(poses):
-                arm.move_to(q, f"pose {i + 1}/{len(poses)}", confirm=i == 1, margin=MARKER_MARGIN)
+                arm.move_to(q, f"pose {i + 1}/{len(poses)}", confirm=i == 1 and not card, margin=MARKER_MARGIN)
                 arm.still(0.5)
                 c = seen()
                 if c is None:

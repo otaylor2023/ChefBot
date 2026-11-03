@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from chefbot.onboard.calibration.wrist import DICTIONARY, MARKER_ID, _T, _object_points, _rot, ik, wrist_mount
+from chefbot.onboard.calibration.wrist import DICTIONARY, MARKER_ID, _T, _object_points, _rot, ik, ik_any, wrist_mount
 
 SPOTS = {  # on the plate (z 0): beside the arm toward the front, at its side, behind it, by the pole
     "front-left": (0.20, 0.20, 0.0),
@@ -40,7 +40,9 @@ SEEDS = (np.array([0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785]), np.array([1.5, -0
          np.array([-2.4, -0.6, 0.0, -2.3, 0.0, 1.8, 0.785]))  # fmt: skip
 
 
-CAMERA_MARGIN = 0.05  # m: the wrist camera (off the flange, outside the arm's own points) kept this far off the keep-out
+# The wrist camera (off the flange, so not among the arm's own points) against the keep-out: its radii are for the
+# arm's 8 cm-thick links; the D405 is ~4 cm across, so it may come 5 cm nearer (10 cm from the pole's axis)
+CAMERA_MARGIN = -0.05
 
 
 def clear(q) -> bool:
@@ -82,24 +84,24 @@ def look_at(spot, q_from, normal=(0, 0, 1.0), dist: float = DISTANCE) -> np.ndar
                 continue
             for roll in (0, 90, 180, -90):
                 Tf = cam @ _T(_rot([0, 0, 1], roll), [0, 0, 0]) @ X_inv
-                for seed in (q_from, *SEEDS):
-                    q = ik(seed, Tf)
-                    if q is not None and abs(q[6] - q_from[6]) < MAX_ROLL and clear(q) and path_ok(q_from, q):
-                        return q
+                q = ik_any(Tf, q_from, lambda q: abs(q[6] - q_from[6]) < MAX_ROLL and clear(q) and path_ok(q_from, q), SEEDS)
+                if q is not None:
+                    return q
             if tilt == 0:
                 break  # straight on: every azimuth is the same view
     return None
 
 
-def reachable_views(spot, normal=(0, 0, 1.0), n: int = 60, seed: int = 0) -> int:
-    """Of n calibration views of a board at spot (0.25-0.4 m, up to 25 deg off straight on), how many reach clear."""
+def reachable_views(spot, normal=(0, 0, 1.0), n: int = 60, seed: int = 0, tilt_max: float = 40.0) -> int:
+    """Of n calibration views of a board at spot (0.2-0.5 m, up to tilt_max deg off straight on, the camera turned any
+    way about its view axis), how many the arm reaches clear."""
     rng = np.random.default_rng(seed)
     X_inv = np.linalg.inv(wrist_mount())
     ok = 0
     for _ in range(n):
-        Tf = _view(spot, np.asarray(normal, float), rng.uniform(0, 25), rng.uniform(0, 360), rng.choice((0.25, 0.32, 0.4)))
-        Tf = Tf @ _T(_rot([0, 0, 1], rng.uniform(-180, 180)), [0, 0, 0]) @ X_inv
-        ok += any((q := ik(s, Tf)) is not None and clear(q) for s in SEEDS)
+        cam = _view(spot, np.asarray(normal, float), rng.uniform(0, tilt_max), rng.uniform(0, 360), rng.choice((0.2, 0.3, 0.4, 0.5)))
+        roll0 = rng.uniform(0, 90)
+        ok += any(ik_any(cam @ _T(_rot([0, 0, 1], roll0 + r), [0, 0, 0]) @ X_inv, SEEDS[0], clear, SEEDS) is not None for r in (0, 90, 180, 270))
     return ok
 
 
