@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Start the robot's drivers (the existing ones, in place), then the onboard server.
 #
+#   0) with --arm-driver: the Franka arm driver (real-time torque loop: OpenSai's safe_launch_driver.sh, which
+#      clears stale commands and seeds a hold at the arm's joints; asks for sudo once, for the CPU governor)
 #   1) OpenSai with chefbot_fr3.xml, next to this script (arm joint + Cartesian controllers, Redis, web UI)
 #   2) the Franka gripper driver (OpenSai's drivers/FrankaPanda/redis_driver/launch_gripper.sh)
 #   3) the hb1 base driver (ZitiBot's controllers/tidybot_base/redis_driver.py)
 #   4) the mocap publisher (mocap.sh, next to this script; skipped with a warning off SRC wifi)
 #   5) python -m chefbot.onboard.server, in the foreground
-# Ctrl-C stops them all. Not started here, as with ZitiBot: the Franka arm driver (real-time torque
-# loop); see README.md.
+# Ctrl-C stops them all (the arm driver first: the arm's brakes hold it). Desk first: joints unlocked, FCI on.
+# arm.sh, next to this script, is just 0) and 1).
 #
-# Usage: chefbot/onboard/bringup/launch.sh [--no-gripper] [--no-base] [--no-mocap] [--no-server]
+# Usage: chefbot/onboard/bringup/launch.sh [--arm-driver] [--no-gripper] [--no-base] [--no-mocap] [--no-server]
 # Paths and limits come from the environment, with these defaults:
 set -euo pipefail
 
@@ -24,19 +26,20 @@ MAX_ACCEL_XY="${MAX_ACCEL_XY:-0.1}"
 MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-0.5}"
 READY_TIMEOUT_S=90
 
-GRIPPER=true BASE=true MOCAP=true SERVER=true
+ARM_DRIVER=false GRIPPER=true BASE=true MOCAP=true SERVER=true
 for arg in "$@"; do
 	case "$arg" in
+		--arm-driver) ARM_DRIVER=true ;;
 		--no-gripper) GRIPPER=false ;;
 		--no-base) BASE=false ;;
 		--no-mocap) MOCAP=false ;;
 		--no-server) SERVER=false ;;
-		-h | --help) sed -n '2,17p' "$0"; exit 0 ;;
+		-h | --help) sed -n '2,19p' "$0"; exit 0 ;;
 		*) echo "unknown option: $arg" >&2; exit 1 ;;
 	esac
 done
 
-GRIPPER_DIR="$OPENSAI_DIR/drivers/FrankaPanda/redis_driver"
+GRIPPER_DIR="$OPENSAI_DIR/drivers/FrankaPanda/redis_driver"  # the arm driver's too
 for f in "$OPENSAI_DIR/bin/OpenSai_main" "$OPENSAI_DIR/scripts/launch.sh"; do
 	[[ -e "$f" ]] || { echo "missing $f (OPENSAI_DIR=$OPENSAI_DIR)" >&2; exit 1; }
 done
@@ -48,6 +51,10 @@ LOGS="$(mktemp -d /tmp/chefbot-bringup.XXXXXX)"
 cleanup() {
 	trap - INT TERM EXIT
 	echo "stopping drivers..." >&2
+	if $ARM_DRIVER; then  # first: once its torque loop stops, the arm's brakes hold it
+		pkill -INT -f "sai_franka_robot_redis_driver" 2>/dev/null || true
+		sleep 1
+	fi
 	for pid in "${PIDS[@]}"; do
 		pkill -TERM -P "$pid" 2>/dev/null || true
 		kill -TERM "$pid" 2>/dev/null || true
@@ -65,6 +72,33 @@ wait_for_key() {  # key, what must be in its value, timeout
 		sleep 0.5
 	done
 }
+
+if $ARM_DRIVER; then
+	if pgrep -f sai_franka_robot_redis_driver >/dev/null; then
+		echo "an arm driver is already running: stop it first (or leave out --arm-driver)" >&2
+		exit 1
+	fi
+	echo "0) Franka arm driver"
+	sudo -v  # its launcher sets the CPU governor with sudo: ask here, not in the background
+	pgrep -x redis-server >/dev/null || redis-server --daemonize yes >/dev/null
+	redis-cli DEL opensai::sensors::FrankaRobot::joint_positions >/dev/null  # a stale value would look live
+	(cd "$GRIPPER_DIR" && exec sh safe_launch_driver.sh) >"$LOGS/arm_driver.log" 2>&1 &
+	PIDS+=($!)
+	deadline=$((SECONDS + 30))
+	until grep -q "safe hold is armed" "$LOGS/arm_driver.log" 2>/dev/null; do
+		if ! kill -0 "${PIDS[-1]}" 2>/dev/null || (( SECONDS >= deadline )); then
+			echo "the arm driver didn't come up (Desk: joints unlocked, FCI on?):" >&2
+			tail -5 "$LOGS/arm_driver.log" >&2
+			exit 1
+		fi
+		sleep 0.2
+	done
+	echo "   live; the arm floats until OpenSai holds it"
+fi
+if $ARM_DRIVER; then  # hold where the arm is now (it may have sagged since the driver seeded its hold)
+	redis-cli SET opensai::controllers::FrankaRobot::joint_controller::joint_task::goal_position \
+		"$(redis-cli --raw GET opensai::sensors::FrankaRobot::joint_positions)" >/dev/null
+fi
 
 echo "1) OpenSai: $OPENSAI_CONFIG"
 # OpenSai takes only configs in its own config folder: link ours in (as the other projects' configs sit there).
