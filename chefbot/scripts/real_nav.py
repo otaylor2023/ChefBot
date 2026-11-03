@@ -7,12 +7,17 @@
     python -m chefbot.scripts.real_nav list
     python -m chefbot.scripts.real_nav go B [--speed 0.1] [--yaw-speed 0.3]     # Enter to start, Ctrl-C stops
     python -m chefbot.scripts.real_nav go stove --map maps/src_kitchen     # A* around the map's obstacles
+    python -m chefbot.scripts.real_nav arm                                 # the arm's outline over the floor, now
 
 With --map (scripts/real_map.py), the target may also be one of the map's places, and the base goes there by A* on
 the map grown by --footprint + --margin, one straight segment at a time (each a `go` as below, stopping at each
 corner), and stops if its footprint ever overlaps an obstacle. --footprint 0.33 m: the base reaches at most ~10 in
 (0.254 m) beyond the mocap body, whose origin is 0.072 m ahead of the base centre; --margin 0.10 m on top, for the
 arm at the front and for the map's measuring error. The footprint is a circle, so the margin protects the front too.
+
+With the arm driver running (or its last joint readings in Redis), --arm auto (the default) grows the footprint to
+cover the arm too: robot/kinematics/arm_outline.py projects the arm's links onto the floor from its joint angles.
+And every `go` stops if the arm moves more than 0.05 rad on any joint while the base drives.
 
 Points are base poses in the mocap world (x, y in m, yaw in deg), in runs/real_nav/points.json.
 
@@ -85,6 +90,26 @@ def relative_point(origin: dict, forward: float, left: float, turn_deg: float) -
             "relative_to": {"forward": forward, "left": left, "turn_deg": turn_deg}}  # fmt: skip
 
 
+ARM_MOVED_RAD = 0.05  # a joint moving more than this while the base drives stops it
+
+
+def arm_footprint(raw: dict, base_radius: float = 0.33, link_radius: float = 0.08) -> dict:
+    """The footprint circle (base centre) covering the base and, if its joints are known, the arm seen from above."""
+    q = raw.get("arm_q")
+    out = {"base_radius": base_radius, "radius": base_radius, "arm": None, "arm_live": bool(raw.get("arm_live"))}
+    if q is None or len(q) != 7:
+        out["note"] = "arm pose unknown (no joint readings): base footprint only"
+        return out
+    from chefbot.robot.kinematics.arm_outline import arm_box, reach_ahead
+
+    box = arm_box(q, link_radius=link_radius)
+    (cx, cy), (L, W) = box["center"], box["size"]
+    corners = [math.hypot(cx + sx * L / 2, cy + sy * W / 2) for sx in (-1, 1) for sy in (-1, 1)]
+    out.update(arm=box, reach_ahead_m=reach_ahead(q, link_radius=link_radius), radius=max(base_radius, max(corners)))
+    out["note"] = "arm from live joints" if out["arm_live"] else "arm from the last joint readings in Redis (driver not running)"
+    return out
+
+
 class Fence:
     """A square the base centre must stay in: centred at (x, y), sides along `yaw_deg`, half-width `half` (m)."""
 
@@ -149,6 +174,7 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
     """Drive to `goal` (world). Returns a result dict; the base is held on every exit. With a `fence`, a goal outside
     it is refused and leaving it (plus 5 cm) stops the move. `tail_s`: keep logging this long after the hold."""
     loc, raw = env.localization(), env.raw_state()
+    arm_q0 = np.asarray(raw["arm_q"], dtype=float) if raw.get("arm_live") and raw.get("arm_q") is not None else None
     problems = []
     if not loc.live:
         problems.append("no live mocap pose")
@@ -223,6 +249,11 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
             if keep_free is not None and not keep_free.is_free(p.x, p.y):
                 result["reason"] = "the base's footprint reached an obstacle on the map"
                 break
+            if arm_q0 is not None and raw.get("arm_q") is not None:
+                moved = float(np.max(np.abs(np.asarray(raw["arm_q"], dtype=float) - arm_q0)))
+                if moved > ARM_MOVED_RAD:
+                    result["reason"] = f"the arm moved {moved:.3f} rad while the base was driving"
+                    break
             if off_line > corridor:
                 result["reason"] = f"{off_line:.2f} m off the line A-B (> {corridor} m)"
                 break
@@ -350,6 +381,8 @@ def main() -> None:
     g.add_argument("--map", type=Path, default=None, help="a map from scripts/real_map.py: plan around its obstacles")
     g.add_argument("--footprint", type=float, default=0.33, help="m, base centre to its farthest point (with --map)")
     g.add_argument("--margin", type=float, default=0.10, help="m added to the footprint for planning (with --map)")
+    g.add_argument("--arm", choices=("auto", "off"), default="auto", help="grow the footprint to cover the arm (with --map)")
+    sub.add_parser("arm")
     args = ap.parse_args()
 
     if args.cmd == "point":
@@ -376,6 +409,10 @@ def main() -> None:
         if args.cmd == "mark":
             mark(env, args.name)
             return
+        if args.cmd == "arm":
+            fp = arm_footprint(env.raw_state())
+            print(json.dumps(fp, indent=2))
+            return
         points = load_points()
         grid = None
         if args.map is not None:
@@ -390,7 +427,12 @@ def main() -> None:
         if grid is not None:
             log_dir = REPO / "runs" / "real_nav" / stamp
             log_dir.mkdir(parents=True, exist_ok=True)
-            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, footprint=args.footprint,
+            footprint = args.footprint
+            if args.arm == "auto":
+                fp = arm_footprint(env.raw_state(), base_radius=args.footprint)
+                footprint = fp["radius"]
+                print(f"footprint {footprint:.3f} m ({fp['note']}" + (f"; arm reaches {fp['reach_ahead_m']:.2f} m ahead)" if fp["arm"] else ")"))
+            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, footprint=footprint,
                                 margin=args.margin, log_dir=log_dir, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
                                 yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist)  # fmt: skip
             (log_dir / "result.json").write_text(json.dumps(result, indent=2, default=str))

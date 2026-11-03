@@ -67,6 +67,7 @@ class RedisRobot:
         self.frames = frames
         self.mocap = mocap or MocapFreshness()
         self.driver = Freshness(stale_after_s=0.25)  # the base driver's heartbeat (100 Hz when it runs)
+        self.arm = Freshness(stale_after_s=0.25)  # the arm driver's joint readings (1 kHz, sensor noise, when it runs)
         self.live_for_targets = False  # at the last state read: mocap valid and fresh, the driver live, and tied
         self.gripper_speed = float(gripper["speed"])
         self.gripper_force = float(gripper["force"])
@@ -79,6 +80,7 @@ class RedisRobot:
     def read_state(self) -> dict:
         v = dict(zip(_STATE_KEYS, self.r.mget(_STATE_KEYS)))
         driver_live = self.driver.is_fresh(self.driver.update(v[K.BASE_HEARTBEAT], None))
+        arm_live = self.arm.is_fresh(self.arm.update(v[K.JOINT_POSITIONS], None))
         # Odometry only from a running driver: Redis keeps hb1::current_pose after it stops.
         odom = _array(v[K.BASE_POSE]) if driver_live else None
         mocap_valid = _flag(v[K.MOCAP_VALID])
@@ -103,6 +105,7 @@ class RedisRobot:
             "mocap_age_s": mocap_age,  # seconds since the pose last changed; None: not since the server started
             "mocap_pose": mocap_pose,  # (x, y, yaw) world, from mocap alone; None unless valid and fresh
             "base_driver_live": driver_live,  # ChefBot's base driver is running (its heartbeat changes)
+            "arm_live": arm_live,  # the arm driver is running: arm_q is current (else what Redis last held, or none)
             "arm_q": _array(v[K.JOINT_POSITIONS]),
             "arm_qd": _array(v[K.JOINT_VELOCITIES]),
             "gripper_width": _number(v[K.GRIPPER_CURRENT_WIDTH]),

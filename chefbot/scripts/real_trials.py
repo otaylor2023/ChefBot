@@ -242,6 +242,7 @@ def main() -> None:
     ap.add_argument("--base-box", type=float, nargs=2, default=[0.56, 0.50], metavar=("LENGTH", "WIDTH"))
     ap.add_argument("--arm-box", type=float, nargs=3, action="append", default=[], metavar=("LENGTH", "WIDTH", "AHEAD"))
     ap.add_argument("--scale", type=float, default=1.0, help="shrink the footprint and the obstacles (small real squares)")
+    ap.add_argument("--arm-from-robot", action="store_true", help="add the arm's outline from its current joints (arm_outline)")
     ap.add_argument("--margin", type=float, default=None, help="m added to the footprint circle (default 0.10 x --scale)")
     ap.add_argument("--min-move", type=float, default=0.08)
     ap.add_argument("--max-turn", type=float, default=90.0, help="deg")
@@ -267,6 +268,15 @@ def main() -> None:
     else:
         url = args.url or load_config(CONFIG)["url"]
     env = RealEnv.from_config(np.eye(4), url=url)
+    if args.arm_from_robot:
+        from chefbot.robot.kinematics.arm_outline import arm_box
+
+        q = env.raw_state().get("arm_q")
+        if q is None:
+            raise SystemExit("--arm-from-robot: no arm joint readings from the robot")
+        a = arm_box(q)
+        boxes.append({"center": tuple(c * args.scale for c in a["center"]), "size": tuple(v * args.scale for v in a["size"])})
+        print(f"arm outline from the robot: centre {a['center']}, size {a['size']} (x {args.scale})")
     try:
         import time
 
