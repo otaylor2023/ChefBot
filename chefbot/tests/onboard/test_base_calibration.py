@@ -176,3 +176,20 @@ def test_echo_shows_what_gamepad_teleop_would_send():
     assert vy < 0 and w < 0  # without snapping: right and turning right too
     assert command(0.0, -1.0, 0.0, 0.2, 0.5, True) == pytest.approx((0.0, 0.2, 0.0))  # stick left: left
     assert command(0.0, 0.0, -1.0, 0.2, 0.5, True) == pytest.approx((0.0, 0.0, 0.5))  # right stick left: turn left
+
+
+def test_the_wheels_steering_at_the_start_of_a_move_does_not_bias_it(tmp_path):
+    # A swerve base lurches sideways while its modules steer to the new direction: 4 cm over the first 10 cm here.
+    heading, d = 0.7, 0.7  # driving forward
+    side = d + math.pi / 2
+    rows = []
+    for i in range(100):
+        a = 0.01 * i
+        lurch = 0.04 * min(a / 0.1, 1.0)
+        x = 1.0 + a * math.cos(d) + lurch * math.cos(side)
+        y = 2.0 + a * math.sin(d) + lurch * math.sin(side)
+        rows.append(motive_sample(0.01 * i, x, y, heading, "y"))
+    X, Y, _ = B.floor_frame(1)
+    out = B.heading_offset(rows, X, Y)
+    assert out["offset_deg"] == pytest.approx(30.0, abs=0.5)  # end-to-end it would be ~2.3 deg off
+    assert out["ok"] and out["steady_samples"] < 100

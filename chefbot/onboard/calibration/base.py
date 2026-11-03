@@ -166,11 +166,28 @@ def marker_heading(ori, X: np.ndarray, Y: np.ndarray) -> float:
     return math.atan2(float(bx @ Y), float(bx @ X))
 
 
+SETTLE_M = 0.15  # skip this much travel at the start of a move: the swerve modules steer to the new direction first
+END_M = 0.05  # and this much before its end, where it slows to a stop
+
+
+def steady(rows: list[dict], X, Y, settle_m: float = SETTLE_M, end_m: float = END_M) -> list[dict]:
+    """The part of a straight move after the wheels have steered and before it stops: samples whose distance from
+    the start (along the floor) is past settle_m and short of the total minus end_m. All of it if the move is short."""
+    P = np.array([[r["pos"] @ X, r["pos"] @ Y] for r in rows])
+    along = np.linalg.norm(P - P[0], axis=1)
+    total = along.max()
+    keep = [r for r, a in zip(rows, along) if settle_m <= a <= total - end_m]
+    return keep if len(keep) >= 10 else rows
+
+
 MOVES_DEG = {"forward": 0.0, "left": 90.0, "back": 180.0, "right": -90.0}  # the move's direction in the base frame
 
 
 def heading_offset(rows: list[dict], X, Y, move_deg: float = 0.0) -> dict:
-    """From a straight drive in direction `move_deg` on the base: marker heading minus base heading."""
+    """From a straight drive in direction `move_deg` on the base: marker heading minus base heading, over the
+    steady part of the move (steady())."""
+    all_rows = rows
+    rows = steady(rows, X, Y)
     P = np.array([[r["pos"] @ X, r["pos"] @ Y] for r in rows])
     d = P[-1] - P[0]
     # The direction of the best-fit line through the whole path (not just its ends), pointing from start to end.
@@ -180,14 +197,17 @@ def heading_offset(rows: list[dict], X, Y, move_deg: float = 0.0) -> dict:
     travel = math.atan2(line[1], line[0])
     headings = np.unwrap([marker_heading(r["ori"], X, Y) for r in rows])
     return {
-        "distance_m": float(np.linalg.norm(d)),
+        "distance_m": float(np.linalg.norm(np.array([all_rows[-1]["pos"] @ X, all_rows[-1]["pos"] @ Y])
+                                            - [all_rows[0]["pos"] @ X, all_rows[0]["pos"] @ Y])),  # fmt: skip
+        "steady_samples": len(rows),
+        "steady_m": float(np.linalg.norm(d)),
         "travel_deg": math.degrees(travel),
         "marker_heading_deg": math.degrees(wrap(float(np.mean(headings)))),
         "offset_deg": math.degrees(wrap(float(np.mean(headings)) - (travel - math.radians(move_deg)))),
         "heading_change_deg": math.degrees(float(headings.max() - headings.min())),  # should be ~0 for a straight drive
         "straightness": float(s[1] / max(s[0], 1e-9)),  # sideways scatter / along-track spread; ~0 for a line
         "endpoint_vs_line_deg": math.degrees(wrap(math.atan2(d[1], d[0]) - travel)),  # large: the path curved
-        "ok": bool(np.linalg.norm(d) > 0.2 and float(headings.max() - headings.min()) < math.radians(5)
+        "ok": bool(np.linalg.norm(d) > 0.15 and float(headings.max() - headings.min()) < math.radians(5)
                    and s[1] / max(s[0], 1e-9) < 0.1),  # fmt: skip
     }
 
