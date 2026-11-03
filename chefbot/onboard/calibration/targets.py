@@ -3,9 +3,10 @@
 
     python -m chefbot.onboard.calibration.targets OUT_DIR     # hand_markers.pdf, base_charuco.pdf (US letter)
 
-hand_markers: three 38 mm DICT_4X4_50 markers in a row, ids 1, 2, 3, 46 mm apart center to center, for the white face
+hand_markers: three 38 mm DICT_4X4_50 markers in a row, ids 4, 5, 6, 46 mm apart center to center, for the white face
     of the Franka Hand that the pole camera sees (room for 45 mm tall, under 6 in wide): the card 137 x 45 mm, a thin
-    white border (the hand's white face around it adds to it). (id 0 is the loose marker.)
+    white border (the hand's white face around it adds to it). Ids in use: 0 the loose 70 mm marker; 1 and 2 the first,
+    too-big hand card (55 mm, 70 mm apart), glued to the base by the pole (2026-11-03); 10-19 the ChArUco board.
 base_charuco: a 5 x 4 ChArUco board, 30 mm squares with 22 mm DICT_4X4_50 markers (ids 10-19), for the robot's
     base where the wrist camera can see it: the board 150 x 120 mm, the card 166 x 136 mm.
 """
@@ -20,7 +21,8 @@ import numpy as np
 DPI = 600
 PAGE_IN = (8.5, 11.0)
 DICTIONARY = "DICT_4X4_50"
-HAND = {"ids": (1, 2, 3), "marker_m": 0.038, "pitch_m": 0.046, "margin_m": 0.0035}
+HAND = {"ids": (4, 5, 6), "marker_m": 0.038, "pitch_m": 0.046, "margin_m": 0.0035}
+BASE_CARD = {"ids": (1, 2), "marker_m": 0.055, "pitch_m": 0.070}  # the first hand card, now on the base by the pole
 BASE = {"squares": (5, 4), "square_m": 0.030, "marker_m": 0.022, "first_id": 10, "margin_m": 0.008}
 
 
@@ -34,6 +36,14 @@ def hand_card_points() -> dict[int, np.ndarray]:
         cx = (k - (len(HAND["ids"]) - 1) / 2) * pitch
         out[mid] = np.array([[cx - h, h, 0], [cx + h, h, 0], [cx + h, -h, 0], [cx - h, -h, 0]], dtype=np.float64)
     return out
+
+
+def base_card_points() -> dict[int, np.ndarray]:
+    """The card on the base (the first, too-big hand card): its markers' corners in its frame, as hand_card_points."""
+    h, pitch = BASE_CARD["marker_m"] / 2, BASE_CARD["pitch_m"]
+    n = len(BASE_CARD["ids"])
+    return {mid: np.array([[cx - h, h, 0], [cx + h, h, 0], [cx + h, -h, 0], [cx - h, -h, 0]], dtype=np.float64)
+            for mid, cx in ((mid, (k - (n - 1) / 2) * pitch) for k, mid in enumerate(BASE_CARD["ids"]))}  # fmt: skip
 
 
 def _px(m: float) -> int:
