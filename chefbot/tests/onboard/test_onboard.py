@@ -560,3 +560,11 @@ def test_real_nav_mark_averages_a_still_pose(sim, tmp_path):
     p = mark(env, "A", path=tmp_path / "points.json", seconds=0.3)
     assert load_points(tmp_path / "points.json")["A"] == p and p["samples"] > 5
     assert (p["x"], p["y"]) == pytest.approx((2.0, 1.0), abs=1e-6)  # odometry at 0: the world offset
+
+
+def test_relative_points_follow_the_origins_heading():
+    from chefbot.scripts.real_nav import relative_point
+
+    a = {"x": 1.0, "y": 2.0, "yaw_deg": 90.0}  # facing +y
+    p = relative_point(a, forward=0.3, left=0.1, turn_deg=-15.0)
+    assert (p["x"], p["y"], p["yaw_deg"]) == pytest.approx((0.9, 2.3, 75.0))
