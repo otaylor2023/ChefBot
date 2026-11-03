@@ -7,7 +7,7 @@
 # bounds: PROVISIONAL, NOT MEASURED. The counter plus ~1 m all round, and the places the base has been today.
 #   Replace with the room's real free floor (walls, cabinets, the Motive table) before driving outside known space.
 resolution: 0.05
-bounds: [[-1.40, 0.10], [3.60, 3.60]]
+bounds: [[-1.40, -0.05], [3.60, 3.60]]   # ymin: the base stood at y 0.276 in HT-3b (body to ~-0.05): known floor
 obstacles:
   - name: Chef-botcounter-top
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
@@ -17,3 +17,8 @@ places:
   west_end: {x: -0.25, y: 2.06, yaw_deg: 0}        # off its -x end, facing it (0.61 m out: clears a stowed arm)
   far_side: {x: 1.49, y: 3.05, yaw_deg: -90}       # behind its +y long side, facing it (goes around)
   east_end: {x: 3.10, y: 2.06, yaw_deg: 180}       # off its +x end, facing it
+  # Hugging the near (-y) side with the arm as it stands (footprint 0.56 + margin 0.10 = 0.66, + grid rounding):
+  # base centre 0.72 m from the counter edge (y 1.58), facing along it (+x) so the arm never points at it.
+  hug_a: {x: 0.50, y: 0.86, yaw_deg: 0}
+  hug_b: {x: 1.49, y: 0.86, yaw_deg: 0}
+  hug_c: {x: 2.40, y: 0.86, yaw_deg: 0}
