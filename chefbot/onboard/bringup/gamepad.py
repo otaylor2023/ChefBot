@@ -7,6 +7,11 @@ Vehicle's limits replaced (default 0.2 m/s, 0.5 rad/s, gentler acceleration). Bu
 F710, XInput): Start begins control, Back stops it, hold a bumper to drive (left: base frame, right: global),
 left stick translates, right stick turns. Releasing the bumper stops commanding. Nothing else here moves anything.
 
+--one-axis (on by default; --free turns it off): one direction at a time, for calibration drives. The left stick
+snaps to its larger axis (pushed mostly up = exactly forward, the sideways part dropped), and the right stick turns
+only while the left stick is centred. With the left bumper (base frame) the command is then purely forward, back,
+left, right or a turn in place, however the stick is held.
+
 Base motor power and the e-stop as in the lab's instructions. The base driver (redis_driver.py) must not be running:
 both would hold the CAN bus.
 """
@@ -18,6 +23,31 @@ import importlib
 import sys
 from pathlib import Path
 
+# gamepad_teleop.py's axes: 1 and 0 the left stick (forward, sideways), 3 the right stick (turn).
+FORWARD, SIDEWAYS, TURN = 1, 0, 3
+CENTRED = 0.05  # the script's own deadzone
+
+
+def one_axis(forward: float, sideways: float, turn: float) -> tuple[float, float, float]:
+    """The stick, reduced to one motion: the larger left-stick axis alone, else the turn alone."""
+    if max(abs(forward), abs(sideways)) > CENTRED:
+        return (forward, 0.0, 0.0) if abs(forward) >= abs(sideways) else (0.0, sideways, 0.0)
+    return 0.0, 0.0, turn
+
+
+class OneAxisJoystick:
+    """The gamepad, read through one_axis; buttons and everything else as they are."""
+
+    def __init__(self, joy):
+        self._joy = joy
+
+    def get_axis(self, i: int) -> float:
+        f, s, t = one_axis(self._joy.get_axis(FORWARD), self._joy.get_axis(SIDEWAYS), self._joy.get_axis(TURN))
+        return {FORWARD: f, SIDEWAYS: s, TURN: t}.get(i, self._joy.get_axis(i))
+
+    def __getattr__(self, name):
+        return getattr(self._joy, name)
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -26,6 +56,7 @@ def main() -> None:
     ap.add_argument("--yaw-vel", type=float, default=0.5, help="rad/s at full stick")
     ap.add_argument("--accel", type=float, default=0.15, help="m/s^2")
     ap.add_argument("--yaw-accel", type=float, default=0.4, help="rad/s^2")
+    ap.add_argument("--free", dest="one_axis", action="store_false", help="all stick axes at once (default: one at a time)")
     args = ap.parse_args()
     if not (0 < args.vel <= 0.5 and 0 < args.yaw_vel <= 1.0):
         sys.exit("refusing: --vel must be in (0, 0.5] m/s and --yaw-vel in (0, 1.0] rad/s")
@@ -42,6 +73,9 @@ def main() -> None:
     teleop.Vehicle = slow_vehicle  # gamepad_teleop builds its Vehicle by this name, on Start
     print(f"gamepad_teleop from {teleop.__file__}, at most {args.vel} m/s and {args.yaw_vel} rad/s", flush=True)
     pad = teleop.GamepadTeleop()
+    if args.one_axis:
+        pad.joy = OneAxisJoystick(pad.joy)
+        print("one axis at a time: forward/back, left/right, or turn (--free for all at once)", flush=True)
     try:
         pad.run()
     finally:
