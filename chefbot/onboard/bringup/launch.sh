@@ -26,6 +26,7 @@ MAX_VEL_YAW="${MAX_VEL_YAW:-0.4}"      # ... and base.driver_max_vel_yaw
 MAX_ACCEL_XY="${MAX_ACCEL_XY:-0.1}"
 MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-0.5}"
 READY_TIMEOUT_S=90
+SERVER_PORT="${SERVER_PORT:-8765}"  # keep equal to onboard/config.yaml server.port
 
 ARM_DRIVER=true GRIPPER=true BASE=true MOCAP=true SERVER=true
 for arg in "$@"; do
@@ -89,7 +90,7 @@ if $ARM_DRIVER; then
 		echo "an arm driver is already running: stop it first (or pass --no-arm-driver)" >&2
 		exit 1
 	fi
-	echo "0) Franka arm driver"
+	echo "0) Franka arm driver: starting..."
 	sudo -v  # its launcher sets the CPU governor with sudo: ask here, not in the background
 	pgrep -x redis-server >/dev/null || redis-server --daemonize yes >/dev/null
 	redis-cli DEL opensai::sensors::FrankaRobot::joint_positions >/dev/null  # a stale value would look live
@@ -104,14 +105,14 @@ if $ARM_DRIVER; then
 		fi
 		sleep 0.2
 	done
-	echo "   live; the arm floats until OpenSai holds it"
+	echo "0) Franka arm driver: up (the arm floats until OpenSai holds it)"
 fi
 if $ARM_DRIVER; then  # hold where the arm is now (it may have sagged since the driver seeded its hold)
 	redis-cli SET opensai::controllers::FrankaRobot::joint_controller::joint_task::goal_position \
 		"$(redis-cli --raw GET opensai::sensors::FrankaRobot::joint_positions)" >/dev/null
 fi
 
-echo "1) OpenSai: $OPENSAI_CONFIG"
+echo "1) OpenSai ($(basename "$OPENSAI_CONFIG")): starting..."
 # OpenSai takes only configs in its own config folder: link ours in (as the other projects' configs sit there).
 OPENSAI_CONFIG_NAME="$(basename "$OPENSAI_CONFIG")"
 [[ -e "$OPENSAI_DIR/config_folder/xml_config_files/$OPENSAI_CONFIG_NAME" && ! -L "$OPENSAI_DIR/config_folder/xml_config_files/$OPENSAI_CONFIG_NAME" ]] ||
@@ -119,49 +120,70 @@ OPENSAI_CONFIG_NAME="$(basename "$OPENSAI_CONFIG")"
 (cd "$OPENSAI_DIR" && exec bash scripts/launch.sh "$OPENSAI_CONFIG_NAME") >"$LOGS/opensai.log" 2>&1 &
 PIDS+=($!)
 wait_for_key "::sai-interfaces-webui::config_file_name" "$(basename "$OPENSAI_CONFIG")" "$READY_TIMEOUT_S"
+echo "1) OpenSai: up (holding the arm)"
 
 if $GRIPPER; then
-	echo "2) Franka gripper driver"
+	echo "2) Franka gripper driver: starting..."
+	redis-cli DEL opensai::FrankaRobot::gripper::ready >/dev/null  # a stale "1" would look ready
 	(cd "$GRIPPER_DIR" && exec bash launch_gripper.sh) >"$LOGS/gripper.log" 2>&1 &
 	PIDS+=($!)
+	wait_for_key "opensai::FrankaRobot::gripper::ready" "1" 30
+	echo "2) Franka gripper driver: up (homed)"
 else
 	echo "2) gripper driver skipped"
 fi
 
 if $BASE; then
-	echo "3) hb1 base driver (max vel $MAX_VEL_XY m/s, $MAX_VEL_YAW rad/s)"
+	echo "3) hb1 base driver (max vel $MAX_VEL_XY m/s, $MAX_VEL_YAW rad/s): starting..."
 	pkill -TERM -f "$BASE_DRIVER_DIR/redis_driver.py" 2>/dev/null || true  # a stale one holds the CAN bus
 	(cd "$BASE_DRIVER_DIR" && exec "$BASE_PYTHON" redis_driver.py --max-vel-xy "$MAX_VEL_XY" --max-vel-yaw "$MAX_VEL_YAW" \
 		--max-accel-xy "$MAX_ACCEL_XY" --max-accel-yaw "$MAX_ACCEL_YAW") >"$LOGS/base.log" 2>&1 &
 	PIDS+=($!)
 	wait_for_key "hb1::current_pose" "[" 15
+	echo "3) hb1 base driver: up"
 else
 	echo "3) base driver skipped"
 fi
 
 if $MOCAP; then
-	echo "4) mocap publisher"
+	echo "4) mocap publisher: starting..."
 	redis-cli DEL chefbot-tidy::tracking_valid >/dev/null  # a stale value from an earlier run would look live
 	bash "$(dirname "$0")/mocap.sh" --quiet 2>"$LOGS/mocap.log" &
 	PIDS+=($!)
 	deadline=$((SECONDS + 10))
 	until [[ -n "$(redis-cli GET chefbot-tidy::tracking_valid 2>/dev/null)" ]]; do
 		if ! kill -0 "${PIDS[-1]}" 2>/dev/null || (( SECONDS >= deadline )); then
-			echo "   no mocap (not localized; see $LOGS/mocap.log)" >&2
+			echo "4) mocap publisher: NOT up (not localized; see $LOGS/mocap.log)" >&2
 			break
 		fi
 		sleep 0.5
 	done
+	[[ -n "$(redis-cli GET chefbot-tidy::tracking_valid 2>/dev/null)" ]] && echo "4) mocap publisher: up"
 else
 	echo "4) mocap skipped"
 fi
 
-echo "drivers up; logs in $LOGS"
 if $SERVER; then
-	echo "5) onboard server"
+	echo "5) onboard server: starting..."
 	# the repo on its path (three folders up from this script): wherever launch.sh is run from
-	PYTHONPATH="$(cd "$(dirname "$0")/../../.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" "$CHEFBOT_PYTHON" -m chefbot.onboard.server
+	PYTHONPATH="$(cd "$(dirname "$0")/../../.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" "$CHEFBOT_PYTHON" -m chefbot.onboard.server &
+	PIDS+=($!)
+	SERVER_PID=$!
+	deadline=$((SECONDS + 30))
+	until (exec 3<>/dev/tcp/127.0.0.1/"$SERVER_PORT") 2>/dev/null; do  # its port open: it takes clients
+		if ! kill -0 "$SERVER_PID" 2>/dev/null || (( SECONDS >= deadline )); then
+			echo "5) onboard server: didn't come up" >&2
+			exit 1
+		fi
+		sleep 0.3
+	done
+	echo "5) onboard server: up (port $SERVER_PORT)"
+	echo ""
+	echo "=== ALL UP: the robot is ready (logs in $LOGS). Ctrl-C stops everything. ==="
+	wait "$SERVER_PID"
 else
-	echo "5) server skipped; Ctrl-C stops the drivers"
+	echo "5) server skipped"
+	echo ""
+	echo "=== ALL UP: the drivers are ready (logs in $LOGS). Ctrl-C stops them. ==="
 	wait
 fi
