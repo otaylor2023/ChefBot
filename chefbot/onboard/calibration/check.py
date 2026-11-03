@@ -23,6 +23,9 @@ import numpy as np
 from chefbot.onboard.calibration.wrist import DICTIONARY, MARKER_ID, _object_points, _T
 
 INCH = 0.0254
+# The fingers' ends, past the hand's TCP (the pads' middle, arm.TCP_Z): ChefBot's hand model has the pads 0.094-0.111 m
+# out from the flange, their middle 0.103 (embodiments/tidybot_fr3/robot.yaml hand)
+FINGER_END_PAST_TCP = 0.111 - 0.103
 APPROACH = 0.10  # m out from the marker, first
 # IK starts besides where the arm is: reaching low and out; the hand pointing forward
 SEEDS = (np.array([0.0, 0.2, 0.0, -2.3, 0.0, 2.5, 0.785]), np.array([0.0, -0.3, 0.0, -1.9, 0.0, 3.1, 0.785]))
@@ -65,7 +68,7 @@ def find_marker(name: str, q, dictionary: str, marker_id: int, size: float):
 
 
 def hand_at(M, out: float, q_ref) -> np.ndarray | None:
-    """Joints with the fingertips `out` m from the marker's center along its face's normal, the hand pointing into
+    """Joints with the fingers' ends `out` m from the marker's center along its face's normal, the hand pointing into
     it, turned as little as possible from q_ref's."""
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.arm import TCP_Z
@@ -81,7 +84,7 @@ def hand_at(M, out: float, q_ref) -> np.ndarray | None:
         x = np.cross(z, [0, 0, 1.0])
     x /= np.linalg.norm(x)
     R0 = np.stack([x, np.cross(z, x), z], 1)
-    tip = M[:3, 3] + n * out
+    tip = M[:3, 3] + n * (out + FINGER_END_PAST_TCP)  # the TCP, so that the fingers' ends are `out` from it
     best = None
     for roll in (0, 45, -45, 90, -90, 135, -135, 180):  # the hand turned about its pointing axis, least first
         R = R0 @ _rot([0, 0, 1], roll)
@@ -116,7 +119,7 @@ def check(cameras, dictionary: str, marker_id: int, size: float) -> None:
                 print("  the arm can't reach the hand to it there (IK): skipped")
                 continue
             arm.move_to(q_near, f"{name}: 10 cm out from the marker")
-            arm.move_to(q_inch, f"{name}: 1 inch from the marker (fingertips): look how far off it is")
+            arm.move_to(q_inch, f"{name}: the fingers' ends 1 inch from the marker: look how far off it is")
             arm.move_to(q_near, f"{name}: back out to 10 cm")
             arm.move_to(q_start, f"{name}: back to the start")
     except (Stop, KeyboardInterrupt):
