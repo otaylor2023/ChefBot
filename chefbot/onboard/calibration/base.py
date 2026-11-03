@@ -173,10 +173,12 @@ def heading_offset(rows: list[dict], X, Y, move_deg: float = 0.0) -> dict:
     """From a straight drive in direction `move_deg` on the base: marker heading minus base heading."""
     P = np.array([[r["pos"] @ X, r["pos"] @ Y] for r in rows])
     d = P[-1] - P[0]
-    travel = math.atan2(d[1], d[0])
-    headings = np.unwrap([marker_heading(r["ori"], X, Y) for r in rows])
+    # The direction of the best-fit line through the whole path (not just its ends), pointing from start to end.
     centered = P - P.mean(axis=0)
-    _, s, _ = np.linalg.svd(centered, full_matrices=False)
+    _, s, Vt = np.linalg.svd(centered, full_matrices=False)
+    line = Vt[0] if Vt[0] @ d >= 0 else -Vt[0]
+    travel = math.atan2(line[1], line[0])
+    headings = np.unwrap([marker_heading(r["ori"], X, Y) for r in rows])
     return {
         "distance_m": float(np.linalg.norm(d)),
         "travel_deg": math.degrees(travel),
@@ -184,6 +186,9 @@ def heading_offset(rows: list[dict], X, Y, move_deg: float = 0.0) -> dict:
         "offset_deg": math.degrees(wrap(float(np.mean(headings)) - (travel - math.radians(move_deg)))),
         "heading_change_deg": math.degrees(float(headings.max() - headings.min())),  # should be ~0 for a straight drive
         "straightness": float(s[1] / max(s[0], 1e-9)),  # sideways scatter / along-track spread; ~0 for a line
+        "endpoint_vs_line_deg": math.degrees(wrap(math.atan2(d[1], d[0]) - travel)),  # large: the path curved
+        "ok": bool(np.linalg.norm(d) > 0.2 and float(headings.max() - headings.min()) < math.radians(5)
+                   and s[1] / max(s[0], 1e-9) < 0.1),  # fmt: skip
     }
 
 
@@ -243,7 +248,9 @@ def solve(forward: Path | None, spin: Path | None, others: list[Path], back: Pat
     for move, move_deg in MOVES_DEG.items():
         if data.get(move):
             out[move] = heading_offset(data[move], X, Y, move_deg)
-            estimates[move] = math.radians(out[move]["offset_deg"])
+            if out[move]["ok"]:  # a move that turned > 5 deg, curved, or went < 0.2 m is reported, not used
+                estimates[move] = math.radians(out[move]["offset_deg"])
+    out["moves_used"] = sorted(estimates)
     offset = 0.0
     if estimates:
         offset = math.atan2(np.mean(np.sin(list(estimates.values()))), np.mean(np.cos(list(estimates.values()))))

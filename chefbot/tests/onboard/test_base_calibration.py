@@ -120,3 +120,47 @@ def test_record_only_reads_and_logs_raw_samples(tmp_path):
     assert len(rows) > 5 and rows[0]["pos"][:2] == [0.1, 0.2] and rows[0]["ori"] == [0, 0, 0, 1]
     assert not rows[0]["fresh"] and rows[-1]["fresh"]  # fresh once the value changes
     assert len(B.live(rows)) == len(rows) - 1
+
+
+def test_a_sloppy_stick_reaches_the_base_as_one_clean_motion():
+    from chefbot.onboard.bringup.gamepad import one_axis
+
+    assert one_axis(-0.9, 0.2, 0.3) == (-0.9, 0.0, 0.0)  # mostly up (forward): sideways and turn dropped
+    assert one_axis(0.15, -0.7, 0.0) == (0.0, -0.7, 0.0)  # mostly sideways
+    assert one_axis(0.02, 0.03, 0.6) == (0.0, 0.0, 0.6)  # left stick centred: the turn alone
+    assert one_axis(0.3, 0.0, 0.8) == (0.3, 0.0, 0.0)  # never both
+
+
+def test_one_axis_joystick_passes_buttons_through():
+    from chefbot.onboard.bringup.gamepad import OneAxisJoystick
+
+    class Pad:
+        axes = {0: 0.2, 1: -0.9, 3: 0.4}
+
+        def get_axis(self, i):
+            return self.axes.get(i, 0.0)
+
+        def get_button(self, i):
+            return i == 4
+
+    pad = OneAxisJoystick(Pad())
+    assert (pad.get_axis(1), pad.get_axis(0), pad.get_axis(3)) == (-0.9, 0.0, 0.0)
+    assert pad.get_button(4) and not pad.get_button(5)
+
+
+def test_a_curved_or_turning_move_is_reported_and_not_used(tmp_path):
+    p = drives(tmp_path, "y", moves=("forward", "back", "left", "right"))
+    # Re-record "left" with the base turning 15 deg on the way (a sloppy stick without --one-axis).
+    rows = [motive_sample(i * 0.01, 1.0, 2.0 + 0.01 * i, 0.7 + math.radians(15) * i / 60, "y") for i in range(60)]
+    p["left"].write_text("\n".join(json.dumps(r) for r in rows))
+    out = B.solve(p["forward"], p["spin"], [], p["back"], p["left"], p["right"])
+    assert out["left"]["ok"] is False and out["moves_used"] == ["back", "forward", "right"]
+    assert out["marker_yaw_offset_deg"] == pytest.approx(30.0, abs=0.5)
+
+
+def test_the_line_fit_ignores_a_wobble_at_the_end(tmp_path):
+    p = drives(tmp_path, "y")
+    rows = B.live(B.load(p["forward"]))
+    rows[-1] = dict(rows[-1], pos=(np.array(rows[-1]["pos"]) + [0.0, 0.0, 0.03]).tolist())  # 3 cm sideways at the stop
+    X, Y, _ = B.floor_frame(1)
+    assert B.heading_offset(rows, X, Y)["offset_deg"] == pytest.approx(30.0, abs=0.6)
