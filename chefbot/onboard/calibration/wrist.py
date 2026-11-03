@@ -2,13 +2,14 @@
 
     python -m chefbot.onboard.calibration.wrist look [--pose ready|forward]  # moves the arm (Enter first), then says
                                                                              # which markers the camera sees (look.png)
-    python -m chefbot.onboard.calibration.wrist record out.json   # from where the marker is in view: orbits the
-                                                                  # camera around it (Enter once), corners per pose
+    python -m chefbot.onboard.calibration.wrist record out.json [--dict DICT_4X4_50 --id 0 --size 0.127]
+        # from where the marker is in view: orbits the camera around it (Enter once), corners per pose
     python -m chefbot.onboard.calibration.wrist solve out.json [--skip 12 13] [--size 0.132]
         # the camera in the flange frame; the marker's size fitted unless measured (--size: the black square, m).
         # The camera's offset along its view axis trades off against the size: measure it if you can.
 
-The marker: DICT_4X4_50 id 0, its black square about 0.134 m (from depth). The camera's pose comes out in ChefBot's
+The marker lies flat and stiff (a flimsy one bows). A measured size (its black square) pins the camera's offset
+along its view axis, which otherwise trades off against the fitted size. The camera's pose comes out in ChefBot's
 convention (environments/real/config.yaml cameras): OpenCV axes (x right, y down, z forward) in the flange frame.
 """
 
@@ -26,22 +27,23 @@ LOOK_POSES = {
 }
 
 
-DICTIONARY, MARKER_ID = "DICT_4X4_50", 0
-MARKER_SIZE = 0.134  # m, the black square (measured with the D405's depth; solve refits it)
+DICTIONARY, MARKER_ID = "DICT_4X4_50", 0  # record's defaults (--dict, --id)
+MARKER_SIZE = 0.134  # m, the black square, when not given (2026-11-02's flimsy marker, by depth; solve refits it)
 FRAMES = 10  # corner averages per pose
 ORBIT_TILTS_DEG = (0, 12, 22)  # the camera's view axis from vertical, around the marker
 ORBIT_ROLLS_DEG = (-50, 0, 50)  # turns about the view axis (hand-eye needs rotations about different axes)
 
 
 def detect_markers(gray) -> list[tuple[str, np.ndarray, list]]:
-    """Every predefined ArUco dictionary that finds at least two markers: (name, ids, corners), most markers first."""
+    """Every predefined ArUco dictionary that finds a marker: (name, ids, corners), most markers first (one marker
+    can decode in several dictionaries: the smallest that has it is the one)."""
     import cv2
 
     found = []
     for name in (n for n in dir(cv2.aruco) if n.startswith("DICT_")):
         d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, name))
         corners, ids, _ = cv2.aruco.ArucoDetector(d, cv2.aruco.DetectorParameters()).detectMarkers(gray)
-        if ids is not None and len(ids) >= 2:
+        if ids is not None:
             found.append((name, ids.flatten(), corners))
     return sorted(found, key=lambda f: -len(f[1]))
 
@@ -71,20 +73,20 @@ def look(pose: str, out: Path) -> None:
     print(f"  image: {out}")
 
 
-def _detect(det, gray):
+def _detect(det, gray, marker_id: int):
     corners, ids, _ = det.detectMarkers(gray)
-    if ids is None or MARKER_ID not in ids.flatten():
+    if ids is None or marker_id not in ids.flatten():
         return None
-    return corners[int(np.flatnonzero(ids.flatten() == MARKER_ID)[0])][0]
+    return corners[int(np.flatnonzero(ids.flatten() == marker_id)[0])][0]
 
 
-def corners_now(cam, det, frames: int = FRAMES):
+def corners_now(cam, det, marker_id: int, frames: int = FRAMES):
     """The marker's 4 corners (px), averaged over frames; None if not seen in most of them."""
     import cv2
 
     seen = []
     for _ in range(frames):
-        c = _detect(det, cv2.cvtColor(cam.frame()["bgr"], cv2.COLOR_BGR2GRAY))
+        c = _detect(det, cv2.cvtColor(cam.frame()["bgr"], cv2.COLOR_BGR2GRAY), marker_id)
         if c is not None:
             seen.append(c)
     if len(seen) < frames // 2:
@@ -156,7 +158,8 @@ def orbit(q_look, marker_cam) -> list[np.ndarray]:
     return out
 
 
-def record(out: Path) -> None:
+def record(out: Path, dictionary: str = DICTIONARY, marker_id: int = MARKER_ID, size: float | None = None) -> None:
+    """size: the marker's black square if known (m): saved with the data, and solve then holds it."""
     import json
 
     import cv2
@@ -165,33 +168,34 @@ def record(out: Path) -> None:
     from chefbot.onboard.calibration.camera import WRIST_D405, Camera
 
     arm = Arm()
-    det = cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, DICTIONARY)), cv2.aruco.DetectorParameters())
+    det = cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dictionary)), cv2.aruco.DetectorParameters())
+    marker = {"dictionary": dictionary, "id": marker_id, "size_m": size}
     samples = []
     with Camera(WRIST_D405) as cam:
         q_look = arm.q()
-        c = corners_now(cam, det)
+        c = corners_now(cam, det, marker_id)
         if c is None:
-            raise SystemExit("the marker isn't in view: run look first (or move the board under the camera)")
-        ok, rvec, tvec = cv2.solvePnP(_object_points(MARKER_SIZE), c, cam.K, cam.D, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+            raise SystemExit(f"marker {dictionary} id {marker_id} isn't in view: run look first (or move it under the camera)")
+        ok, rvec, tvec = cv2.solvePnP(_object_points(size or MARKER_SIZE), c, cam.K, cam.D, flags=cv2.SOLVEPNP_IPPE_SQUARE)
         poses = [q_look] + orbit(q_look, tvec.ravel())
         print(f"marker {np.linalg.norm(tvec):.2f} m away; {len(poses)} poses around it")
         try:
             for i, q in enumerate(poses):
                 arm.move_to(q, f"pose {i + 1}/{len(poses)}", confirm=i == 1)
                 arm.still(0.5)
-                c = corners_now(cam, det)
+                c = corners_now(cam, det, marker_id)
                 if c is None:
                     print("  marker not seen: skipped")
                     continue
                 qs = arm.still(0.5)["q"]
                 samples.append({"q": qs, "corners": c.tolist()})
                 print(f"  recorded ({len(samples)} so far)")
-                out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "samples": samples}, indent=1))
+                out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "marker": marker, "samples": samples}, indent=1))
         except (Stop, KeyboardInterrupt):
             arm.hold()
             print("stopped: holding")
         finally:
-            out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "samples": samples}, indent=1))
+            out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "marker": marker, "samples": samples}, indent=1))
             print(f"{len(samples)} poses in {out}")
         arm.move_to(q_look, "back to the look pose", confirm=False)
 
@@ -292,6 +296,7 @@ def solve(path: Path, skip=(), size: float | None = None) -> dict:
 
     d = json.loads(path.read_text())
     K, D = np.array(d["K"]), np.array(d["D"])
+    size = size or d.get("marker", {}).get("size_m")  # measured: held; else fitted
     samples = [s for i, s in enumerate(d["samples"]) if i + 1 not in set(skip)]
     if len(samples) < 5:
         raise SystemExit(f"{len(samples)} poses: need at least 5")
@@ -325,6 +330,9 @@ def main() -> None:
     a.add_argument("--out", type=Path, default=Path("look.png"))
     b = sub.add_parser("record")
     b.add_argument("out", type=Path)
+    b.add_argument("--dict", default=DICTIONARY, help="the marker's ArUco dictionary (look prints it)")
+    b.add_argument("--id", type=int, default=MARKER_ID)
+    b.add_argument("--size", type=float, default=None, help="the marker's black square, measured (m)")
     c = sub.add_parser("solve")
     c.add_argument("data", type=Path)
     c.add_argument("--skip", type=int, nargs="*", default=[], help="poses (from 1) to leave out")
@@ -333,7 +341,7 @@ def main() -> None:
     if args.cmd == "look":
         look(args.pose, args.out)
     elif args.cmd == "record":
-        record(args.out)
+        record(args.out, args.dict, args.id, args.size)
     else:
         solve(args.data, args.skip, args.size)
 
