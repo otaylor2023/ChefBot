@@ -209,12 +209,12 @@ def record(out: Path, dictionary: str = DICTIONARY, marker_id: int = MARKER_ID, 
         try:
             for i, q in enumerate(poses):
                 arm.move_to(q, f"pose {i + 1}/{len(poses)}", confirm=i == 0 if distance else i == 1)
-                arm.still(0.5)
+                arm.still(0.3)
                 c = corners_now(cam, det, marker_id)
                 if c is None:
                     print("  marker not seen: skipped")
                     continue
-                qs = arm.still(0.5)["q"]
+                qs = arm.still(0.3)["q"]
                 samples.append({"q": qs, "corners": c.tolist()})
                 print(f"  recorded ({len(samples)} so far)")
                 out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "marker": marker, "samples": samples}, indent=1))
