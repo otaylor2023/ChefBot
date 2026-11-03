@@ -8,7 +8,9 @@ and the camera's pose is what fits both.
 
 Not from one frame: a small card's own orientation in the image is poor (13 deg off, for 34 px markers at 0.6 m),
 and the camera's pose from it worse. The tracker pools the corners of the recent frames (the arm still in each) and
-fits the camera to all of them: its full pose once the hand has been in places spread over the view, until then
+fits the camera to all of them: its full pose once the hand has been in places spread over the view (3 cm both ways:
+on the real arm, 2026-11-03, 18 frames spread 5.6 x 4.1 cm brought a pose knocked 2 cm, 1 deg to 3 mm, 0.5 deg of
+the calibration; the 5 cm this started with never let it), until then
 only its rotation (its position kept), which the image pins well and which is how a clamped camera mostly drifts. A
 run of frames that no longer fit (the camera knocked) clears the pool and starts over from them, with a warning.
 """
@@ -25,7 +27,7 @@ log = logging.getLogger(__name__)
 
 class MountTracker:
     def __init__(self, T_flange_card, card_points: dict[int, np.ndarray], dictionary: str = "DICT_4X4_50", pose=None,
-                 min_markers: int = 2, still_qd: float = 0.02, window: int = 40, spread_m: float = 0.05,
+                 min_markers: int = 2, still_qd: float = 0.02, window: int = 40, spread_m: float = 0.03,
                  moved_px: float = 4.0, moved_after: int = 3):  # fmt: skip
         import cv2
 
