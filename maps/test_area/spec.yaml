@@ -1,0 +1,11 @@
+# EXAMPLE ONLY, NOT MEASURED: open floor around HT-3b's start pose C (x 0.285, y 0.276, yaw 179.6; the base faced -x),
+# with one VIRTUAL obstacle (nothing is there). Before using it on the robot, replace `bounds` with floor that is
+# really clear, measured in the mocap frame (real_pose prints it). The planner keeps the base centre 0.43 m
+# (footprint 0.33 + margin 0.10) from every obstacle and from the bounds, so it needs room: a 3 ft square is too small.
+resolution: 0.05
+bounds: [[-1.65, -1.25], [1.25, 1.75]]   # ~2.9 x 3.0 m
+obstacles:
+  - {name: virtual_box, box: {center: [-0.45, 0.25], size: [0.30, 0.30], yaw_deg: 0}}
+places:
+  start: {x: 0.285, y: 0.276, yaw_deg: 179.6}
+  beyond_box: {x: -1.15, y: 0.25, yaw_deg: 179.6}

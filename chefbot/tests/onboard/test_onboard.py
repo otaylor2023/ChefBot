@@ -608,3 +608,53 @@ def test_characterize_runs_a_session_and_reports(sim, tmp_path):
     text = report(tmp_path)
     assert "[repeat] 4 legs" in text and "[turns] 2 legs" in text and "centre drift in turns" in text
     assert "calibration hints" in text
+
+
+# -- scripts/real_map and real_nav go --map: A* around obstacles -------------------------
+
+
+def test_real_map_marks_bounds_and_obstacles():
+    from chefbot.scripts.real_map import build
+
+    grid, places = build({"resolution": 0.05, "bounds": [[0, 0], [2, 1]],
+                          "obstacles": [{"name": "b", "box": {"center": [1.0, 0.5], "size": [0.4, 0.2], "yaw_deg": 0}}],
+                          "places": {"p": {"x": 0.3, "y": 0.5, "yaw_deg": 90}}})  # fmt: skip
+    assert grid.is_free(0.3, 0.5) and not grid.is_free(1.0, 0.5) and not grid.is_free(1.15, 0.55)
+    assert not grid.is_free(-0.05, 0.5) and not grid.is_free(1.0, 1.05)  # outside the bounds
+    assert grid.is_free(1.0, 0.75) and places["p"]["yaw_deg"] == 90
+
+
+def test_real_nav_plans_around_an_obstacle_and_never_touches_it(sim, tmp_path):
+    from chefbot.scripts.real_map import build
+    from chefbot.scripts.real_nav import go_planned
+
+    env, base, redis, server = sim
+    wait_until(lambda: env.localization().live and env.raw_state().get("base_driver_live"))
+    s = env.localization().mocap_pose  # (2, 1, 0.5): the simulated base's world pose at odometry zero
+    grid, _ = build({"resolution": 0.05, "bounds": [[s.x - 2.1, s.y - 1.6], [s.x + 1.6, s.y + 1.6]],
+                     "obstacles": [{"name": "box", "box": {"center": [s.x - 0.6, s.y], "size": [0.3, 0.3]}}]})  # fmt: skip
+    goal = Pose2D(s.x - 1.4, s.y, s.yaw)  # 0.25 m past the box's far edge grown by footprint + margin
+    result = go_planned(env, goal, grid, footprint=0.33, margin=0.10, confirm=lambda _: None, log_dir=tmp_path,
+                        speed=0.5, yaw_speed=1.0)  # fmt: skip
+    assert result["ok"], result["reason"]
+    assert len(result["path"]) > 2  # not the straight line through the box
+    assert result["final_error_m"] < 0.03
+    body = grid.inflate(0.33)
+    for leg in sorted(tmp_path.glob("leg*.jsonl")):
+        for line in leg.read_text().splitlines():
+            x, y, _ = json.loads(line)["pose"]
+            assert body.is_free(x, y)  # the footprint never overlapped the box
+
+
+def test_real_nav_refuses_a_goal_inside_an_obstacle(sim):
+    from chefbot.scripts.real_map import build
+    from chefbot.scripts.real_nav import go_planned
+
+    env, base, redis, server = sim
+    wait_until(lambda: env.localization().live and env.raw_state().get("base_driver_live"))
+    s = env.localization().mocap_pose
+    grid, _ = build({"bounds": [[s.x - 1.6, s.y - 1.6], [s.x + 1.6, s.y + 1.6]],
+                     "obstacles": [{"name": "box", "box": {"center": [s.x - 0.6, s.y], "size": [0.3, 0.3]}}]})  # fmt: skip
+    r = go_planned(env, Pose2D(s.x - 0.6, s.y, s.yaw), grid, confirm=lambda _: None)
+    assert not r["ok"] and not r["moved"] and "no path" in r["reason"]
+    assert K.BASE_CMD_SEQ not in redis.values

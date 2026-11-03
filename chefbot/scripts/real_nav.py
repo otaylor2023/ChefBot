@@ -6,6 +6,13 @@
     python -m chefbot.scripts.real_nav point S1 --from A --forward 0.3 [--left 0] [--turn 0]   # relative to A's heading
     python -m chefbot.scripts.real_nav list
     python -m chefbot.scripts.real_nav go B [--speed 0.1] [--yaw-speed 0.3]     # Enter to start, Ctrl-C stops
+    python -m chefbot.scripts.real_nav go stove --map maps/src_kitchen     # A* around the map's obstacles
+
+With --map (scripts/real_map.py), the target may also be one of the map's places, and the base goes there by A* on
+the map grown by --footprint + --margin, one straight segment at a time (each a `go` as below, stopping at each
+corner), and stops if its footprint ever overlaps an obstacle. --footprint 0.33 m: the base reaches at most ~10 in
+(0.254 m) beyond the mocap body, whose origin is 0.072 m ahead of the base centre; --margin 0.10 m on top, for the
+arm at the front and for the map's measuring error. The footprint is a circle, so the margin protects the front too.
 
 Points are base poses in the mocap world (x, y in m, yaw in deg), in runs/real_nav/points.json.
 
@@ -138,7 +145,7 @@ def summarize_move(samples: list[dict], start: Pose2D, goal: Pose2D) -> dict:
 def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
        yaw_tol_deg: float = 3.0, corridor: float = 0.15, max_dist: float = 1.5, timeout_s: float | None = None,
        confirm=input, log_path: Path | None = None, rate_hz: float = 20.0, fence: Fence | None = None,
-       tail_s: float = 1.0, quiet: bool = False) -> dict:  # fmt: skip
+       tail_s: float = 1.0, quiet: bool = False, keep_free=None) -> dict:  # fmt: skip
     """Drive to `goal` (world). Returns a result dict; the base is held on every exit. With a `fence`, a goal outside
     it is refused and leaving it (plus 5 cm) stops the move. `tail_s`: keep logging this long after the hold."""
     loc, raw = env.localization(), env.raw_state()
@@ -213,6 +220,9 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
             if fence is not None and not fence.contains(p.x, p.y, 0.05):
                 result["reason"] = "left the fence"
                 break
+            if keep_free is not None and not keep_free.is_free(p.x, p.y):
+                result["reason"] = "the base's footprint reached an obstacle on the map"
+                break
             if off_line > corridor:
                 result["reason"] = f"{off_line:.2f} m off the line A-B (> {corridor} m)"
                 break
@@ -263,6 +273,44 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
     return result
 
 
+def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, margin: float = 0.10, confirm=input,
+               log_dir: Path | None = None, **go_args) -> dict:  # fmt: skip
+    """A* from where the base is to `goal` on `grid` (the furniture itself) grown by footprint + margin, then each
+    segment with go(). The base centre must stay where its footprint clears the furniture (grid grown by footprint)."""
+    from chefbot.robot.nav.astar import AStarPlanner, NoPath, path_length, with_yaw
+
+    loc = env.localization()
+    if not loc.live:
+        return {"ok": False, "reason": "no live mocap pose", "moved": False}
+    start = loc.mocap_pose
+    plan_grid, body_grid = grid.inflate(footprint + margin), grid.inflate(footprint)
+    if not body_grid.is_free(start.x, start.y):
+        return {"ok": False, "reason": "the base is touching an obstacle on the map where it stands", "moved": False}
+    try:
+        points = AStarPlanner(plan_grid).plan_xy((start.x, start.y), (goal.x, goal.y))
+    except NoPath as exc:
+        return {"ok": False, "reason": f"no path: {exc}", "moved": False}
+    poses = with_yaw(points, start.yaw, goal.yaw)[1:]
+    print(f"A* path {path_length(points):.2f} m in {len(poses)} segment(s): "
+          + " -> ".join(f"({p.x:.2f}, {p.y:.2f}, {math.degrees(p.yaw):.0f})" for p in poses))  # fmt: skip
+    try:
+        confirm("Floor clear along the path and e-stop in hand? Enter to drive, Ctrl-C to cancel: ")
+    except (KeyboardInterrupt, EOFError):
+        return {"ok": False, "reason": "cancelled", "moved": False}
+    legs = []
+    for i, waypoint in enumerate(poses):
+        log_path = None if log_dir is None else log_dir / f"leg{i:02d}.jsonl"
+        r = go(env, waypoint, confirm=lambda _: None, log_path=log_path, keep_free=body_grid, quiet=True, **go_args)
+        legs.append(r)
+        print(f"  segment {i + 1}/{len(poses)}: {r['reason']}" + (f", {1000 * r['final_error_m']:.1f} mm" if r.get("final_error_m") is not None else ""))
+        if not r.get("ok"):
+            return {"ok": False, "reason": f"segment {i + 1}: {r['reason']}", "moved": True, "legs": legs, "path": points}
+    last = legs[-1]
+    return {"ok": True, "reason": "reached", "moved": True, "legs": legs, "path": points,
+            "final_error_m": last.get("final_error_m"), "final_yaw_error_deg": last.get("final_yaw_error_deg"),
+            "path_m": path_length(points)}  # fmt: skip
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default=None)
@@ -285,6 +333,9 @@ def main() -> None:
     g.add_argument("--corridor", type=float, default=0.15, help="m off the straight line A-B before stopping")
     g.add_argument("--max-dist", type=float, default=1.5, help="m: refuse targets further away")
     g.add_argument("--timeout", type=float, default=None, help="s (default from the distance and speed)")
+    g.add_argument("--map", type=Path, default=None, help="a map from scripts/real_map.py: plan around its obstacles")
+    g.add_argument("--footprint", type=float, default=0.33, help="m, base centre to its farthest point (with --map)")
+    g.add_argument("--margin", type=float, default=0.10, help="m added to the footprint for planning (with --map)")
     args = ap.parse_args()
 
     if args.cmd == "point":
@@ -309,10 +360,27 @@ def main() -> None:
             mark(env, args.name)
             return
         points = load_points()
+        grid = None
+        if args.map is not None:
+            from chefbot.scripts.real_map import load as load_map
+
+            grid, map_places = load_map(args.map)
+            points = map_places | points
         if args.name not in points:
             raise SystemExit(f"no point {args.name!r}: mark it first ({', '.join(points) or 'none yet'})")
         p = points[args.name]
-        log_path = REPO / "runs" / "real_nav" / f"{datetime.now():%Y%m%d_%H%M%S}_{args.name}.jsonl"
+        stamp = f"{datetime.now():%Y%m%d_%H%M%S}_{args.name}"
+        if grid is not None:
+            log_dir = REPO / "runs" / "real_nav" / stamp
+            log_dir.mkdir(parents=True, exist_ok=True)
+            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, footprint=args.footprint,
+                                margin=args.margin, log_dir=log_dir, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
+                                yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist)  # fmt: skip
+            (log_dir / "result.json").write_text(json.dumps(result, indent=2, default=str))
+            print(json.dumps({k: v for k, v in result.items() if k != "legs"}, indent=2, default=str))
+            print(f"logs: {log_dir}")
+            return
+        log_path = REPO / "runs" / "real_nav" / f"{stamp}.jsonl"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         result = go(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), speed=args.speed, yaw_speed=args.yaw_speed,
                     tol=args.tol, yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist,

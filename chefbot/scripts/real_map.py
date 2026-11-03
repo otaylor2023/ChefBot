@@ -1,0 +1,148 @@
+"""A map of the real kitchen, in the mocap (Motive) world frame, from a short hand-written description.
+
+    python -m chefbot.scripts.real_map build maps/src_kitchen/spec.yaml      # -> grid.npy, grid.yaml, places.yaml beside it
+    python -m chefbot.scripts.real_map show maps/src_kitchen [--footprint 0.33 --margin 0.10] [--from X Y --to X Y]
+
+The spec (all in metres, world frame, as real_pose / real_nav print poses):
+
+    resolution: 0.05
+    bounds: [[xmin, ymin], [xmax, ymax]]          # the floor the base may use; everything outside is occupied
+    obstacles:                                    # counters, cabinets, tables, walls, a box on the floor
+      - {name: counter_north, box: {center: [x, y], size: [length, depth], yaw_deg: 0}}
+      - {name: island, polygon: [[x, y], [x, y], [x, y], ...]}
+    places:                                       # base poses to go to by name (real_nav go <name> --map ...)
+      stove: {x: 1.5, y: -3.9, yaw_deg: -90}
+
+The output is the repo's map format (robot/nav OccupancyGrid: grid.npy + grid.yaml, row along +y, col along +x),
+so robot/nav's A* plans on it unchanged. Obstacles are the furniture itself; the planner grows them by the robot's
+footprint (real_nav: --footprint and --margin). Measure corners with a tape from a mocap-tracked point, or later
+with a tracked wand; a few cm is fine, the margin covers it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+from pathlib import Path
+
+import numpy as np
+import yaml
+
+from chefbot.robot.nav.astar import AStarPlanner, NoPath, path_length
+from chefbot.robot.nav.grid import OccupancyGrid
+
+
+def box_polygon(center, size, yaw_deg: float = 0.0) -> list[tuple[float, float]]:
+    cx, cy = center
+    hl, hw = size[0] / 2, size[1] / 2
+    c, s = math.cos(math.radians(yaw_deg)), math.sin(math.radians(yaw_deg))
+    return [(cx + c * x - s * y, cy + s * x + c * y) for x, y in ((-hl, -hw), (hl, -hw), (hl, hw), (-hl, hw))]
+
+
+def inside(points: np.ndarray, polygon) -> np.ndarray:
+    """Even-odd rule, vectorized over (N, 2) points."""
+    poly = np.asarray(polygon, dtype=float)
+    x, y = points[:, 0], points[:, 1]
+    result = np.zeros(len(points), dtype=bool)
+    for (x1, y1), (x2, y2) in zip(poly, np.roll(poly, -1, axis=0)):
+        crosses = (y1 > y) != (y2 > y)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xi = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+        result ^= crosses & (x < xi)
+    return result
+
+
+def obstacle_polygon(o: dict) -> list:
+    if "box" in o:
+        b = o["box"]
+        return box_polygon(b["center"], b["size"], b.get("yaw_deg", 0.0))
+    return [tuple(p) for p in o["polygon"]]
+
+
+def build(spec: dict) -> tuple[OccupancyGrid, dict]:
+    """The occupancy grid (bounds' outside and every obstacle occupied) and the places."""
+    res = float(spec.get("resolution", 0.05))
+    (xmin, ymin), (xmax, ymax) = spec["bounds"]
+    pad = 2 * res  # a ring of occupied cells around the bounds
+    origin = (xmin - pad, ymin - pad)
+    cols = int(math.ceil((xmax - xmin + 2 * pad) / res))
+    rows = int(math.ceil((ymax - ymin + 2 * pad) / res))
+    cc, rr = np.meshgrid(np.arange(cols), np.arange(rows))
+    centres = np.column_stack([origin[0] + (cc.ravel() + 0.5) * res, origin[1] + (rr.ravel() + 0.5) * res])
+    occupied = ~((centres[:, 0] >= xmin) & (centres[:, 0] <= xmax) & (centres[:, 1] >= ymin) & (centres[:, 1] <= ymax))
+    for o in spec.get("obstacles") or []:
+        poly = np.asarray(obstacle_polygon(o))
+        occupied |= inside(centres, poly)
+        # Thin obstacles (a wall drawn as a line-thin box) still block: mark the cells their corners fall in.
+        for x, y in poly:
+            r, c = int((y - origin[1]) // res), int((x - origin[0]) // res)
+            if 0 <= r < rows and 0 <= c < cols:
+                occupied[r * cols + c] = True
+    grid = OccupancyGrid(occupied.reshape(rows, cols), res, origin)
+    places = {name: {"x": float(p["x"]), "y": float(p["y"]), "yaw_deg": float(p.get("yaw_deg", 0.0))}
+              for name, p in (spec.get("places") or {}).items()}  # fmt: skip
+    return grid, places
+
+
+def load(map_dir: Path) -> tuple[OccupancyGrid, dict]:
+    map_dir = Path(map_dir)
+    places = yaml.safe_load((map_dir / "places.yaml").read_text()) if (map_dir / "places.yaml").exists() else {}
+    return OccupancyGrid.load(map_dir / "grid.npy"), places or {}
+
+
+def render(grid: OccupancyGrid, inflated: OccupancyGrid | None = None, path=None, marks: dict | None = None) -> str:
+    """ASCII, +y up: '#' obstacle, '+' too close for the base centre, '.' free, '*' path, letters for marks."""
+    chars = np.where(grid.occupied, "#", ".").astype("<U1")
+    if inflated is not None:
+        chars[(inflated.occupied) & (~grid.occupied)] = "+"
+    if path:
+        for (ax, ay), (bx, by) in zip(path, path[1:]):
+            n = max(1, int(math.hypot(bx - ax, by - ay) / (grid.resolution / 2)))
+            for i in range(n + 1):
+                r, c = grid.world_to_cell(ax + (bx - ax) * i / n, ay + (by - ay) * i / n)
+                if grid.in_bounds((r, c)):
+                    chars[r, c] = "*"
+    for label, (x, y) in (marks or {}).items():
+        r, c = grid.world_to_cell(x, y)
+        if grid.in_bounds((r, c)):
+            chars[r, c] = label[0]
+    return "\n".join("".join(row) for row in chars[::-1])
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    b = sub.add_parser("build")
+    b.add_argument("spec", type=Path)
+    s = sub.add_parser("show")
+    s.add_argument("map_dir", type=Path)
+    s.add_argument("--footprint", type=float, default=0.33)
+    s.add_argument("--margin", type=float, default=0.10)
+    s.add_argument("--from", dest="start", type=float, nargs=2)
+    s.add_argument("--to", dest="goal", type=float, nargs=2)
+    args = ap.parse_args()
+    if args.cmd == "build":
+        spec = yaml.safe_load(args.spec.read_text())
+        grid, places = build(spec)
+        out = args.spec.parent
+        grid.save(out / "grid.npy", out / "grid.yaml")
+        (out / "places.yaml").write_text(yaml.safe_dump(places, sort_keys=True))
+        free = 100 * (1 - grid.occupied.mean())
+        print(f"{grid.shape[0]} x {grid.shape[1]} cells at {grid.resolution} m, {free:.0f}% free; {len(places)} places -> {out}")
+        return
+    grid, places = load(args.map_dir)
+    inflated = grid.inflate(args.footprint + args.margin)
+    path, marks = None, {name: (p["x"], p["y"]) for name, p in places.items()}
+    if args.start and args.goal:
+        try:
+            path = AStarPlanner(inflated).plan_xy(tuple(args.start), tuple(args.goal))
+            print(f"path {path_length(path):.2f} m, {len(path) - 1} segments: " + " -> ".join(f"({x:.2f}, {y:.2f})" for x, y in path))
+        except NoPath as exc:
+            print(f"no path: {exc}")
+        marks |= {"S": tuple(args.start), "G": tuple(args.goal)}
+    print(render(grid, inflated, path, marks))
+    print(f"'#' obstacle, '+' within {args.footprint + args.margin:.2f} m (footprint + margin) of one, '*' path; +y up")
+
+
+if __name__ == "__main__":
+    main()
