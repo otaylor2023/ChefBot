@@ -16,6 +16,9 @@ What differs, for safety:
 - hb1::heartbeat counts up every loop, braking or not, so readers can tell a live driver from odometry left in
   Redis by an earlier run (Redis keeps it, across reboots).
 - State is published every loop, also while braking; kill exits the loop.
+- The planar speed limit holds for the base's speed, not each axis: Vehicle's trajectory limits x and y
+  separately, which let a diagonal go sqrt(2) faster (0.167 m/s measured in HT-3b against 0.125). Each tick the
+  x / y limits are set along the direction to the goal, so their combination is at most --max-vel-xy.
 """
 
 from __future__ import annotations
@@ -88,6 +91,7 @@ class DriverLoop:
                 self._brake()
                 self.mode = "idle"
             else:
+                self._limit_along(goal)
                 self.v.set_target_position(goal)
                 self.mode = "moving"
         else:
@@ -101,6 +105,15 @@ class DriverLoop:
     def _brake(self) -> None:
         self.v.set_target_velocity(np.zeros(3))
         self.r.set(DESIRED, _list(self.v.x))  # a later fresh command replaces it; nothing old is resumed
+
+    def _limit_along(self, goal: np.ndarray) -> None:
+        """x / y velocity limits along the direction to `goal`, so the planar speed is at most the planar limit."""
+        v_xy, v_yaw = self.baseline_max_vel[0] * self.scale, self.baseline_max_vel[2] * self.scale
+        d = np.asarray(goal[:2], dtype=float) - np.asarray(self.v.x[:2], dtype=float)
+        n = float(np.linalg.norm(d))
+        u = np.abs(d) / n if n > 1e-4 else np.array([1.0, 1.0]) / np.sqrt(2.0)
+        floor = 0.05 * v_xy  # a little on the minor axis, so it can still correct across the line
+        self.v.otg_inp.max_velocity = [max(v_xy * u[0], floor), max(v_xy * u[1], floor), v_yaw]
 
     def _apply_scale(self) -> None:
         try:

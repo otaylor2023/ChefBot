@@ -170,9 +170,8 @@ def report(session: Path) -> str:
                 if r["leg"] == "out":
                     lines.append(f"    {r['move']['speed']:.2f} m/s: overshoot {1000 * (r.get('overshoot_m') or 0):.1f} mm, "
                                  f"peak {r.get('peak_speed_mps', 0):.3f} m/s, to 5 cm {r.get('time_to_5cm_s') or float('nan'):.2f} s")  # fmt: skip
-    scale = [r["odom_over_mocap"] for r in ok if r.get("odom_over_mocap")]
-    if scale:
-        lines.append(f"\nwheel odometry distance / true distance: mean {np.mean(scale):.3f} (std {np.std(scale):.3f}, n {len(scale)})")
+    lines.append("\n(wheel odometry vs truth needs the raw odometry: run calibration/base.py record on the robot during the session)")
+    scale = []
     hints = []
     turns = [r for r in ok if r["block"] == "turns"]
     if turns and max(r.get("max_off_line_m", 0) for r in turns) > 0.02:

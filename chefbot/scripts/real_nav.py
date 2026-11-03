@@ -100,6 +100,9 @@ def summarize_move(samples: list[dict], start: Pose2D, goal: Pose2D) -> dict:
         return {}
     P = np.array([s["pose"] for s in samples])
     T = np.array([s["t"] for s in samples])
+    # Rates from the robot server's send times (a laptop's receive times jitter, which made a spike out of 0.17 m/s).
+    TS = np.array([s.get("server_t") or np.nan for s in samples], dtype=float)
+    T_rate = TS if np.all(np.isfinite(TS)) else T
     line = np.array([goal.x - start.x, goal.y - start.y])
     L = float(np.linalg.norm(line))
     out = {"samples": len(samples), "max_off_line_m": float(max(s["off_line"] for s in samples))}
@@ -112,18 +115,23 @@ def summarize_move(samples: list[dict], start: Pose2D, goal: Pose2D) -> dict:
     target_turn = math.degrees(wrap(goal.yaw - start.yaw))
     if abs(target_turn) > 2:
         out["yaw_overshoot_deg"] = float(max(0.0, (turned * np.sign(target_turn)).max() - abs(target_turn)))
-    dt = np.diff(T)
-    ok = dt > 1e-3
-    if ok.any():
-        v = np.hypot(np.diff(P[:, 0]), np.diff(P[:, 1]))[ok] / dt[ok]
-        w = np.abs(np.diff(np.unwrap(P[:, 2])))[ok] / dt[ok]
-        out["peak_speed_mps"] = float(np.percentile(v, 98))
-        out["peak_yaw_rate_dps"] = float(np.degrees(np.percentile(w, 98)))
-    odom = [s for s in samples if s.get("odom_world")]
-    if len(odom) >= 2 and L > 0.05:
-        m = np.linalg.norm(P[-1, :2] - P[0, :2])
-        o = np.linalg.norm(np.array(odom[-1]["odom_world"][:2]) - np.array(odom[0]["odom_world"][:2]))
-        out["odom_over_mocap"] = float(o / m) if m > 1e-3 else None  # wheel odometry's distance / the true distance
+    # Over >= 0.1 s windows of distinct states (each state sample can repeat at 20 Hz polling of a 50 Hz stream).
+    keep = np.r_[True, np.diff(T_rate) > 1e-4]
+    Pk, Tk = P[keep], T_rate[keep]
+    v, w = [], []
+    j = 0
+    for i in range(len(Tk)):
+        while j < i and Tk[i] - Tk[j] > 0.1:
+            j += 1
+        if j > 0 and Tk[i] - Tk[j - 1] >= 0.1:
+            dt = Tk[i] - Tk[j - 1]
+            v.append(math.hypot(Pk[i, 0] - Pk[j - 1, 0], Pk[i, 1] - Pk[j - 1, 1]) / dt)
+            w.append(abs(wrap(Pk[i, 2] - Pk[j - 1, 2])) / dt)
+    if v:
+        out["peak_speed_mps"] = float(max(v))
+        out["peak_yaw_rate_dps"] = float(math.degrees(max(w)))
+    # No odometry-vs-mocap ratio here: odom_world is odometry re-tied to mocap on every read, so it equals mocap.
+    # The real ratio needs the driver's raw odometry: calibration/base.py record on the robot logs it.
     return out
 
 
@@ -171,7 +179,7 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
     def sample(t, loc, raw, phase):
         p = loc.mocap_pose
         rel = np.array([p.x - start.x, p.y - start.y])
-        row = {"t": t, "wall": time.time(), "phase": phase, "pose": [p.x, p.y, p.yaw],
+        row = {"t": t, "wall": time.time(), "server_t": raw.get("t"), "phase": phase, "pose": [p.x, p.y, p.yaw],
                "off_line": float(abs(rel[0] * u[1] - rel[1] * u[0])) if line_len > 1e-6 else float(np.linalg.norm(rel)),
                "dist": math.hypot(goal.x - p.x, goal.y - p.y), "yaw_err_deg": math.degrees(wrap(goal.yaw - p.yaw)),
                "odom_world": None if loc.base_pose is None else [loc.base_pose.x, loc.base_pose.y, loc.base_pose.yaw],
