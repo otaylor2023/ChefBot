@@ -44,14 +44,25 @@ def arm_points(q) -> np.ndarray:
     return np.array(p + [(a + b) / 2 for a, b in zip(p, p[1:])])
 
 
-def in_keep_out(q) -> bool:
-    p = arm_points(q)
-    return bool(np.any((p[:, 0] < KEEP_OUT_X_BELOW) & (p[:, 1] > KEEP_OUT_Y_ABOVE) & (p[:, 2] > KEEP_OUT_Z_ABOVE)))
+def _inside(p, margin: float) -> np.ndarray:
+    x_below, y_above = KEEP_OUT_X_BELOW + margin, KEEP_OUT_Y_ABOVE - margin
+    return (p[:, 0] < x_below) & (p[:, 1] > y_above) & (p[:, 2] > KEEP_OUT_Z_ABOVE)
 
 
-def path_clear(q0, q1, samples: int = 30) -> bool:
+def in_keep_out(q, margin: float = 0.0) -> bool:
+    """Any point of the arm in the keep-out; the hand's (flange to fingertips) with the keep-out grown by margin (m:
+    for something held that sticks out of the hand)."""
+    from chefbot.onboard.calibration import fr3
+
+    T = fr3.flange(q)
+    hand = np.array([T[:3, 3] + T[:3, 2] * t for t in np.linspace(0.0, TCP_Z, 4)])
+    return bool(np.any(_inside(arm_points(q), 0.0)) or np.any(_inside(hand, margin)))
+
+
+def path_clear(q0, q1, samples: int = 30, margin: float = 0.0) -> bool:
     """The joint-space straight line from q0 to q1 (how the arm moves) stays out of the keep-out."""
-    return not any(in_keep_out(q0 + (q1 - q0) * t) for t in np.linspace(0, 1, samples))
+    q0, q1 = np.asarray(q0, float), np.asarray(q1, float)
+    return not any(in_keep_out(q0 + (q1 - q0) * t, margin) for t in np.linspace(0, 1, samples))
 
 
 class Stop(Exception):
@@ -88,14 +99,14 @@ class Arm:
                 return True
         return False
 
-    def move_to(self, target, label: str = "", confirm: bool = True, settle_s: float = 1.0) -> None:
+    def move_to(self, target, label: str = "", confirm: bool = True, settle_s: float = 1.0, margin: float = 0.0) -> None:
         target = np.asarray(target, dtype=float)
         lo, hi = LIMITS[:, 0] + MARGIN, LIMITS[:, 1] - MARGIN
         if np.any(target < lo) or np.any(target > hi):
             bad = [i + 1 for i in np.flatnonzero((target < lo) | (target > hi))]
             raise ValueError(f"target outside the joint limits (less {MARGIN} rad) at joints {bad}: {np.round(target, 3)}")
         q0 = self.q()
-        if not path_clear(q0, target):
+        if not path_clear(q0, target, margin=margin):
             raise ValueError(f"the move would pass behind the arm on its left (the pole): {np.round(target, 3)}")
         delta = target - q0
         n = max(1, int(np.ceil(np.abs(delta).max() / STEP)))
