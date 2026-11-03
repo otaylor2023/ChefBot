@@ -124,41 +124,55 @@ def ik(q0, T_goal, iters: int = 300) -> np.ndarray | None:
     return q if np.all(q > lo) and np.all(q < hi) else None
 
 
-def orbit(q_look, marker_cam) -> list[np.ndarray]:
-    """Joint poses around the look pose: the flange at the look pose's distance from the marker, its z axis tilted
-    off the vertical and turned about it, still pointing at the marker (as if the camera looked along the flange's
-    z from the flange; near enough to keep the marker in view)."""
+def wrist_mount() -> np.ndarray:
+    """The wrist camera in the flange from environments/real/config.yaml (a provisional one aims well enough);
+    the flange itself if there is none yet."""
+    import yaml
+
+    cams = yaml.safe_load((Path(__file__).parents[2] / "environments" / "real" / "config.yaml").read_text()).get("cameras") or {}
+    return np.array(cams["wrist"]["T"], float) if "wrist" in cams else np.eye(4)
+
+
+def orbit(q_look, marker_cam, distance: float | None = None) -> list[np.ndarray]:
+    """Joint poses with the camera `distance` from the marker (else the look pose's), its view axis tilted off the
+    look pose's and turned about it, still pointing at the marker; the first one straight on."""
+    import cv2
+
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.arm import path_clear
 
-    T0 = fr3.flange(q_look)
-    target = T0[:3, 3] + T0[:3, :3] @ marker_cam  # the marker in the base, taking the camera as at the flange
-    dist = float(np.linalg.norm(target - T0[:3, 3]))
+    X = wrist_mount()
+    Tc0 = fr3.flange(q_look) @ X
+    target = Tc0[:3, 3] + Tc0[:3, :3] @ marker_cam
+    dist = distance or float(np.linalg.norm(target - Tc0[:3, 3]))
+    d = (target - Tc0[:3, 3]) / np.linalg.norm(target - Tc0[:3, 3])
+    axis = np.cross(Tc0[:3, 2], d)  # aim the look pose's view axis at the marker
+    turn = np.arcsin(np.clip(np.linalg.norm(axis), 0, 1))
+    R_aim = (cv2.Rodrigues(axis / np.linalg.norm(axis) * turn)[0] if turn > 1e-6 else np.eye(3)) @ Tc0[:3, :3]
     poses = []
     for tilt in ORBIT_TILTS_DEG:
         for az in ((0,) if tilt == 0 else (0, 90, 180, 270)):
             for roll in ORBIT_ROLLS_DEG:
                 # tilt the view axis toward azimuth az (base frame, about the marker), then roll about it
-                R = _rot([0, 0, 1], az) @ _rot([0, 1, 0], tilt) @ _rot([0, 0, 1], -az) @ T0[:3, :3] @ _rot([0, 0, 1], roll)
-                p = target - R[:, 2] * dist
-                if p[0] < 0.15 or p[2] < target[2] + 0.3:  # not over the arm's own base, nor low over the marker
+                Rc = _rot([0, 0, 1], az) @ _rot([0, 1, 0], tilt) @ _rot([0, 0, 1], -az) @ R_aim @ _rot([0, 0, 1], roll)
+                T = _T(Rc, target - Rc[:, 2] * dist) @ np.linalg.inv(X)  # the flange, from the camera
+                if T[0, 3] < 0.15 or T[2, 3] < target[2] + 0.25:  # not over the arm's own base, nor low over the marker
                     continue
-                T = np.eye(4)
-                T[:3, :3], T[:3, 3] = R, p
                 q = ik(q_look, T)
                 if q is not None and np.abs(q - q_look).max() < np.radians(100) and path_clear(q_look, q):
                     poses.append(q)
-    # in order, each move from the one before must be clear too (else go by the look pose)
+    # in order, each move from the one before must be clear too (else go by the first pose)
     out, prev = [], np.asarray(q_look, float)
     for q in poses:
         if not path_clear(prev, q):
-            out.append(np.asarray(q_look, float))
+            out.append(poses[0])
         out.append(q)
         prev = q
     return out
 
 
-def record(out: Path, dictionary: str = DICTIONARY, marker_id: int = MARKER_ID, size: float | None = None) -> None:
+def record(out: Path, dictionary: str = DICTIONARY, marker_id: int = MARKER_ID, size: float | None = None,
+           distance: float | None = 0.4) -> None:
     """size: the marker's black square if known (m): saved with the data, and solve then holds it."""
     import json
 
@@ -177,11 +191,21 @@ def record(out: Path, dictionary: str = DICTIONARY, marker_id: int = MARKER_ID, 
         if c is None:
             raise SystemExit(f"marker {dictionary} id {marker_id} isn't in view: run look first (or move it under the camera)")
         ok, rvec, tvec = cv2.solvePnP(_object_points(size or MARKER_SIZE), c, cam.K, cam.D, flags=cv2.SOLVEPNP_IPPE_SQUARE)
-        poses = [q_look] + orbit(q_look, tvec.ravel())
-        print(f"marker {np.linalg.norm(tvec):.2f} m away; {len(poses)} poses around it")
+        tvec = tvec.ravel()
+        if size is None:  # the distance from depth inside the marker, not from a guessed size
+            f = cam.frame()
+            mask = np.zeros(f["depth"].shape, np.uint8)
+            cv2.fillConvexPoly(mask, c.astype(np.int32), 1)
+            z = f["depth"][(mask > 0) & (f["depth"] > 0.05)]
+            if z.size:
+                tvec = tvec * (float(np.median(z)) / tvec[2])
+        poses = orbit(q_look, tvec, distance)
+        if distance is None:
+            poses = [q_look] + poses
+        print(f"marker {np.linalg.norm(tvec):.2f} m away; {len(poses)} poses around it, the camera {distance or np.linalg.norm(tvec):.2f} m from it")
         try:
             for i, q in enumerate(poses):
-                arm.move_to(q, f"pose {i + 1}/{len(poses)}", confirm=i == 1)
+                arm.move_to(q, f"pose {i + 1}/{len(poses)}", confirm=i == 0 if distance else i == 1)
                 arm.still(0.5)
                 c = corners_now(cam, det, marker_id)
                 if c is None:
@@ -338,6 +362,7 @@ def main() -> None:
     b.add_argument("--dict", default=DICTIONARY, help="the marker's ArUco dictionary (look prints it)")
     b.add_argument("--id", type=int, default=MARKER_ID)
     b.add_argument("--size", type=float, default=None, help="the marker's black square, measured (m)")
+    b.add_argument("--distance", type=float, default=0.4, help="the camera from the marker (m); 0: the look pose's")
     c = sub.add_parser("solve")
     c.add_argument("data", type=Path)
     c.add_argument("--skip", type=int, nargs="*", default=[], help="poses (from 1) to leave out")
@@ -346,7 +371,7 @@ def main() -> None:
     if args.cmd == "look":
         look(args.pose, args.out)
     elif args.cmd == "record":
-        record(args.out, args.dict, args.id, args.size)
+        record(args.out, args.dict, args.id, args.size, args.distance or None)
     else:
         solve(args.data, args.skip, args.size)
 
