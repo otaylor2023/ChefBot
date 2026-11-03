@@ -616,3 +616,31 @@ def test_real_nav_refuses_a_goal_inside_an_obstacle(sim):
     r = go_planned(env, Pose2D(s.x - 0.6, s.y, s.yaw), grid, confirm=lambda _: None)
     assert not r["ok"] and not r["moved"] and "no path" in r["reason"]
     assert K.BASE_CMD_SEQ not in redis.values
+
+
+def test_real_nav_stops_the_base_if_the_arm_moves_while_driving(sim):
+    from chefbot.scripts.real_nav import go
+
+    env, base, redis, server = sim
+    q = np.array(Q, dtype=float)
+    bump = threading.Event()
+    stop = threading.Event()
+
+    def arm_driver():  # live joint readings (sensor noise), and one joint moving 0.1 rad once bumped
+        i = 0
+        while not stop.wait(0.004):
+            i += 1
+            now = q + 1e-6 * (i % 7) + (np.r_[0.1, np.zeros(6)] if bump.is_set() else 0.0)
+            redis.values[K.JOINT_POSITIONS] = json.dumps(now.tolist())
+
+    t = threading.Thread(target=arm_driver, daemon=True)
+    t.start()
+    try:
+        wait_until(lambda: env.localization().live and env.raw_state().get("arm_live") and env.raw_state().get("base_driver_live"))
+        start = env.localization().mocap_pose
+        threading.Timer(0.4, bump.set).start()
+        r = go(env, Pose2D(start.x + 1.0, start.y, start.yaw), speed=0.2, yaw_speed=1.0, confirm=lambda _: None)
+        assert not r["ok"] and "the arm moved" in r["reason"]
+    finally:
+        stop.set()
+        t.join()

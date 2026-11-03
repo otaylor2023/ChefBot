@@ -14,6 +14,6 @@ obstacles:
 places:
   # base poses (x, y, yaw); the base faces yaw (the way the arm faces)
   near_side: {x: 1.49, y: 1.00, yaw_deg: 90}       # in front of the counter's -y long side, facing it
-  west_end: {x: -0.15, y: 2.06, yaw_deg: 0}        # off its -x end, facing it
+  west_end: {x: -0.25, y: 2.06, yaw_deg: 0}        # off its -x end, facing it (0.61 m out: clears a stowed arm)
   far_side: {x: 1.49, y: 3.05, yaw_deg: -90}       # behind its +y long side, facing it (goes around)
   east_end: {x: 3.10, y: 2.06, yaw_deg: 180}       # off its +x end, facing it

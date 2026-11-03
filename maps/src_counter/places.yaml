@@ -11,6 +11,6 @@ near_side:
   y: 1.0
   yaw_deg: 90.0
 west_end:
-  x: -0.15
+  x: -0.25
   y: 2.06
   yaw_deg: 0.0
