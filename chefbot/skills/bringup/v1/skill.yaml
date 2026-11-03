@@ -1,0 +1,16 @@
+name: bringup
+version: v1
+entry: main.py:run
+interface: chefbot-v1
+robot: any
+arm_only: true
+args:
+  lift_m:
+    type: number
+    default: 0.03
+    doc: how far up the flange goes and comes back (m)
+models: {}
+assumes: the arm free to move 3 cm up from where it is
+privileged: false
+provenance:
+  written: by hand, 2026-11-03, to bring up environments/real/host.py on the real robot
