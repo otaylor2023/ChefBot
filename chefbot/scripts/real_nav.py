@@ -3,6 +3,7 @@
     ssh -L 8765:localhost:8765 tidybot01               # with chefbot/onboard/bringup/base.sh running there
     python -m chefbot.scripts.real_nav mark A          # the base where you put it, standing still: saved as A
     python -m chefbot.scripts.real_nav mark B
+    python -m chefbot.scripts.real_nav point S1 --from A --forward 0.3 [--left 0] [--turn 0]   # relative to A's heading
     python -m chefbot.scripts.real_nav list
     python -m chefbot.scripts.real_nav go B [--speed 0.1] [--yaw-speed 0.3]     # Enter to start, Ctrl-C stops
 
@@ -66,6 +67,15 @@ def mark(env: RealEnv, name: str, path: Path = POINTS, seconds: float = 1.0) -> 
     path.write_text(json.dumps(points, indent=2))
     print(f"{name}: x {point['x']:.4f} m, y {point['y']:.4f} m, yaw {point['yaw_deg']:.2f} deg ({len(P)} samples) -> {path}")
     return point
+
+
+def relative_point(origin: dict, forward: float, left: float, turn_deg: float) -> dict:
+    """A point `forward` / `left` (m) of `origin` in its own heading, turned by `turn_deg`."""
+    yaw = math.radians(origin["yaw_deg"])
+    c, s = math.cos(yaw), math.sin(yaw)
+    return {"x": origin["x"] + c * forward - s * left, "y": origin["y"] + s * forward + c * left,
+            "yaw_deg": math.degrees(wrap(yaw + math.radians(turn_deg))), "marked": datetime.now().isoformat(timespec="seconds"),
+            "relative_to": {"forward": forward, "left": left, "turn_deg": turn_deg}}  # fmt: skip
 
 
 def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
@@ -164,6 +174,12 @@ def main() -> None:
     m = sub.add_parser("mark")
     m.add_argument("name")
     sub.add_parser("list")
+    q = sub.add_parser("point")
+    q.add_argument("name")
+    q.add_argument("--from", dest="origin", required=True)
+    q.add_argument("--forward", type=float, default=0.0, help="m along the origin's heading (the way the arm faces)")
+    q.add_argument("--left", type=float, default=0.0, help="m to the origin's left")
+    q.add_argument("--turn", type=float, default=0.0, help="deg, counter-clockwise")
     g = sub.add_parser("go")
     g.add_argument("name")
     g.add_argument("--speed", type=float, default=0.1, help="m/s (the driver caps it at its own limit)")
@@ -175,6 +191,16 @@ def main() -> None:
     g.add_argument("--timeout", type=float, default=None, help="s (default from the distance and speed)")
     args = ap.parse_args()
 
+    if args.cmd == "point":
+        points = load_points()
+        if args.origin not in points:
+            raise SystemExit(f"no point {args.origin!r}")
+        points[args.name] = relative_point(points[args.origin], args.forward, args.left, args.turn) | {"from": args.origin}
+        POINTS.write_text(json.dumps(points, indent=2))
+        p = points[args.name]
+        print(f"{args.name}: x {p['x']:.4f}  y {p['y']:.4f}  yaw {p['yaw_deg']:.2f}  ({args.forward} m forward, {args.left} m left, "
+              f"{args.turn} deg of {args.origin})")  # fmt: skip
+        return
     if args.cmd == "list":
         for name, p in load_points().items():
             print(f"{name:10} x {p['x']:.4f}  y {p['y']:.4f}  yaw {p['yaw_deg']:7.2f}  ({p['marked']})")
