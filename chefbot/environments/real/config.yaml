@@ -10,15 +10,13 @@ max_state_age_s: 0.5         # older than this, get_state fails: the link is dow
 # parent "base" (floor under the base center, x forward) or "flange". Names match the onboard
 # config's cameras.
 cameras:
-  # The wrist D405 (onboard/calibration/wrist.py, 2026-11-03: 18 poses at 0.4-0.64 m, 4.0 px rms; across its view
-  # axis it is good to ~2 mm, its turn (61 deg about the flange's z) and tilt (1.2 deg) firm).
-  # TODO(measure): the offset along its view axis (z here, 38 mm) is loose (+-30 mm): it trades off against the
-  # marker's size, fitted at 0.0669 m. Measure the marker's black square and re-solve
-  # (data_2026-11-03/wrist.json, --size).
+  # The wrist D405 (onboard/calibration/wrist.py, 2026-11-03: 18 poses at 0.4-0.64 m, 4.0 px rms, the marker's
+  # black square measured 70 mm): 61.5 deg about the flange's z, its view axis 1.2 deg off the flange's z; across
+  # that axis good to ~2 mm, along it (19.5 mm) to ~6 mm per mm the measured size is off.
   wrist:
     parent: flange
-    T: [[0.48153, -0.8763, -0.01515, 0.03858],
-        [0.87618, 0.48173, -0.01544, -0.04451],
-        [0.02083, -0.00584, 0.99977, 0.03818],
+    T: [[0.47729, -0.87865, -0.01297, 0.03757],
+        [0.87848, 0.47746, -0.01743, -0.04361],
+        [0.02151, -0.00308, 0.99976, 0.01946],
         [0, 0, 0, 1]]
   # TODO(calibrate): the pole D455 (049122252230), parent base.
