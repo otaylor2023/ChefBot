@@ -5,7 +5,9 @@ Held still, a joint's measured torque (tau_J) is the true gravity torque of ever
 Desk is missing: a point mass dm at p in the flange frame, plus each sensor's small offset. Across poses that point
 the wrist different ways, a least-squares fit gives dm, p and the offsets; the true load is Desk's plus that.
 
-    python -m chefbot.onboard.calibration.load record out.json                 # moves the arm; Enter before each pose
+    python -m chefbot.onboard.calibration.load record out.json                 # moves the arm: Enter once, then all
+                                                                               # the poses (Ctrl-C holds the arm there)
+    python -m chefbot.onboard.calibration.load record out.json --resume        # on from the poses out.json has
     python -m chefbot.onboard.calibration.load solve out.json --desk-mass 0.73 --desk-com -0.01 0 0.03 \
         --tcp-z 0.13065 --json endeffector-config_chefbot.json                 # the fit, and a Desk file with it
 
@@ -47,23 +49,30 @@ def regressor(q) -> np.ndarray:
     return np.hstack([col_m[:, None], col_p, np.eye(7)])
 
 
-def record(out: Path, seconds: float) -> None:
+def record(out: Path, seconds: float, resume: bool = False) -> None:
     from chefbot.onboard.calibration.arm import Arm, Stop
 
     arm = Arm()
-    samples = []
+    samples = json.loads(out.read_text())["samples"] if resume and out.exists() else []
+    if samples:
+        print(f"{len(samples)} poses already in {out}: on from pose {len(samples) + 1}")
+    first = True
     try:
         for i, change in enumerate(POSES):
+            if i < len(samples):
+                continue
             q = np.array(READY)
             for j, v in change.items():
                 q[j] = v
-            arm.move_to(q, f"pose {i + 1}/{len(POSES)}")
+            arm.move_to(q, f"pose {i + 1}/{len(POSES)}", confirm=first)  # Enter for the first move of the run only
+            first = False
             s = arm.still(seconds)
             samples.append(s)
             print(f"  recorded ({s['n']} readings; torque sd up to {max(s['tau_sd']):.2f} N m)")
             out.write_text(json.dumps({"samples": samples}, indent=1))
-    except Stop:
-        print("stopped")
+    except (Stop, KeyboardInterrupt):
+        arm.hold()
+        print("stopped: holding")
     finally:
         out.write_text(json.dumps({"samples": samples}, indent=1))
         print(f"{len(samples)} poses in {out}")
@@ -96,6 +105,7 @@ def main() -> None:
     a = sub.add_parser("record")
     a.add_argument("out", type=Path)
     a.add_argument("--seconds", type=float, default=2.0)
+    a.add_argument("--resume", action="store_true", help="keep the poses already in out and record the rest")
     b = sub.add_parser("solve")
     b.add_argument("data", type=Path)
     b.add_argument("--desk-mass", type=float, required=True, help="the mass Desk is configured with now (kg)")
@@ -104,7 +114,7 @@ def main() -> None:
     b.add_argument("--json", type=Path, default=None, help="write a Desk end-effector file with the measured load")
     args = ap.parse_args()
     if args.cmd == "record":
-        record(args.out, args.seconds)
+        record(args.out, args.seconds, args.resume)
     else:
         solve(args.data, args.desk_mass, args.desk_com, args.tcp_z, args.json)
 

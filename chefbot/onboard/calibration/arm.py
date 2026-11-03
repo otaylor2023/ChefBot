@@ -2,7 +2,8 @@
 sensors): slow joint moves, each shown and confirmed at the keyboard first, and still-arm readings.
 
     arm = Arm()
-    arm.move_to(q)            # prints the move, waits for Enter, then leads the arm there a small step at a time
+    arm.move_to(q)            # prints the move, waits for Enter (confirm=False: doesn't), then leads the arm there
+    arm.hold()                # the goal where the arm is
     arm.still(2.0)            # {"q", "tau_J", "gravity"} averaged over 2 s with the arm still
 """
 
@@ -71,9 +72,9 @@ class Arm:
         q0 = self.q()
         delta = target - q0
         n = max(1, int(np.ceil(np.abs(delta).max() / STEP)))
+        print(f"\n{label}\n  joints now    {np.round(q0, 3).tolist()}\n  joints target {np.round(target, 3).tolist()}"
+              f"\n  largest change {np.degrees(np.abs(delta).max()):.1f} deg (joint {int(np.abs(delta).argmax()) + 1}), in {n} steps")  # fmt: skip
         if confirm:
-            print(f"\n{label}\n  joints now    {np.round(q0, 3).tolist()}\n  joints target {np.round(target, 3).tolist()}"
-                  f"\n  largest change {np.degrees(np.abs(delta).max()):.1f} deg (joint {int(np.abs(delta).argmax()) + 1}), in {n} steps")  # fmt: skip
             if input("  Enter to move, q then Enter to stop: ").strip().lower() == "q":
                 raise Stop()
         self.r.set(K.JOINT_GOAL_VELOCITY, json.dumps([0.0] * 7))
@@ -108,6 +109,12 @@ class Arm:
         err = np.abs(self.q() - target).max()
         if err > 0.02:
             print(f"  (settled {np.degrees(err):.1f} deg from the target)")
+
+    def hold(self) -> None:
+        """The joint goal where the arm is now."""
+        q = self.q()
+        if q is not None:
+            self.r.set(K.JOINT_GOAL_POSITION, json.dumps(q.tolist()))
 
     def still(self, seconds: float = 2.0) -> dict:
         """The joints, measured torques and the model's gravity torques, averaged with the arm still."""
