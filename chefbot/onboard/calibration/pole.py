@@ -1,9 +1,11 @@
 """The pole D455's pose on the base (eye-to-hand), from an ArUco marker fixed flat and stiff to the hand.
 
     python -m chefbot.onboard.calibration.pole look                    # what the pole camera sees now (no motion)
-    python -m chefbot.onboard.calibration.pole record out.json --dict DICT_4X4_50 --id 0 --size 0.127
-        # from a pose where the camera sees the marker: moves the hand around it (Enter once), corners per pose
+    python -m chefbot.onboard.calibration.pole record out.json --card        # the hand card (targets.py: ids 1, 2)
+    python -m chefbot.onboard.calibration.pole record out.json --dict DICT_4X4_50 --id 0 --size 0.070  # one marker
+        # from a pose where the camera sees it: moves the hand around (Enter once), corners per pose
     python -m chefbot.onboard.calibration.pole solve out.json [--skip 3 7]
+        # the camera, and the card's pose on the flange (T_flange_card: what the mount tracker needs)
 
 Start with the marker facing the pole camera: put the arm there by hand (Desk's guiding mode, or the arm driver
 alone, floating, before OpenSai), then start OpenSai (it holds where the arm is) and record. The moves stay out of
@@ -25,14 +27,37 @@ import numpy as np
 from chefbot.onboard.calibration.wrist import DICTIONARY, FRAMES, MARKER_ID, _object_points, _pnp, _refine, _rot, _T, ax_xb
 
 MARKER_MARGIN = 0.15  # m: the keep-out grown by this (the marker sticks out of the hand)
-SHIFTS_M = ((0, 0, 0), (0.08, 0, 0), (-0.08, 0, 0), (0, 0.08, 0), (0, -0.08, 0), (0, 0, 0.08), (0, 0, -0.08))
+# The hand moved this far from the start (base frame, m), spread wide and low so the fit holds over the workspace
+# (2026-11-03: poses only +-8 cm around one spot left the camera's tilt loose: a marker 40 cm lower came out low)
+SHIFTS_M = ((0, 0, 0), (0.08, 0, 0), (-0.08, 0, 0), (0, 0.08, 0), (0, -0.08, 0), (0, 0, 0.08), (0, 0, -0.08),
+            (0.15, 0, 0), (0, 0.15, 0), (0, -0.15, 0), (0, 0, -0.15), (0.1, 0.1, -0.2), (0.1, -0.1, -0.2), (0.15, 0, -0.25))  # fmt: skip
 TURNS_DEG = (([0, 0, 1], 0), ([1, 0, 0], 18), ([1, 0, 0], -18), ([0, 1, 0], 18), ([0, 1, 0], -18), ([0, 0, 1], 25), ([0, 0, 1], -25))
 
 
 def _detector(dictionary: str):
     import cv2
 
-    return cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dictionary)), cv2.aruco.DetectorParameters())
+    params = cv2.aruco.DetectorParameters()
+    params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    return cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dictionary)), params)
+
+
+def card_corners(cam, det, frames: int = FRAMES) -> dict[int, np.ndarray] | None:
+    """The hand card's markers' corners (px) averaged over frames, by id; None unless all of them are seen in most."""
+    import cv2
+
+    from chefbot.onboard.calibration.targets import hand_card_points
+
+    ids_wanted = set(hand_card_points())
+    seen: dict[int, list] = {i: [] for i in ids_wanted}
+    for _ in range(frames):
+        corners, ids, _ = det.detectMarkers(cv2.cvtColor(cam.frame()["bgr"], cv2.COLOR_BGR2GRAY))
+        for i, c in zip([] if ids is None else ids.ravel(), corners):
+            if int(i) in seen:
+                seen[int(i)].append(c[0])
+    if any(len(v) < frames // 2 for v in seen.values()):
+        return None
+    return {i: np.mean(v, 0) for i, v in seen.items()}
 
 
 def look(out: Path) -> None:
@@ -89,20 +114,21 @@ def poses_around(q_look) -> list[np.ndarray]:
     return out
 
 
-def record(out: Path, dictionary: str, marker_id: int, size: float | None) -> None:
+def record(out: Path, dictionary: str, marker_id: int, size: float | None, card: bool = False) -> None:
     from chefbot.onboard.calibration.arm import Arm, Stop, in_keep_out
     from chefbot.onboard.calibration.camera import POLE_D455, Camera
     from chefbot.onboard.calibration.wrist import corners_now
 
     arm, det = Arm(), _detector(dictionary)
-    marker = {"dictionary": dictionary, "id": marker_id, "size_m": size}
+    marker = {"target": "hand_card", "dictionary": dictionary} if card else {"dictionary": dictionary, "id": marker_id, "size_m": size}
+    seen = (lambda frames=FRAMES: card_corners(cam, det, frames)) if card else (lambda frames=FRAMES: corners_now(cam, det, marker_id, frames))
     samples = []
     with Camera(POLE_D455) as cam:
         q_look = arm.q()
         if in_keep_out(q_look, MARKER_MARGIN):
             raise SystemExit("the hand (with the marker) is too near the pole: start further from it")
-        if corners_now(cam, det, marker_id) is None:
-            raise SystemExit(f"the pole camera doesn't see {dictionary} id {marker_id}: run look, turn the marker to it")
+        if seen() is None:
+            raise SystemExit("the pole camera doesn't see the " + ("hand card (both markers)" if card else f"{dictionary} id {marker_id}") + ": run look, turn it to the camera")
         poses = [q_look] + poses_around(q_look)
         print(f"{len(poses)} poses")
         save = lambda: out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "marker": marker, "samples": samples}, indent=1))
@@ -110,11 +136,12 @@ def record(out: Path, dictionary: str, marker_id: int, size: float | None) -> No
             for i, q in enumerate(poses):
                 arm.move_to(q, f"pose {i + 1}/{len(poses)}", confirm=i == 1, margin=MARKER_MARGIN)
                 arm.still(0.5)
-                c = corners_now(cam, det, marker_id, FRAMES)
+                c = seen()
                 if c is None:
                     print("  marker not seen: skipped")
                     continue
-                samples.append({"q": arm.still(0.5)["q"], "corners": c.tolist()})
+                q_still = arm.still(0.5)["q"]
+                samples.append({"q": q_still, "markers": {str(i): v.tolist() for i, v in c.items()}} if card else {"q": q_still, "corners": c.tolist()})
                 print(f"  recorded ({len(samples)} so far)")
                 save()
         except (Stop, KeyboardInterrupt):
@@ -143,6 +170,8 @@ def solve(path: Path, skip=(), size: float | None = None) -> dict:
 
     d = json.loads(path.read_text())
     K, D = np.array(d["K"]), np.array(d["D"])
+    if d.get("marker", {}).get("target") == "hand_card":
+        return solve_card(d, K, D, skip)
     size = size or d.get("marker", {}).get("size_m")
     if size is None:
         raise SystemExit("the marker's size isn't known: pass --size (its black square, m)")
@@ -173,6 +202,67 @@ def solve(path: Path, skip=(), size: float | None = None) -> dict:
     return out
 
 
+def solve_card(d: dict, K, D, skip=()) -> dict:
+    """The camera (Y, in the arm base) and the card on the flange (Z) from every pose's card corners: a Park start
+    from each pose's card pose, then least squares on all the corners' reprojection."""
+    import cv2
+
+    from chefbot.onboard.calibration import fr3
+    from chefbot.onboard.calibration.targets import hand_card_points
+
+    pts = hand_card_points()
+    samples = [s for i, s in enumerate(d["samples"]) if i + 1 not in set(skip)]
+    if len(samples) < 5:
+        raise SystemExit(f"{len(samples)} poses: need at least 5")
+    G = [fr3.flange(s["q"]) for s in samples]
+    obs = [(np.concatenate([pts[int(i)] for i in s["markers"]]), np.concatenate([np.array(c) for c in s["markers"].values()])) for s in samples]
+    C = []
+    for obj, img in obs:
+        ok, rvec, tvec = cv2.solvePnP(obj, img, K, D, flags=cv2.SOLVEPNP_SQPNP)
+        C.append(_T(cv2.Rodrigues(rvec)[0], tvec))
+    pairs = [(i, j) for i in range(len(G)) for j in range(i + 1, len(G))]
+    Y = ax_xb([G[j] @ np.linalg.inv(G[i]) for i, j in pairs], [C[j] @ np.linalg.inv(C[i]) for i, j in pairs])
+    Zs = [np.linalg.inv(g) @ Y @ c for g, c in zip(G, C)]
+    Z = _T(Zs[0][:3, :3], np.mean([z[:3, 3] for z in Zs], 0))
+
+    def residual(x):
+        Yx, Zx = _T(cv2.Rodrigues(x[:3])[0], x[3:6]), _T(cv2.Rodrigues(x[6:9])[0], x[9:12])
+        out = []
+        for g, (obj, img) in zip(G, obs):
+            Cx = _pole_chain(g, Yx, Zx)
+            out.append((cv2.projectPoints(obj, cv2.Rodrigues(Cx[:3, :3])[0], Cx[:3, 3], K, D)[0].reshape(-1, 2) - img).ravel())
+        return np.concatenate(out)
+
+    x = np.concatenate([cv2.Rodrigues(Y[:3, :3])[0].ravel(), Y[:3, 3], cv2.Rodrigues(Z[:3, :3])[0].ravel(), Z[:3, 3]])
+    r, lam = residual(x), 1e-3
+    for _ in range(40):  # Levenberg-Marquardt
+        J = np.stack([(residual(x + np.eye(12)[k] * 1e-6) - r) / 1e-6 for k in range(12)], 1)
+        H = J.T @ J
+        step = -np.linalg.solve(H + lam * np.diag(np.diag(H)), J.T @ r)
+        r_new = residual(x + step)
+        if r_new @ r_new < r @ r:
+            x, r, lam = x + step, r_new, lam / 3
+            if np.abs(step).max() < 1e-9:
+                break
+        else:
+            lam *= 5
+    Y, Z = _T(cv2.Rodrigues(x[:3])[0], x[3:6]), _T(cv2.Rodrigues(x[6:9])[0], x[9:12])
+    px = [np.sqrt(np.mean(np.sum(rr.reshape(-1, 2) ** 2, 1))) for rr in np.split(r, np.cumsum([2 * len(o[1]) for o in obs])[:-1])]
+    T_base = _arm_mount() @ Y
+    centers = np.array([(g @ Z)[:3, 3] for g in G])
+    out = {"poses": len(samples), "skipped": sorted(skip), "target": "hand_card",
+           "T_base_camera": np.round(T_base, 5).tolist(), "T_armbase_camera": np.round(Y, 5).tolist(),
+           "T_flange_card": np.round(Z, 5).tolist(),
+           "camera_in_base_m": np.round(T_base[:3, 3], 4).tolist(),
+           "camera_looks_down_deg": round(float(np.degrees(np.arcsin(-T_base[2, 2]))), 1),
+           "reprojection_px": {"rms": round(float(np.sqrt(np.mean(np.square(px)))), 2), "max_pose": round(float(max(px)), 2)},
+           "reprojection_rms_px_per_pose": np.round(px, 2).tolist(),
+           "card_on_flange_m": np.round(Z[:3, 3], 4).tolist(),
+           "card_positions_spread_m": np.round(centers.std(0), 3).tolist()}  # fmt: skip
+    print(json.dumps(out, indent=1))
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -183,6 +273,7 @@ def main() -> None:
     b.add_argument("--dict", default=DICTIONARY)
     b.add_argument("--id", type=int, default=MARKER_ID)
     b.add_argument("--size", type=float, default=None, help="the marker's black square, measured (m)")
+    b.add_argument("--card", action="store_true", help="the hand card (targets.py) instead of one marker")
     c = sub.add_parser("solve")
     c.add_argument("data", type=Path)
     c.add_argument("--skip", type=int, nargs="*", default=[])
@@ -191,7 +282,7 @@ def main() -> None:
     if args.cmd == "look":
         look(args.out)
     elif args.cmd == "record":
-        record(args.out, args.dict, args.id, args.size)
+        record(args.out, args.dict, args.id, args.size, args.card)
     else:
         solve(args.data, args.skip, args.size)
 

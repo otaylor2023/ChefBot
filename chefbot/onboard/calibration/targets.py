@@ -23,6 +23,18 @@ HAND = {"ids": (1, 2), "marker_m": 0.055, "pitch_m": 0.070, "margin_m": 0.009}
 BASE = {"squares": (5, 4), "square_m": 0.030, "marker_m": 0.022, "first_id": 10, "margin_m": 0.008}
 
 
+def hand_card_points() -> dict[int, np.ndarray]:
+    """The hand card's marker corners in the card's frame (m): its origin the card's center, x along the row of
+    markers (id 1 to id 2), y up the printed page, z out of its face; each marker's corners in OpenCV's order (top left,
+    top right, bottom right, bottom left, as detectMarkers returns them)."""
+    h, pitch = HAND["marker_m"] / 2, HAND["pitch_m"]
+    out = {}
+    for k, mid in enumerate(HAND["ids"]):
+        cx = (k - (len(HAND["ids"]) - 1) / 2) * pitch
+        out[mid] = np.array([[cx - h, h, 0], [cx + h, h, 0], [cx + h, -h, 0], [cx - h, -h, 0]], dtype=np.float64)
+    return out
+
+
 def _px(m: float) -> int:
     return int(round(m * 1000 / 25.4 * DPI))
 

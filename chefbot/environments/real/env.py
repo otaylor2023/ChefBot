@@ -14,6 +14,7 @@ here (`cameras`), as the server sends images only.
 from __future__ import annotations
 
 import itertools
+import logging
 import math
 import threading
 import time
@@ -29,6 +30,7 @@ from chefbot.interface.transport import onboard as P
 from chefbot.interface.transport.protocol import pack, unpack
 from chefbot.interface.types import RGBD, EnvState, Pose2D
 
+log = logging.getLogger(__name__)
 CONFIG = Path(__file__).resolve().parent / "config.yaml"
 
 
@@ -59,11 +61,14 @@ class RealEnv(Env):
         heartbeat_s: float = 0.1,
         max_state_age_s: float = 0.5,
         open_timeout_s: float = 10.0,
+        trackers: dict | None = None,
     ):
         """`cameras`: name -> {parent: "base" | "flange", T: 4x4 camera (OpenCV axes) in the parent}.
-        `flange_in_base(q) -> 4x4` places the flange for wrist cameras."""
+        `flange_in_base(q) -> 4x4` places the flange for wrist cameras. `trackers`: name -> MountTracker (mount_track.py)
+        for base cameras whose mount it keeps current from the hand's marker card in their frames."""
         self.flange_to_control = np.asarray(flange_to_control, dtype=float)
         self.camera_mounts = cameras or {}
+        self.trackers = trackers or {}
         self._flange_in_base = flange_in_base
         self.velocity_horizon_s = velocity_horizon_s
         self.max_state_age_s = max_state_age_s
@@ -102,8 +107,15 @@ class RealEnv(Env):
     def from_config(cls, flange_to_control: np.ndarray, path: str | Path = CONFIG, url: str | None = None, flange_in_base=None) -> "RealEnv":
         c = load_config(path)
         cameras = {name: {"parent": m["parent"], "T": np.asarray(m["T"], dtype=float)} for name, m in (c.get("cameras") or {}).items()}
+        trackers = {}
+        for name, m in (c.get("cameras") or {}).items():
+            if m.get("track") and m["parent"] == "base" and flange_in_base is not None:
+                from chefbot.environments.real.mount_track import MountTracker
+                from chefbot.onboard.calibration.targets import hand_card_points
+
+                trackers[name] = MountTracker(m["track"]["T_flange_card"], hand_card_points(), pose=cameras[name]["T"])
         return cls(url or c["url"], flange_to_control, cameras, flange_in_base, c["velocity_horizon_s"], c["heartbeat_s"],
-                   c["max_state_age_s"])  # fmt: skip
+                   c["max_state_age_s"], trackers=trackers)  # fmt: skip
 
     # -- state ------------------------------------------------------------------
 
@@ -195,7 +207,20 @@ class RealEnv(Env):
             reply = self._replies.pop(request_id)
         if not reply["ok"]:
             raise RuntimeError(f"camera {cam!r}: {reply['error']}")
+        if cam in self.trackers:
+            self._track(cam, reply)
         return RGBD(reply["rgb"], reply["depth"], reply["intrinsics"], self.camera_pose(cam))
+
+    def _track(self, cam: str, reply: dict) -> None:
+        """The camera's mount from its tracker (the hand's card in this frame), when it has one; never fails the frame."""
+        tracker = self.trackers[cam]
+        try:
+            state = self.get_state()
+            tracker.update(reply["rgb"], reply["intrinsics"], state.arm_q, state.arm_qd, self._flange_in_base)
+            if tracker.pose is not None:
+                self.camera_mounts[cam]["T"] = tracker.pose
+        except Exception as exc:  # the config's (or the last tracked) mount stands
+            log.warning("tracking camera %r: %s: %s", cam, type(exc).__name__, exc)
 
     def camera_pose(self, cam: str) -> np.ndarray:
         """Camera to world (OpenCV axes), from its mount and where the robot is now."""
