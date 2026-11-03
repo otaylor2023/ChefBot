@@ -43,7 +43,7 @@ REPO = HERE.parents[1]
 INTERFACES = {"chefbot-v1": HERE.parent / "interface" / "skill_api.py"}  # the skill-side robot API, by version (frozen once skills use it)
 LIMITS = {"control_steps": 1350, "think_s": 90.0, "model_usd": 0.10, "wall_s": 900.0, "astra_calls": 16, "astra_in_flight": 2}  # 1350 steps = 90 s of world time
 MAX_ROWS = 600  # 40 s per call, so one move is one call
-ACT_OPS = {"act": ("whole", 11), "act_arm": ("arm", 8), "act_base": ("base", 3)}  # op -> (host step mode, row width)
+ACT_OPS = {"act": ("whole", 11), "act_arm": ("arm", 8), "act_joints": ("joints", 8), "act_base": ("base", 3)}  # op -> (host step mode, row width)
 STARTUP_GRACE_S = 15.0
 CONTROL_HZ = 15.0
 
@@ -267,8 +267,8 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
                         cams[name] = {"rgb": rn, "depth": dn, "K": c["K"].tolist(), "D": c.get("D"), "model": c.get("model", "pinhole"),
                                       "cam_to_odom": c["cam_to_odom"].tolist()}  # fmt: skip
                     resp = {"proprio": host.proprio(), "cameras": cams}
-                elif op in ACT_OPS and op != "act_arm" and access.get("arm_only"):
-                    resp = {"error": f"this skill is arm only: {op} is not available (use act_arm; the base holds)"}
+                elif op in ACT_OPS and op not in ("act_arm", "act_joints") and access.get("arm_only"):
+                    resp = {"error": f"this skill is arm only: {op} is not available (use act_arm or act_joints; the base holds)"}
                 elif op in ACT_OPS:
                     mode, width = ACT_OPS[op]
                     rows = np.asarray(req.get("rows") or [], dtype=float)

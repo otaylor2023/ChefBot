@@ -20,30 +20,8 @@ import numpy as np
 
 DPI = 600
 PAGE_IN = (8.5, 11.0)
-DICTIONARY = "DICT_4X4_50"
-HAND = {"ids": (4, 5, 6), "marker_m": 0.038, "pitch_m": 0.046, "margin_m": 0.0035}
-BASE_CARD = {"ids": (1, 2), "marker_m": 0.055, "pitch_m": 0.070}  # the first hand card, now on the base by the pole
+from chefbot.interface.markers import BASE_CARD, DICTIONARY, HAND, base_card_points, hand_card_points  # noqa: F401
 BASE = {"squares": (5, 4), "square_m": 0.030, "marker_m": 0.022, "first_id": 10, "margin_m": 0.008}
-
-
-def hand_card_points() -> dict[int, np.ndarray]:
-    """The hand card's marker corners in the card's frame (m): its origin the card's center, x along the row of
-    markers (id 1 to id 2), y up the printed page, z out of its face; each marker's corners in OpenCV's order (top left,
-    top right, bottom right, bottom left, as detectMarkers returns them)."""
-    h, pitch = HAND["marker_m"] / 2, HAND["pitch_m"]
-    out = {}
-    for k, mid in enumerate(HAND["ids"]):
-        cx = (k - (len(HAND["ids"]) - 1) / 2) * pitch
-        out[mid] = np.array([[cx - h, h, 0], [cx + h, h, 0], [cx + h, -h, 0], [cx - h, -h, 0]], dtype=np.float64)
-    return out
-
-
-def base_card_points() -> dict[int, np.ndarray]:
-    """The card on the base (the first, too-big hand card): its markers' corners in its frame, as hand_card_points."""
-    h, pitch = BASE_CARD["marker_m"] / 2, BASE_CARD["pitch_m"]
-    n = len(BASE_CARD["ids"])
-    return {mid: np.array([[cx - h, h, 0], [cx + h, h, 0], [cx + h, -h, 0], [cx - h, -h, 0]], dtype=np.float64)
-            for mid, cx in ((mid, (k - (n - 1) / 2) * pitch) for k, mid in enumerate(BASE_CARD["ids"]))}  # fmt: skip
 
 
 def _px(m: float) -> int:

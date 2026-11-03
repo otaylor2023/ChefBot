@@ -120,6 +120,13 @@ class Robot:
         rows = np.asarray(rows, dtype=float).reshape(-1, 8)
         return _with_root_steps(self._call("act_arm", rows=rows.tolist()))
 
+    def act_joints(self, rows) -> dict:
+        """Arm joints only: each row [q1 .. q7, gripper] (rad) for one 15 Hz step, no IK, the base holding its last
+        target; each step's change clipped to the joint limits and the speed profile's joint rate. Returns as act();
+        a step's pos_error_m is the largest joint's error (rad) after it."""
+        rows = np.asarray(rows, dtype=float).reshape(-1, 8)
+        return _with_root_steps(self._call("act_joints", rows=rows.tolist()))
+
     def act_base(self, rows) -> dict:
         """Base only: each 3-D row [base_x, base_y, base_yaw] (the root in odom) for one 15 Hz step, the arm
         holding its joints. Returns as act() (no arm errors)."""

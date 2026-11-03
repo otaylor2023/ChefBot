@@ -126,3 +126,31 @@ def test_the_bringup_skill_runs_through_the_episode_on_it(robot, tmp_path):
         host.close()
     assert result["returned"]["ok"], (result, (tmp_path / "ep" / "skill_log.txt").read_text())
     assert fake.sent["arm"] > 0 and fake.sent["base"] == 0 and fake.sent["moves"] == 3
+
+
+def test_it_goes_home_first_and_a_dry_run_doesnt(robot, tmp_path):
+    from chefbot.environments.real.host import HOME
+
+    fake = FakeRobot()
+    fake.q = np.array(HOME) + np.radians([10, -8, 5, 6, -5, 4, 20])
+    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None)
+    h.go_home()
+    assert np.abs(fake.q - np.array(HOME)).max() < 1e-6
+    fake.q = np.array(HOME) + np.radians(15)
+    q_before = fake.q.copy()
+    RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None, dry_run=True).go_home()
+    assert np.allclose(fake.q, q_before)
+
+
+def test_a_joint_move_gets_there(robot, tmp_path):
+    from chefbot.environments.real.host import HOME
+
+    h, fake = host_on(robot, tmp_path)
+    try:
+        target = np.array(HOME) + np.radians([8, -5, 4, 6, -4, 5, 15])
+        for _ in range(60):
+            rec = h.step([*target.tolist(), 0.0], "joints")
+        assert rec["pos_error_m"] < 1e-3  # rad, the largest joint's
+        assert np.abs(fake.q - target).max() < 1e-3 and fake.sent["base"] == 0
+    finally:
+        h.close()

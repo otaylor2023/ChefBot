@@ -7,7 +7,7 @@ Before: the robot up with the onboard server (onboard/bringup/launch.sh: the arm
 server), and on this computer `ssh -L 8765:localhost:8765 tidybot01` (environments/real/config.yaml's url), the
 vision server for skills that use it (VISION_URL), the model keys in .env.
 
-Every move waits for Enter (--yes: doesn't). --dry-run: nothing is sent to the arm or the gripper, the arm taken
+--home first takes the arm to its ready pose (the hand pointing down). Every move waits for Enter (--yes: doesn't). --dry-run: nothing is sent to the arm or the gripper, the arm taken
 to be where it was commanded, the cameras real. Arm only unless --base. The episode's files (result.json,
 trace.jsonl, calls.jsonl, skill_log.txt, the skill's images) go to runs/real/<skill>__<time>/; nothing scores it.
 """
@@ -47,6 +47,7 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="send nothing to the arm or the gripper")
     ap.add_argument("--yes", action="store_true", help="don't wait for Enter before each move")
     ap.add_argument("--base", action="store_true", help="let the base move (default: it holds)")
+    ap.add_argument("--home", action="store_true", help="the arm to its ready pose before the skill (a skill can do it itself: act_joints)")
     ap.add_argument("--flange-z-min", type=float, default=FLANGE_Z_MIN, help="the flange's height floor, arm base frame (m)")
     ap.add_argument("--url", help="the onboard server (default: environments/real/config.yaml's)")
     ap.add_argument("--model-usd", type=float, default=LIMITS["model_usd"], help="the episode's model budget")
@@ -71,6 +72,12 @@ def main() -> None:
     out = RUNS / f"{skill.path.replace('/', '-')}__{time.strftime('%m%d-%H%M%S')}{'_dry' if a.dry_run else ''}"
     host = RealHost(robot, robot.speed(a.speed), out, dry_run=a.dry_run, confirm=not a.yes, base=a.base, url=a.url,
                     flange_z_min=a.flange_z_min)  # fmt: skip
+    if a.home:
+        try:
+            host.go_home()
+        except BaseException:
+            host.close()
+            raise
     ledger = M.Ledger(out / "model_ledger.jsonl", a.model_usd)
     vision = M.Vision(vision_url) if access.get("vision") else None
     limits = {**LIMITS, "model_usd": a.model_usd, "think_s": a.think_s, "control_steps": a.steps}

@@ -1,7 +1,7 @@
 """A basic top-down pick: one wrist RGB-D frame, Gemini Robotics-ER points at the object, the depth around the point
 gives where it is and how tall, then above it, down, grasp, up.
 
-From where the arm is (the ready pose: the hand pointing down, the object in the wrist camera's view):
+  0. the arm home (its ready pose: the hand pointing down, the object in the wrist camera's view), by its joints
   1. open the gripper; one wrist frame
   2. Gemini points at the object (x, y normalized 0..1000)
   3. the depth there, through the camera's pose: the point in odom; around it, the surface it stands on (a low
@@ -21,6 +21,8 @@ MODEL = "gemini-robotics-er-2-preview"
 PAD = 0.13065  # m along the flange's z: the fingertip pads' center (the Franka Hand's 0.1034 on the 27.25 mm holder)
 SPEED = 0.02  # m/s along a move
 HZ = 15.0
+HOME = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)  # the FR3's ready pose: the hand pointing down
+HOME_SPEED = 0.3  # rad/s, the fastest joint
 
 
 def _quat_wxyz(R):
@@ -117,7 +119,21 @@ def _marked(rgb, u, v):
     return img
 
 
+def _home(robot):
+    """The arm to HOME by its joints (a straight line in joint space), then a pause to settle."""
+    q0 = np.array(robot.proprio()["arm_q"], dtype=float)
+    q1 = np.array(HOME)
+    far = float(np.abs(q1 - q0).max())
+    if far < 0.01:
+        return
+    n = max(10, int(math.ceil(far / HOME_SPEED * HZ)))
+    rows = [[*(q0 + (q1 - q0) * (k / n)).tolist(), 0.0] for k in range(1, n + 1)] + [[*q1.tolist(), 0.0]] * 15
+    r = robot.act_joints(rows)
+    robot.log(f"home: {np.degrees(far):.0f} deg at most; within {np.degrees(r['steps'][-1]['pos_error_m']):.1f} deg of it")
+
+
 def run(robot, object: str, force_n: float = 20.0):
+    _home(robot)
     robot.gripper_move(0.08, 0.05)
     obs = robot.observe(("wrist",))
     cam = obs["cameras"]["wrist"]

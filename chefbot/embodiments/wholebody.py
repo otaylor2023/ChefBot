@@ -9,9 +9,10 @@ acts only when that changes), and where the robot root should be. Each control s
     object stays put while the base moves), solved by IK, each joint's change clipped too.
 Step sizes are the speed profile's rates times the tick.
 
-Two partial modes (step(..., mode=)): "arm", an 8-D [x, y, z, qw, qx, qy, qz, gripper] flange target in the robot
-root frame (it rides with the base), solved by IK alone while the base holds its last target; "base", a 3-D
-[x, y, yaw] root target in odom, the arm holding its joints (no IK).
+Partial modes (step(..., mode=)): "arm", an 8-D [x, y, z, qw, qx, qy, qz, gripper] flange target in the robot
+root frame (it rides with the base), solved by IK alone while the base holds its last target; "joints",
+[q1 .. qn, gripper], the arm's joints toward those (no IK; clipped to the limits, at the profile's joint rate) while
+the base holds; "base", a 3-D [x, y, yaw] root target in odom, the arm holding its joints (no IK).
 
 (agentic-skills-exploration's robots/wholebody.py, on ChefBot's Env and IK.)
 """
@@ -107,27 +108,36 @@ class WholeBodyController:
                 "base_error_m": float(math.hypot(bx - nbx, by - nby)), "base_yaw_error_rad": float(abs(wrap(byaw - nbyaw)))}  # fmt: skip
 
     def _step_partial(self, target: np.ndarray, mode: str) -> dict:
+        q_joints = None
         if mode == "arm":
             arm_root = np.eye(4)
             arm_root[:3, :3], arm_root[:3, 3] = R_of(target[3:7]), target[:3]
             self.env.set_gripper(bool(target[7] >= 0.5))
+            bx, by, byaw = self._base_hold
+        elif mode == "joints":
+            arm_root = None
+            lim = np.asarray(self.kin.ik.joint_limits, dtype=float)  # the arm model's (or the config's)
+            q_joints = np.clip(target[:-1], lim[:, 0], lim[:, 1])
+            self.env.set_gripper(bool(target[-1] >= 0.5))
             bx, by, byaw = self._base_hold
         elif mode == "base":
             arm_root = None
             bx, by, byaw = (float(v) for v in target[:3])
             self._base_hold = (bx, by, byaw)
         else:
-            raise ValueError(f"mode must be whole, arm or base, not {mode!r}")
+            raise ValueError(f"mode must be whole, arm, joints or base, not {mode!r}")
         base_world = self.odom @ np.array([bx, by, 0.0, 1.0])
         yaw_world = math.atan2(self.odom[1, 0], self.odom[0, 0]) + byaw
         self._t_next += 1.0 / self.hz
         ik_ok = True
         while self.env.get_state().time < self._t_next - 1e-6:
-            ik_ok &= self._tick(None, base_world[:2], yaw_world, arm_root=arm_root, arm_hold=mode == "base")
+            ik_ok &= self._tick(None, base_world[:2], yaw_world, arm_root=arm_root, arm_hold=mode == "base", q_joints=q_joints)
         self.env.set_base_velocity(0.0, 0.0, 0.0)
         nbx, nby, nbyaw = self.base_in_odom()
         rec = {"target": target.tolist(), "ik_ok": bool(ik_ok), "pos_error_m": 0.0, "rot_error_rad": 0.0,
                "base_error_m": float(math.hypot(bx - nbx, by - nby)), "base_yaw_error_rad": float(abs(wrap(byaw - nbyaw)))}  # fmt: skip
+        if mode == "joints":
+            rec["pos_error_m"] = float(np.abs(q_joints - np.asarray(self.env.get_state().arm_q, dtype=float)).max())  # rad, the largest joint's
         if mode == "arm":
             F = self.kin.flange_pose(self.env.get_state().arm_q)
             rec["pos_error_m"] = float(np.linalg.norm(target[:3] - F[:3, 3]))
@@ -135,7 +145,7 @@ class WholeBodyController:
         return rec
 
     def _tick(self, T_flange_world: np.ndarray | None, base_xy_world: np.ndarray, yaw_world: float, arm_root=None,
-              arm_hold: bool = False) -> bool:  # fmt: skip
+              arm_hold: bool = False, q_joints: np.ndarray | None = None) -> bool:  # fmt: skip
         env, sp = self.env, self.speed
         s = env.get_state()
         root = self.root()
@@ -153,6 +163,15 @@ class WholeBodyController:
             # The root's velocity, as the base center's: the arm mount is off center, so turning moves the root too.
             mx, my = root[:2, 3] - np.array(self._base_xy())
             env.set_base_velocity(float(v[0] + w * my), float(v[1] - w * mx), w)
+        if q_joints is not None:  # "joints" steps: toward the joints, at the profile's joint rate, no IK
+            q = self._q_cmd if self._q_cmd is not None else np.asarray(s.arm_q, dtype=float)
+            jc = sp.joint * self.tick_s
+            self._q_cmd = q + np.clip(q_joints - q, -jc, jc)
+            env.set_arm_joint_targets(self._q_cmd)
+            env.wait_for_next_tick(self.tick_s)
+            if self.on_tick:
+                self.on_tick()
+            return True
         if arm_hold:  # "base" steps: the arm holds its joints, no IK
             q_hold = self._q_cmd if self._q_cmd is not None else np.asarray(s.arm_q, dtype=float)
             env.set_arm_joint_targets(q_hold)

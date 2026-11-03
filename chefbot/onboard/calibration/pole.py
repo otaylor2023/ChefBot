@@ -269,13 +269,13 @@ def solve_card(d: dict, K, D, skip=()) -> dict:
 
 
 def track_test(poses: int = 10, frames: int = 3, width: int = 640, height: int = 480, save: Path | None = None) -> None:
-    """The mount tracker (environments/real/mount_track.py) on the real pole camera and arm: it starts from the
+    """The mount tracker (interface/mount_track.py) on the real pole camera and arm: it starts from the
     calibrated pose knocked 2 cm and 1 deg, the hand goes through some of record's poses (Enter once), and it should
     come back to the calibration. Frames as environments/real gets them (640 x 480, RGB)."""
     import cv2
     import yaml
 
-    from chefbot.environments.real.mount_track import MountTracker
+    from chefbot.interface.mount_track import MountTracker
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.arm import Arm, Stop
     from chefbot.onboard.calibration.camera import POLE_D455, Camera

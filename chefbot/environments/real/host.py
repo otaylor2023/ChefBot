@@ -7,7 +7,7 @@ on RealEnv (the onboard server), each step toward the latest target, so the robo
 while the skill thinks or waits on a model. Robot time counts from the skill's first request.
 
 Between the controller and the robot, every arm command is checked (SafetyStop, and the robot holds, if any fails):
-the joints inside their limits, no part of the arm in the pole's keep-out (onboard/calibration/arm.py) or within
+the joints inside their limits, no part of the arm in the pole's keep-out (interface/workspace.py) or within
 PLATE_CLEAR of the base's plate, the flange above `flange_z_min` (arm base frame). The base moves only if the host
 is made with base=True (an arm-only skill never needs it). dry_run: nothing is sent to the arm or the gripper; the
 arm's joints are taken to be where the controller commanded them (the skill sees its moves made), the cameras are
@@ -33,6 +33,8 @@ from chefbot.embodiments import Robot, Speed
 from chefbot.embodiments.wholebody import WholeBodyController, quat_wxyz
 from chefbot.interface.types import Pose2D
 
+HOME = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)  # the FR3's ready pose: the hand pointing down (the calibrations' start)
+HOME_SPEED = 0.3  # rad/s, the fastest joint, going home
 FLANGE_Z_MIN = 0.12  # m above the arm base frame's origin: with the fingers pointing down, their ends near the plate's height
 PLATE_CLEAR = 0.05  # m: every arm point (bar the base column's) at least this above the plate
 OPEN_WIDTH = 0.08  # m: the Franka Hand fully open
@@ -46,7 +48,7 @@ class GuardedEnv:
     """RealEnv with every arm command checked, the base locked unless allowed, and (dry_run) no actuation at all."""
 
     def __init__(self, env, robot: Robot, base: bool = False, dry_run: bool = False, flange_z_min: float = FLANGE_Z_MIN):
-        from chefbot.onboard.calibration.arm import LIMITS, MARGIN
+        from chefbot.interface.workspace import LIMITS, MARGIN
 
         self.env, self.kin, self.base, self.dry_run, self.flange_z_min = env, robot.kin, base, dry_run, flange_z_min
         self.lo, self.hi = LIMITS[:, 0] + MARGIN / 2, LIMITS[:, 1] - MARGIN / 2
@@ -66,7 +68,7 @@ class GuardedEnv:
                                    gripper_width=s.gripper_width if self._width is None else self._width)  # fmt: skip
 
     def check(self, q) -> None:
-        from chefbot.onboard.calibration.arm import arm_points, in_keep_out
+        from chefbot.interface.workspace import arm_points, in_keep_out
 
         q = np.asarray(q, dtype=float)
         if np.any(q < self.lo) or np.any(q > self.hi):
@@ -129,12 +131,10 @@ class RealHost:
         kin = robot.kin
         mount = kin.root_in_world(Pose2D(0.0, 0.0, 0.0))  # the arm base on the base
         if env is None:
-            from chefbot.environments.real.check import control_offset
             from chefbot.environments.real.env import RealEnv
-            from chefbot.robot.config import REAL_PATH, RobotConfig
 
-            env = RealEnv.from_config(control_offset(RobotConfig.load(REAL_PATH)), url=url,
-                                      flange_in_base=lambda q: mount @ kin.flange_pose(q))  # fmt: skip
+            # flange_to_control serves pose targets only, which the host never sends (GuardedEnv refuses them)
+            env = RealEnv.from_config(np.eye(4), url=url, flange_in_base=lambda q: mount @ kin.flange_pose(q))
         self.raw_env = env
         self.env = GuardedEnv(self.raw_env, robot, base=base, dry_run=dry_run, flange_z_min=flange_z_min)
         self.ctl = WholeBodyController(self.env, robot, speed)
@@ -148,6 +148,35 @@ class RealHost:
             log("[real] the base holds (arm only)")
 
     # -- episode -------------------------------------------------------------------
+
+    def go_home(self, q_home=HOME, confirm: bool | None = None) -> None:
+        """Before the episode: the arm to `q_home` along a straight line in joint space (its path clear of the
+        keep-out, every step checked), Enter first (confirm, default the host's). A dry run doesn't move: it only says
+        whether the arm is there (the cameras see the real arm)."""
+        from chefbot.interface.workspace import path_clear
+
+        q0 = np.asarray(self.raw_env.get_state().arm_q, dtype=float)
+        q1 = np.asarray(q_home, dtype=float)
+        far = float(np.abs(q1 - q0).max())
+        if far < 0.02:
+            return
+        if self.dry_run:
+            self.log(f"[real] dry run: the arm is {np.degrees(far):.0f} deg from home and won't go there; the skill sees it where it is")
+            return
+        if not path_clear(q0, q1):
+            raise SafetyStop("the straight way home passes the pole's keep-out: move the arm nearer home first")
+        if self.confirm if confirm is None else confirm:
+            input(f"\nHome: the arm to its ready pose, {np.degrees(far):.0f} deg at most ({far / HOME_SPEED:.1f} s). Enter to move (Ctrl-C stops): ")
+        tick = 0.05
+        n = max(1, int(math.ceil(far / (HOME_SPEED * tick))))
+        for k in range(1, n + 1):
+            self.env.set_arm_joint_targets(q0 + (q1 - q0) * (k / n))
+            self.raw_env.wait_for_next_tick(tick)
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 5.0 and np.abs(np.asarray(self.raw_env.get_state().arm_q) - q1).max() > 0.02:
+            self.raw_env.wait_for_next_tick(tick)
+        err = float(np.abs(np.asarray(self.raw_env.get_state().arm_q) - q1).max())
+        self.log(f"[real] home ({np.degrees(err):.1f} deg off)")
 
     def start(self, task=None, seed: int = 0) -> Pose2D:
         """The robot starts where it is: odom is fixed here, and control begins."""
@@ -200,6 +229,8 @@ class RealHost:
             return
         p = self._proprio()
         F = np.array(p["flange_pose_odom"]) if mode == "whole" else self.robot.kin.flange_pose(p["arm_q"])
+        if mode == "joints":  # as an arm move: where each row's joints put the flange (root frame), its gripper last
+            rows = [[*self.robot.kin.flange_pose(np.asarray(r[:-1]))[:3, 3], 1.0, 0.0, 0.0, 0.0, r[-1]] for r in rows]
         if mode == "base":
             far, grip = 0.0, False
         else:
@@ -208,7 +239,7 @@ class RealHost:
         if far < 0.02 and not grip and mode != "base":
             return  # a hold where it already is
         end = np.asarray(rows[-1], dtype=float)
-        what = {"whole": "whole body", "arm": "arm only: the base holds", "base": "base only: the arm holds"}[mode]
+        what = {"whole": "whole body", "arm": "arm only: the base holds", "joints": "arm joints: the base holds", "base": "base only: the arm holds"}[mode]
         parts = [] if mode == "base" else [f"the flange {np.round((end[:3] - F[:3, 3]) * 100, 1).tolist()} cm"
                                            f" ({'odom' if mode == 'whole' else 'arm base frame'}), farthest {far * 100:.1f} cm,"
                                            f" gripper {'closed' if end[7] >= 0.5 else 'open'}"]  # fmt: skip
