@@ -27,8 +27,8 @@ import numpy as np
 from chefbot.onboard.calibration.wrist import DICTIONARY, FRAMES, MARKER_ID, _object_points, _pnp, _refine, _rot, _T, ax_xb
 
 MARKER_MARGIN = 0.15  # m: the keep-out grown by this (the marker sticks out of the hand)
-# Where record starts: the hand card facing the pole camera (2026-11-03: it saw markers 5 and 6 from here)
-START = [-0.139, -0.1, -0.062, -1.735, -0.003, 1.275, 0.771]
+# Where record starts: the arm's ready pose, the hand's white face (the card) toward the pole camera
+START = [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785]
 # The hand moved this far from the start (base frame, m), spread wide and low so the fit holds over the workspace
 # (2026-11-03: poses only +-8 cm around one spot left the camera's tilt loose: a marker 40 cm lower came out low)
 SHIFTS_M = ((0, 0, 0), (0.08, 0, 0), (-0.08, 0, 0), (0, 0.08, 0), (0, -0.08, 0), (0, 0, 0.08), (0, 0, -0.08),
