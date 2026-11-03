@@ -14,13 +14,17 @@ import numpy as np
 
 from chefbot.onboard import keys as K
 from chefbot.onboard.frames import BaseFrames
-from chefbot.onboard.mocap import MocapFreshness
+from chefbot.onboard.mocap import Freshness, MocapFreshness
 
 _STATE_KEYS = (
     K.JOINT_POSITIONS, K.JOINT_VELOCITIES, K.GRIPPER_CURRENT_WIDTH, K.GRIPPER_GRASP_SUCCESS, K.GRIPPER_READY,
     K.GRIPPER_MAX_WIDTH, K.BASE_POSE, K.BASE_VELOCITY, K.MOCAP_POSITION, K.MOCAP_ORIENTATION, K.MOCAP_VALID,
-    K.ACTIVE_CONTROLLER, K.CARTESIAN_CURRENT_POSITION, K.CARTESIAN_CURRENT_ORIENTATION,
+    K.ACTIVE_CONTROLLER, K.CARTESIAN_CURRENT_POSITION, K.CARTESIAN_CURRENT_ORIENTATION, K.BASE_HEARTBEAT,
 )  # fmt: skip
+
+
+class NotLocalized(RuntimeError):
+    """A world-frame base target without a live mocap pose and a live base driver to tie it to."""
 
 
 def _text(raw) -> str | None:
@@ -62,6 +66,8 @@ class RedisRobot:
         self.r = redis
         self.frames = frames
         self.mocap = mocap or MocapFreshness()
+        self.driver = Freshness(stale_after_s=0.25)  # the base driver's heartbeat (100 Hz when it runs)
+        self.live_for_targets = False  # at the last state read: mocap valid and fresh, the driver live, and tied
         self.gripper_speed = float(gripper["speed"])
         self.gripper_force = float(gripper["force"])
         self.base_max_vel = base_max_vel  # the base driver's --max-vel-xy, --max-vel-yaw
@@ -77,7 +83,9 @@ class RedisRobot:
         v = dict(zip(_STATE_KEYS, self.r.mget(_STATE_KEYS)))
         if v[K.JOINT_POSITIONS] != self._arm_raw:
             self._arm_raw, self._arm_changed = v[K.JOINT_POSITIONS], time.monotonic()
-        odom = _array(v[K.BASE_POSE])
+        driver_live = self.driver.is_fresh(self.driver.update(v[K.BASE_HEARTBEAT], None))
+        # Odometry only from a running driver: Redis keeps hb1::current_pose after it stops.
+        odom = _array(v[K.BASE_POSE]) if driver_live else None
         mocap_valid = _flag(v[K.MOCAP_VALID])
         mocap_age = self.mocap.update(v[K.MOCAP_POSITION], v[K.MOCAP_ORIENTATION])
         mocap_fresh = self.mocap.is_fresh(mocap_age)
@@ -88,7 +96,8 @@ class RedisRobot:
             mocap_pose = self.frames.base_from_mocap(position, quat)
             if odom is not None:
                 self.frames.tie(mocap_pose, odom[:3])
-        base_velocity = _array(v[K.BASE_VELOCITY])
+        self.live_for_targets = bool(mocap_pose is not None and odom is not None and self.frames.tied)
+        base_velocity = _array(v[K.BASE_VELOCITY]) if driver_live else None
         cart_position, cart_orientation = _array(v[K.CARTESIAN_CURRENT_POSITION]), _array(v[K.CARTESIAN_CURRENT_ORIENTATION])
         return {
             "base_pose": None if odom is None else self.frames.to_world(odom[:3]),
@@ -98,6 +107,7 @@ class RedisRobot:
             "mocap_fresh": mocap_fresh,  # the pose changed within mocap.stale_after_s
             "mocap_age_s": mocap_age,  # seconds since the pose last changed; None: not since the server started
             "mocap_pose": mocap_pose,  # (x, y, yaw) world, from mocap alone; None unless valid and fresh
+            "base_driver_live": driver_live,  # ChefBot's base driver is running (its heartbeat changes)
             "arm_q": _array(v[K.JOINT_POSITIONS]),
             "arm_qd": _array(v[K.JOINT_VELOCITIES]),
             "arm_frozen_s": round(time.monotonic() - self._arm_changed, 3),  # > ~0.2 s: the arm driver isn't publishing
@@ -158,11 +168,16 @@ class RedisRobot:
         self.r.set(K.GRIPPER_MODE, mode)
 
     def base_target(self, pose_world, max_vel) -> None:
-        """Drive to a world pose within `max_vel` (never faster than the driver's own limits)."""
+        """Drive to a world pose within `max_vel` (never faster than the driver's own limits). Refused (NotLocalized)
+        unless the last state read had a live mocap pose and a live base driver: a world target means nothing
+        without both. Each target bumps hb1::cmd_seq; ChefBot's driver brakes once it stops changing."""
+        if not self.live_for_targets:
+            raise NotLocalized("no live mocap pose and base driver: base target refused")
         scale = min(float(max_vel[0]) / self.base_max_vel[0], float(max_vel[2]) / self.base_max_vel[1], 1.0)
         self._set_on_change(K.BASE_MAX_VEL_SCALE, f"{max(scale, 0.1):.3f}")
         x, y, yaw = self.frames.to_odom(pose_world)
         self.r.set(K.BASE_DESIRED_POSE, f"[{x}, {y}, {yaw}]")
+        self.r.incr(K.BASE_CMD_SEQ)
         self._written.pop(K.BASE_STOP, None)
 
     def base_hold(self) -> None:

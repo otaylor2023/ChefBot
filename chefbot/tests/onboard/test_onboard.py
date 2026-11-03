@@ -35,14 +35,20 @@ class FakeRedis:
         self.values[key] = str(value)
         self.writes.append((key, str(value)))
 
+    def incr(self, key):
+        self.set(key, int(self.values.get(key, 0)) + 1)
+
     def written(self, key) -> list[str]:
         return [v for k, v in self.writes if k == key]
 
 
 def new_frame(redis: FakeRedis) -> None:
-    """What the mocap publisher does every frame: rewrite the pose (here the same numbers, written anew)."""
+    """A tick of the live drivers: the mocap publisher rewrites the pose (here the same numbers, written anew)
+    and the base driver counts its heartbeat up."""
     raw = redis.values[K.MOCAP_POSITION]
     redis.values[K.MOCAP_POSITION] = raw[:-1] if raw.endswith(" ") else raw + " "
+    if K.BASE_HEARTBEAT in redis.values:
+        redis.values[K.BASE_HEARTBEAT] = str(int(redis.values[K.BASE_HEARTBEAT]) + 1)
 
 
 def live_state(robot, redis: FakeRedis) -> dict:
@@ -61,6 +67,7 @@ def driver_values(odom=(1.0, 2.0, 0.5), mocap_xy=(3.0, 4.0), mocap_yaw=1.0, vali
         K.GRIPPER_MAX_WIDTH: "0.08",
         K.GRIPPER_READY: "1",
         K.BASE_POSE: f"[{odom[0]}, {odom[1]}, {odom[2]}]",
+        K.BASE_HEARTBEAT: "1",
         K.BASE_VELOCITY: "[0.0, 0.0, 0.0]",
         K.MOCAP_POSITION: f"[{mocap_xy[0]}, {mocap_xy[1]}, 0.3]",
         K.MOCAP_ORIENTATION: f"[0.0, 0.0, {math.sin(half)}, {math.cos(half)}]",  # x, y, z, w
@@ -119,10 +126,18 @@ def test_state_is_in_the_mocap_world_and_carries_on_through_odometry():
     np.testing.assert_allclose(s["base_pose"], compose([3.0, 4.0, 1.0], [0.5, 0.0, 0.0]), atol=1e-9)
 
 
+def beat(redis: FakeRedis) -> None:
+    """The base driver alone ticks (mocap unchanged)."""
+    redis.values[K.BASE_HEARTBEAT] = str(int(redis.values[K.BASE_HEARTBEAT]) + 1)
+
+
 def test_without_mocap_ever_the_world_is_odometry():
     redis = FakeRedis(driver_values(valid=False))
-    s = build(CONFIG, redis).robot.read_state()
-    assert not s["localized"]
+    robot = build(CONFIG, redis).robot
+    robot.read_state()
+    beat(redis)
+    s = robot.read_state()
+    assert not s["localized"] and s["base_driver_live"]
     np.testing.assert_allclose(s["base_pose"], [1.0, 2.0, 0.5])
 
 
@@ -134,6 +149,7 @@ def test_a_pose_left_in_redis_by_a_dead_publisher_is_never_trusted():
         s = robot.read_state()
         assert s["mocap_valid"] and not s["mocap_fresh"] and s["mocap_age_s"] is None
         assert s["mocap_pose"] is None and not s["localized"]
+        beat(redis)  # the base driver is running
     np.testing.assert_allclose(s["base_pose"], [1.0, 2.0, 0.5])  # plain odometry
 
 
@@ -317,6 +333,7 @@ def test_a_silent_client_is_halted_and_told(served):
 
 def test_disconnecting_after_commanding_halts_and_frees_the_server_for_the_next_client(served):
     server, env, _ = served
+    wait_until(lambda: env.localization().localized)
     env.set_base_target(Pose2D(3.0, 4.0, 1.0), (0.1, 0.1, 0.3))
     wait_until(lambda: server.commanded)
     env.close()
@@ -404,3 +421,173 @@ def test_real_pose_prints_and_summarizes_what_the_robot_reports(served):
     assert "10 samples, 5 live (50%)" in summary
     assert "x 0.00 mm" in summary  # the fake publisher's pose does not move
     assert "longest stretch without a live pose: 0.10 s" in summary
+
+
+# -- base driver liveness and the target guard ------------------------------------------
+
+
+def test_odometry_left_in_redis_by_a_stopped_driver_is_not_used():
+    # Seen on the robot (HT-0a): hb1::current_pose there with no base driver running.
+    redis = FakeRedis(driver_values())
+    robot = build(CONFIG, redis).robot
+    robot.read_state()
+    new_frame(redis)
+    redis.values[K.BASE_HEARTBEAT] = "1"  # the heartbeat never changes: no driver
+    robot.read_state()
+    new_frame(redis)
+    redis.values[K.BASE_HEARTBEAT] = "1"
+    s = robot.read_state()
+    assert s["mocap_pose"] is not None and not s["base_driver_live"]
+    assert s["base_pose"] is None and not s["localized"]  # no tie to the frozen odometry
+
+
+def test_base_targets_need_live_mocap_and_a_live_driver():
+    from chefbot.onboard.robot_io import NotLocalized
+
+    redis = FakeRedis(driver_values())
+    robot = build(CONFIG, redis).robot
+    robot.read_state()  # nothing live yet
+    with pytest.raises(NotLocalized):
+        robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
+    assert K.BASE_DESIRED_POSE not in redis.values and K.BASE_CMD_SEQ not in redis.values
+    live_state(robot, redis)
+    robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
+    robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
+    assert redis.values[K.BASE_CMD_SEQ] == "2"  # every target bumps the sequence the driver watches
+
+
+def test_the_server_reports_a_refused_target_and_does_not_count_it_as_commanding(served):
+    server, env, redis = served
+    env.publisher.stop()
+    redis.values[K.MOCAP_VALID] = "false"
+    wait_until(lambda: not env.localization().mocap_valid)
+    env.set_base_target(Pose2D(3.0, 4.0, 1.0), (0.1, 0.1, 0.3))
+    wait_until(lambda: env.errors)
+    assert "refused" in env.errors[-1] and not server.commanded
+    assert K.BASE_CMD_SEQ not in redis.values
+
+
+# -- scripts/real_nav: A to B against a simulated base ---------------------------------
+
+
+class SimBase:
+    """The base driver and mocap together: odometry moves toward hb1::desired_pose at `speed` while commands stay
+    fresh (as driver.py), and mocap reports the same motion in a world offset from odometry."""
+
+    def __init__(self, redis, world_from_odom=(2.0, 1.0, 0.5), speed=0.5, period_s=0.005, timeout_s=0.5):
+        from chefbot.onboard.frames import compose
+
+        self.redis, self.compose, self.w, self.speed, self.dt, self.timeout = redis, compose, world_from_odom, speed, period_s, timeout_s
+        self.odom = np.zeros(3)
+        self.stopped = threading.Event()
+        self.mocap_lost = threading.Event()
+        self.publish()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def publish(self):
+        r = self.redis.values
+        r[K.BASE_POSE] = json.dumps(self.odom.tolist())
+        r[K.BASE_VELOCITY] = "[0.0, 0.0, 0.0]"
+        r[K.BASE_HEARTBEAT] = str(int(r.get(K.BASE_HEARTBEAT, "0")) + 1)
+        if not self.mocap_lost.is_set():
+            x, y, yaw = self.compose(self.w, self.odom)
+            r[K.MOCAP_POSITION] = json.dumps([x, y, 0.44 + 1e-9 * float(r[K.BASE_HEARTBEAT])])  # noise: a new frame
+            r[K.MOCAP_ORIENTATION] = json.dumps([0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)])
+            r[K.MOCAP_VALID] = "1"
+
+    def _run(self):
+        seq, seq_at = self.redis.values.get(K.BASE_CMD_SEQ), None
+        while not self.stopped.wait(self.dt):
+            now = time.monotonic()
+            if self.redis.values.get(K.BASE_CMD_SEQ) != seq:
+                seq, seq_at = self.redis.values.get(K.BASE_CMD_SEQ), now
+            fresh = seq_at is not None and now - seq_at <= self.timeout and self.redis.values.get(K.BASE_STOP) != "stop"
+            if self.redis.values.get(K.BASE_STOP) == "stop":
+                self.redis.values[K.BASE_STOP] = "ok"
+                seq_at = None
+            if fresh:
+                goal = np.array(json.loads(self.redis.values[K.BASE_DESIRED_POSE]))
+                step = goal - self.odom
+                step[2] = math.atan2(math.sin(step[2]), math.cos(step[2]))
+                n = np.linalg.norm(step[:2])
+                if n > self.speed * self.dt:
+                    step[:2] *= self.speed * self.dt / n
+                step[2] = np.clip(step[2], -1.0 * self.dt, 1.0 * self.dt)
+                self.odom = self.odom + step
+            self.publish()
+
+    def stop(self):
+        self.stopped.set()
+        self._thread.join()
+
+
+@pytest.fixture
+def sim():
+    values = driver_values()
+    values.pop(K.JOINT_POSITIONS)  # no arm driver
+    redis = FakeRedis(values)
+    base = SimBase(redis)
+    server = build(CONFIG, redis)
+    server.cameras = FakeCameras()
+    server.start()
+    env = RealEnv(server.url, np.eye(4))
+    yield env, base, redis, server
+    base.stop()
+    env.close()
+    server.shutdown()
+
+
+def test_real_nav_goes_from_a_to_b_and_holds(sim, tmp_path):
+    from chefbot.scripts.real_nav import go
+
+    env, base, redis, server = sim
+    wait_until(lambda: env.localization().live and env.raw_state().get("base_driver_live"))
+    start = env.localization().mocap_pose
+    goal = Pose2D(start.x + 0.3, start.y - 0.2, start.yaw + 0.3)
+    result = go(env, goal, speed=0.5, yaw_speed=1.0, confirm=lambda _: None, log_path=tmp_path / "go.jsonl")
+    assert result["ok"] and result["reason"] == "reached", result
+    assert result["final_error_m"] < 0.03 and abs(result["final_yaw_error_deg"]) < 3.0
+    assert redis.values[K.BASE_STOP] in ("stop", "ok")  # held at the end
+    assert len((tmp_path / "go.jsonl").read_text().splitlines()) > 3
+
+
+def test_real_nav_stops_when_mocap_is_lost_mid_move(sim):
+    from chefbot.scripts.real_nav import go
+
+    env, base, redis, server = sim
+    wait_until(lambda: env.localization().live and env.raw_state().get("base_driver_live"))
+    start = env.localization().mocap_pose
+    goal = Pose2D(start.x + 1.0, start.y, start.yaw)
+    threading.Timer(0.5, base.mocap_lost.set).start()
+    result = go(env, goal, speed=0.2, yaw_speed=1.0, confirm=lambda _: None)
+    assert not result["ok"] and "lost the live mocap pose" in result["reason"]
+    wait_until(lambda: redis.values.get(K.BASE_STOP) == "ok" or redis.writes[-1][0] == K.BASE_STOP)
+    odom_then = base.odom.copy()
+    time.sleep(0.8)  # past the driver's timeout: the simulated base must not keep going
+    assert np.linalg.norm(base.odom[:2] - odom_then[:2]) < 0.05
+
+
+def test_real_nav_refuses_without_a_live_driver_or_too_far(sim):
+    from chefbot.scripts.real_nav import go
+
+    env, base, redis, server = sim
+    wait_until(lambda: env.localization().live)
+    start = env.localization().mocap_pose
+    far = go(env, Pose2D(start.x + 3.0, start.y, start.yaw), confirm=lambda _: None)
+    assert not far["ok"] and not far["moved"] and "max-dist" in far["reason"]
+    base.stop()  # the driver stops: no heartbeat
+    wait_until(lambda: not env.raw_state().get("base_driver_live"))
+    res = go(env, Pose2D(start.x + 0.2, start.y, start.yaw), confirm=lambda _: None)
+    assert not res["ok"] and not res["moved"] and "base driver" in res["reason"]
+    assert K.BASE_CMD_SEQ not in redis.values  # nothing was ever commanded
+
+
+def test_real_nav_mark_averages_a_still_pose(sim, tmp_path):
+    from chefbot.scripts.real_nav import load_points, mark
+
+    env, base, redis, server = sim
+    wait_until(lambda: env.localization().live)
+    p = mark(env, "A", path=tmp_path / "points.json", seconds=0.3)
+    assert load_points(tmp_path / "points.json")["A"] == p and p["samples"] > 5
+    assert (p["x"], p["y"]) == pytest.approx((2.0, 1.0), abs=1e-6)  # odometry at 0: the world offset

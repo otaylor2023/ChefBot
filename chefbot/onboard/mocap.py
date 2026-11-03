@@ -35,3 +35,6 @@ class MocapFreshness:
 
     def is_fresh(self, age_s: float | None) -> bool:
         return age_s is not None and age_s <= self.stale_after_s
+
+
+Freshness = MocapFreshness  # the same test for any value a live publisher keeps rewriting (the base driver's heartbeat)
