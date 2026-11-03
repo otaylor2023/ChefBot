@@ -225,13 +225,14 @@ def _pnp(samples, K, D, size) -> list[np.ndarray]:
 def _park(G: list[np.ndarray], C: list[np.ndarray]) -> np.ndarray:
     """Eye-in-hand AX = XB (Park & Martin): X the camera in the flange, from the flange poses G (in the base) and the
     marker's poses C (in the camera); the marker G_i X C_i is the same at every pose."""
+    pairs = [(i, j) for i in range(len(G)) for j in range(i + 1, len(G))]
+    return ax_xb([np.linalg.inv(G[j]) @ G[i] for i, j in pairs], [C[j] @ np.linalg.inv(C[i]) for i, j in pairs])
+
+
+def ax_xb(A: list[np.ndarray], B: list[np.ndarray]) -> np.ndarray:
+    """X with A_k X = X B_k for all k, least squares (Park & Martin): rotation, then translation."""
     import cv2
 
-    A, B = [], []
-    for i in range(len(G)):
-        for j in range(i + 1, len(G)):
-            A.append(np.linalg.inv(G[j]) @ G[i])
-            B.append(C[j] @ np.linalg.inv(C[i]))
     alpha = np.array([cv2.Rodrigues(a[:3, :3])[0].ravel() for a in A])
     beta = np.array([cv2.Rodrigues(b[:3, :3])[0].ravel() for b in B])
     M = beta.T @ alpha
@@ -242,9 +243,13 @@ def _park(G: list[np.ndarray], C: list[np.ndarray]) -> np.ndarray:
     return _T(R, np.linalg.lstsq(lhs, rhs, rcond=None)[0])
 
 
-def _refine(samples, K, D, X, Mk, size, fit_size: bool = True, iters: int = 30):
-    """X (camera in flange), Mk (marker in base) and (fit_size) the marker's size, least squares on the corners'
-    reprojection."""
+def _wrist_chain(g, X, M):
+    return np.linalg.inv(g @ X) @ M  # the marker in the camera: X the camera in the flange, M the marker in the base
+
+
+def _refine(samples, K, D, X, Mk, size, fit_size: bool = True, iters: int = 30, chain=_wrist_chain):
+    """X, Mk and (fit_size) the marker's size, least squares on the corners' reprojection; chain(flange pose, X, Mk)
+    is the marker in the camera (here X the camera in the flange and Mk the marker in the base)."""
     import cv2
 
     from chefbot.onboard.calibration import fr3
@@ -259,7 +264,7 @@ def _refine(samples, K, D, X, Mk, size, fit_size: bool = True, iters: int = 30):
         Xx, Mx, sz = unpack(x)
         out = []
         for g in G:
-            C = np.linalg.inv(g @ Xx) @ Mx  # the marker in the camera
+            C = chain(g, Xx, Mx)
             pts, _ = cv2.projectPoints(_object_points(sz), cv2.Rodrigues(C[:3, :3])[0], C[:3, 3], K, D)
             out.append(pts.ravel())
         return np.concatenate(out) - obs
