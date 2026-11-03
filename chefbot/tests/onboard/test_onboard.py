@@ -18,28 +18,7 @@ from chefbot.onboard.server import build
 Q = [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785]
 
 
-class FakeRedis:
-    """get / set / mget on a dict of strings, with every write recorded."""
-
-    def __init__(self, values: dict | None = None):
-        self.values = dict(values or {})
-        self.writes: list[tuple[str, str]] = []
-
-    def get(self, key):
-        return self.values.get(key)
-
-    def mget(self, keys):
-        return [self.values.get(k) for k in keys]
-
-    def set(self, key, value):
-        self.values[key] = str(value)
-        self.writes.append((key, str(value)))
-
-    def incr(self, key):
-        self.set(key, int(self.values.get(key, 0)) + 1)
-
-    def written(self, key) -> list[str]:
-        return [v for k, v in self.writes if k == key]
+from chefbot.onboard.sim import FakeRedis, SimBase  # noqa: E402  (the shared stand-ins)
 
 
 def new_frame(redis: FakeRedis) -> None:
@@ -437,58 +416,6 @@ def test_the_server_reports_a_refused_target_and_does_not_count_it_as_commanding
 
 
 # -- scripts/real_nav: A to B against a simulated base ---------------------------------
-
-
-class SimBase:
-    """The base driver and mocap together: odometry moves toward hb1::desired_pose at `speed` while commands stay
-    fresh (as driver.py), and mocap reports the same motion in a world offset from odometry."""
-
-    def __init__(self, redis, world_from_odom=(2.0, 1.0, 0.5), speed=0.5, period_s=0.005, timeout_s=0.5):
-        from chefbot.onboard.frames import compose
-
-        self.redis, self.compose, self.w, self.speed, self.dt, self.timeout = redis, compose, world_from_odom, speed, period_s, timeout_s
-        self.odom = np.zeros(3)
-        self.stopped = threading.Event()
-        self.mocap_lost = threading.Event()
-        self.publish()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def publish(self):
-        r = self.redis.values
-        r[K.BASE_POSE] = json.dumps(self.odom.tolist())
-        r[K.BASE_VELOCITY] = "[0.0, 0.0, 0.0]"
-        r[K.BASE_HEARTBEAT] = str(int(r.get(K.BASE_HEARTBEAT, "0")) + 1)
-        if not self.mocap_lost.is_set():
-            x, y, yaw = self.compose(self.w, self.odom)
-            r[K.MOCAP_POSITION] = json.dumps([x, y, 0.44 + 1e-9 * float(r[K.BASE_HEARTBEAT])])  # noise: a new frame
-            r[K.MOCAP_ORIENTATION] = json.dumps([0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)])
-            r[K.MOCAP_VALID] = "1"
-
-    def _run(self):
-        seq, seq_at = self.redis.values.get(K.BASE_CMD_SEQ), None
-        while not self.stopped.wait(self.dt):
-            now = time.monotonic()
-            if self.redis.values.get(K.BASE_CMD_SEQ) != seq:
-                seq, seq_at = self.redis.values.get(K.BASE_CMD_SEQ), now
-            fresh = seq_at is not None and now - seq_at <= self.timeout and self.redis.values.get(K.BASE_STOP) != "stop"
-            if self.redis.values.get(K.BASE_STOP) == "stop":
-                self.redis.values[K.BASE_STOP] = "ok"
-                seq_at = None
-            if fresh:
-                goal = np.array(json.loads(self.redis.values[K.BASE_DESIRED_POSE]))
-                step = goal - self.odom
-                step[2] = math.atan2(math.sin(step[2]), math.cos(step[2]))
-                n = np.linalg.norm(step[:2])
-                if n > self.speed * self.dt:
-                    step[:2] *= self.speed * self.dt / n
-                step[2] = np.clip(step[2], -1.0 * self.dt, 1.0 * self.dt)
-                self.odom = self.odom + step
-            self.publish()
-
-    def stop(self):
-        self.stopped.set()
-        self._thread.join()
 
 
 @pytest.fixture
