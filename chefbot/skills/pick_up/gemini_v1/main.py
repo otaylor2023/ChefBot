@@ -51,16 +51,41 @@ def _move(robot, F_from, F_to, gripper, hold=0):
     return robot.act_arm(rows)
 
 
+SCHEMA = {"type": "OBJECT", "properties": {"found": {"type": "BOOLEAN"}, "x": {"type": "INTEGER"}, "y": {"type": "INTEGER"}},
+          "required": ["found"]}  # fmt: skip
+
+
+def _parse(text):
+    """{"found", "x", "y"} (0..1000), or Robotics-ER's own [{"point": [y, x], ...}]; None if neither."""
+    t = text.strip().strip("`")
+    if t.startswith("json"):
+        t = t[4:]
+    try:
+        a = json.loads(t)
+    except json.JSONDecodeError:
+        i, j = t.find("{"), t.rfind("}")
+        if i < 0 or j < i:
+            return None
+        try:
+            a = json.loads(t[i: j + 1])
+        except json.JSONDecodeError:
+            return None
+    if isinstance(a, list):
+        a = a[0] if a else {}
+    if isinstance(a, dict) and isinstance(a.get("point"), list) and len(a["point"]) == 2:
+        return {"found": True, "x": a["point"][1], "y": a["point"][0]}
+    return a if isinstance(a, dict) else None
+
+
 def _point(robot, rgb, obj):
-    prompt = (f"Point to the {obj}. Return JSON only: {{\"x\": x, \"y\": y}}, a point on the middle of its top as seen "
-              "here. Coordinates are integers normalized 0 to 1000, x left to right, y top to bottom. "
-              "If it is not in the image, return {\"x\": null, \"y\": null}.")
-    r = robot.llm(MODEL, prompt, [rgb], max_output_tokens=200, thinking_budget=0, temperature=0.0)
-    text = r["text"].strip().strip("`")
-    text = text[text.find("{"): text.rfind("}") + 1]
-    a = json.loads(text)
-    robot.log(f"gemini: {r['text'].strip()[:200]} (${r['cost_usd']:.4f}, {r['latency_s']:.1f} s)")
-    if a.get("x") is None or a.get("y") is None:
+    prompt = (f"Point to the {obj} in this image: a point on the middle of its top as seen here. Coordinates are "
+              "integers normalized 0 to 1000, x left to right, y top to bottom. found: false if it isn't in the image.")
+    r = robot.llm(MODEL, prompt, [rgb], max_output_tokens=512, thinking_budget=0, response_schema=SCHEMA, temperature=0.0)
+    robot.log(f"gemini ({r['cost_usd']:.4f} USD, {r['latency_s']:.1f} s, {r.get('output_tokens')} tokens out): {r['text'].strip()[:400]!r}")
+    a = _parse(r["text"])
+    if a is None:
+        raise ValueError(f"gemini's answer isn't a point: {r['text'][:200]!r}")
+    if not a.get("found", True) or a.get("x") is None or a.get("y") is None:
         return None
     h, w = rgb.shape[:2]
     return float(a["x"]) * w / 1000.0, float(a["y"]) * h / 1000.0
@@ -98,7 +123,10 @@ def run(robot, object: str, force_n: float = 20.0):
     cam = obs["cameras"]["wrist"]
     rgb = cam["rgb"]
     robot.save_image("wrist", rgb)
-    pt = _point(robot, rgb, object)
+    try:
+        pt = _point(robot, rgb, object)
+    except ValueError as e:
+        return {"ok": False, "reason": str(e)}
     if pt is None:
         return {"ok": False, "reason": f"gemini doesn't see a {object}"}
     u, v = pt
