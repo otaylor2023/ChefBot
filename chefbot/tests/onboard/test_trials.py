@@ -66,3 +66,11 @@ def test_a_short_session_goes_around_obstacles_without_violations(tmp_path):
     assert s["trials"] == 6 and s["reached"] == 6 and s["violations"] == 0
     assert s["detours"] >= 3 and s["segments_mean"] > 1.0  # A* actually routed around something
     assert (tmp_path / "map.txt").exists() and (tmp_path / "summary.json").exists()
+
+
+def test_long_segments_are_split_into_steps_go_accepts():
+    from chefbot.scripts.real_nav import subdivide
+
+    pts = subdivide([(0.0, 0.0), (2.5, 0.0), (2.5, 0.4)], 1.0)
+    assert pts == [(0.0, 0.0), pytest.approx((2.5 / 3, 0.0)), pytest.approx((5 / 3, 0.0)), (2.5, 0.0), (2.5, 0.4)]
+    assert max(math.dist(a, b) for a, b in zip(pts, pts[1:])) <= 1.0

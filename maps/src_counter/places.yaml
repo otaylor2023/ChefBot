@@ -1,0 +1,16 @@
+east_end:
+  x: 3.1
+  y: 2.06
+  yaw_deg: 180.0
+far_side:
+  x: 1.49
+  y: 3.05
+  yaw_deg: -90.0
+near_side:
+  x: 1.49
+  y: 1.0
+  yaw_deg: 90.0
+west_end:
+  x: -0.15
+  y: 2.06
+  yaw_deg: 0.0

@@ -273,8 +273,18 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
     return result
 
 
+def subdivide(points, max_segment: float) -> list:
+    """Split segments longer than `max_segment` into equal straight pieces (the same path, more waypoints)."""
+    out = [points[0]]
+    for a, b in zip(points, points[1:]):
+        n = max(1, math.ceil(math.dist(a, b) / max_segment))
+        out += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) for k in range(1, n + 1)]
+    return out
+
+
 def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, margin: float = 0.10, confirm=input,
-               log_dir: Path | None = None, plan_grid=None, body_grid=None, **go_args) -> dict:  # fmt: skip
+               log_dir: Path | None = None, plan_grid=None, body_grid=None, max_segment: float = 1.0,
+               **go_args) -> dict:  # fmt: skip
     """A* from where the base is to `goal` on `grid` (the furniture itself) grown by footprint + margin, then each
     segment with go(). The base centre must stay where its footprint clears the furniture (grid grown by footprint)."""
     from chefbot.robot.nav.astar import AStarPlanner, NoPath, path_length, with_yaw
@@ -292,7 +302,7 @@ def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, mar
         points = AStarPlanner(plan_grid).plan_xy((start.x, start.y), (goal.x, goal.y))
     except NoPath as exc:
         return {"ok": False, "reason": f"no path: {exc}", "moved": False}
-    poses = with_yaw(points, start.yaw, goal.yaw)[1:]
+    poses = with_yaw(subdivide(points, max_segment), start.yaw, goal.yaw)[1:]  # each step within go's --max-dist
     print(f"A* path {path_length(points):.2f} m in {len(poses)} segment(s): "
           + " -> ".join(f"({p.x:.2f}, {p.y:.2f}, {math.degrees(p.yaw):.0f})" for p in poses))  # fmt: skip
     try:
@@ -359,6 +369,9 @@ def main() -> None:
     if args.cmd == "go" and not (0 < args.speed <= 0.2 and 0 < args.yaw_speed <= 0.5):
         raise SystemExit("refusing: --speed <= 0.2 m/s and --yaw-speed <= 0.5 rad/s for now")
     env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"])  # arm poses are never sent
+    t0 = time.monotonic()  # the server needs two mocap frames to call the pose live
+    while not env.localization().live and time.monotonic() - t0 < 3.0:
+        time.sleep(0.05)
     try:
         if args.cmd == "mark":
             mark(env, args.name)
