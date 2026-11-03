@@ -121,6 +121,9 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
             if len(env.errors) > errors_seen:
                 result["reason"] = f"server error: {env.errors[-1]}"
                 break
+            if not loc.state_current:
+                result["reason"] = f"no state from the onboard server for {loc.state_age_s:.2f} s (server or link down)"
+                break
             if not loc.live or not raw.get("base_driver_live"):
                 result["reason"] = "lost the live mocap pose" if not loc.live else "the base driver stopped"
                 break
