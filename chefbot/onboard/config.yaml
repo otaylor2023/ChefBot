@@ -17,9 +17,12 @@ base:
   # The mocap rigid body on the base (chefbot-tidy): its yaw relative to the base's heading, and its origin's
   # position in the base frame. Its x runs along the base (the markers are symmetric about it), forward by the
   # operator's account (the six markers at the front, the lone pair at the back).
-  # TODO(measure): marker_xy (the body's origin is about the markers' centre; a spin in place would show it).
-  marker_yaw_offset_deg: 0.0
-  marker_xy: [0.0, 0.0]
+  # Measured 2026-11-03 (HT-1a, docs/hardware-tests.md): driven by hand forward / back / left / right and spun
+  # 379 deg in place; `python -m chefbot.onboard.calibration.base solve`. The four moves' offsets agree within
+  # 0.6 deg; with these the base centre stays within 1.4 mm rms through the spin. Re-measure if the rigid body
+  # is re-created in Motive or the markers move. Motive streams z up (frames.py's yaw).
+  marker_yaw_offset_deg: 3.14
+  marker_xy: [0.072, -0.002]
   # The mocap pose counts as live only if it changed within this long (onboard/mocap.py: the publisher writes no
   # timestamp, and its last values outlive it in Redis). Many missed frames at Motive's rate (measure it: stage 0 test).
   mocap_stale_s: 0.25
