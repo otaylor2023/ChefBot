@@ -274,7 +274,7 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
 
 
 def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, margin: float = 0.10, confirm=input,
-               log_dir: Path | None = None, **go_args) -> dict:  # fmt: skip
+               log_dir: Path | None = None, plan_grid=None, body_grid=None, **go_args) -> dict:  # fmt: skip
     """A* from where the base is to `goal` on `grid` (the furniture itself) grown by footprint + margin, then each
     segment with go(). The base centre must stay where its footprint clears the furniture (grid grown by footprint)."""
     from chefbot.robot.nav.astar import AStarPlanner, NoPath, path_length, with_yaw
@@ -283,7 +283,9 @@ def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, mar
     if not loc.live:
         return {"ok": False, "reason": "no live mocap pose", "moved": False}
     start = loc.mocap_pose
-    plan_grid, body_grid = grid.inflate(footprint + margin), grid.inflate(footprint)
+    # Callers with a centre-only limit (a fence) pass their own grids; by default everything on `grid` is furniture.
+    plan_grid = plan_grid if plan_grid is not None else grid.inflate(footprint + margin)
+    body_grid = body_grid if body_grid is not None else grid.inflate(footprint)
     if not body_grid.is_free(start.x, start.y):
         return {"ok": False, "reason": "the base is touching an obstacle on the map where it stands", "moved": False}
     try:
@@ -298,6 +300,8 @@ def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, mar
     except (KeyboardInterrupt, EOFError):
         return {"ok": False, "reason": "cancelled", "moved": False}
     legs = []
+    if log_dir is not None:
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
     for i, waypoint in enumerate(poses):
         log_path = None if log_dir is None else log_dir / f"leg{i:02d}.jsonl"
         r = go(env, waypoint, confirm=lambda _: None, log_path=log_path, keep_free=body_grid, quiet=True, **go_args)
