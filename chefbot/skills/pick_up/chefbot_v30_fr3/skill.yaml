@@ -1,0 +1,25 @@
+name: pick_up
+version: chefbot_v30_fr3
+entry: main.py:run
+interface: chefbot-v1
+robot: tidybot_fr3
+arm_only: true
+args:
+  object:
+    type: string
+    doc: what to pick up, in a few words
+models:
+  gemini-3.1-flash-lite:
+    runs: api
+    provider: google
+    key: GEMINI_API_KEY
+  grounding-dino:
+    runs: vision_models
+  sam2:
+    runs: vision_models
+assumes: the object on a surface in the wrist camera's view from where the arm starts (run_real --home puts it at the ready pose), its neighbors apart from it
+privileged: false
+provenance:
+  ported_from: pick_up/chefbot_v30 (robocasa_pick lab, panda_franka in sim; val 83%)
+  changes: the real Franka Hand's pad distance (0.13065 m, on the 27.25 mm holder), its closing direction (+45 deg), the band the fingers are sought in (2.7 cm out); nothing else
+  real: not yet run on the robot (2026-11-03)
