@@ -568,3 +568,43 @@ def test_relative_points_follow_the_origins_heading():
     a = {"x": 1.0, "y": 2.0, "yaw_deg": 90.0}  # facing +y
     p = relative_point(a, forward=0.3, left=0.1, turn_deg=-15.0)
     assert (p["x"], p["y"], p["yaw_deg"]) == pytest.approx((0.9, 2.3, 75.0))
+
+
+# -- scripts/real_characterize ----------------------------------------------------------
+
+
+def test_characterize_plan_stays_inside_the_fence():
+    from chefbot.scripts.real_characterize import plan
+
+    moves = plan(half=0.2)
+    assert len(moves) == 5 + 8 + 7 + 3 + 3
+    assert all(max(abs(m["forward"]), abs(m["left"])) <= 0.2 for m in moves)
+    with pytest.raises(ValueError):
+        plan(half=0.1, step=0.3)
+
+
+def test_the_fence_refuses_targets_outside_it_and_stops_a_move_that_leaves(sim):
+    from chefbot.scripts.real_nav import Fence, go
+
+    env, base, redis, server = sim
+    wait_until(lambda: env.localization().live and env.raw_state().get("base_driver_live"))
+    c = env.localization().mocap_pose
+    fence = Fence(c.x, c.y, math.degrees(c.yaw), half=0.1)
+    out = go(env, Pose2D(c.x + 0.3, c.y, c.yaw), confirm=lambda _: None, fence=fence)
+    assert not out["ok"] and not out["moved"] and "fence" in out["reason"]
+    assert K.BASE_CMD_SEQ not in redis.values
+
+
+def test_characterize_runs_a_session_and_reports(sim, tmp_path):
+    from chefbot.scripts.real_characterize import plan, report, run
+
+    env, base, redis, server = sim
+    wait_until(lambda: env.localization().live and env.raw_state().get("base_driver_live"))
+    moves = [m for m in plan(half=0.2, speed=0.1) if m["name"] in ("forward-1", "forward-2", "left", "turn+45")]
+    for m in moves:
+        m["speed"] = 0.5  # the simulated base is quick
+    results = run(env, 0.2, tmp_path, moves, yaw_speed=1.0, confirm=lambda _: None)
+    assert len(results) == 8 and all(r["ok"] for r in results), [r["reason"] for r in results]
+    text = report(tmp_path)
+    assert "[repeat] 4 legs" in text and "[turns] 2 legs" in text and "centre drift in turns" in text
+    assert "calibration hints" in text
