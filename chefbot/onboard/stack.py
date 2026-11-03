@@ -9,6 +9,7 @@ import yaml
 
 from chefbot.onboard.cameras import Cameras
 from chefbot.onboard.frames import BaseFrames
+from chefbot.onboard.mocap import MocapFreshness
 from chefbot.onboard.robot_io import RedisRobot
 
 CONFIG = Path(__file__).resolve().parent / "config.yaml"
@@ -29,7 +30,8 @@ def build_robot(config: dict, redis_client=None) -> RedisRobot:
     from chefbot.interface.limits import base_cap
 
     cap = base_cap(config.get("embodiment", "tidybot_fr3"))["vel"]  # the robot's hard base cap: the driver runs at it
-    return RedisRobot(redis_client, frames, config["gripper"], (cap[0], cap[2]))
+    mocap = MocapFreshness(base.get("mocap_stale_s", 0.25))
+    return RedisRobot(redis_client, frames, config["gripper"], (cap[0], cap[2]), mocap)
 
 
 def build_cameras(config: dict) -> Cameras:

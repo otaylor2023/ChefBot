@@ -2,6 +2,7 @@
 
 import json
 import math
+import threading
 import time
 
 import numpy as np
@@ -11,6 +12,7 @@ from chefbot.environments.real.env import RealEnv, RobotHalted
 from chefbot.interface.types import Pose2D
 from chefbot.onboard import keys as K
 from chefbot.onboard.frames import BaseFrames, compose
+from chefbot.onboard.mocap import MocapFreshness
 from chefbot.onboard.server import build
 
 Q = [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785]
@@ -35,6 +37,19 @@ class FakeRedis:
 
     def written(self, key) -> list[str]:
         return [v for k, v in self.writes if k == key]
+
+
+def new_frame(redis: FakeRedis) -> None:
+    """What the mocap publisher does every frame: rewrite the pose (here the same numbers, written anew)."""
+    raw = redis.values[K.MOCAP_POSITION]
+    redis.values[K.MOCAP_POSITION] = raw[:-1] if raw.endswith(" ") else raw + " "
+
+
+def live_state(robot, redis: FakeRedis) -> dict:
+    """A state read with the publisher running: a frame lands between two reads."""
+    robot.read_state()
+    new_frame(redis)
+    return robot.read_state()
 
 
 def driver_values(odom=(1.0, 2.0, 0.5), mocap_xy=(3.0, 4.0), mocap_yaw=1.0, valid=True) -> dict:
@@ -90,9 +105,10 @@ def test_world_and_odometry_round_trip_through_the_tie():
 def test_state_is_in_the_mocap_world_and_carries_on_through_odometry():
     redis = FakeRedis(driver_values())
     robot = build(CONFIG, redis).robot
-    s = robot.read_state()
+    s = live_state(robot, redis)
     np.testing.assert_allclose(s["base_pose"], [3.0, 4.0, 1.0], atol=1e-9)
-    assert s["localized"] and s["mocap_valid"]
+    np.testing.assert_allclose(s["mocap_pose"], [3.0, 4.0, 1.0], atol=1e-9)
+    assert s["localized"] and s["mocap_valid"] and s["mocap_fresh"]
     np.testing.assert_allclose(s["arm_q"], Q)
     assert s["gripper_width"] == pytest.approx(0.0791)
     # Mocap lost; the wheels move the base 0.5 m forward along its odometry heading.
@@ -108,6 +124,53 @@ def test_without_mocap_ever_the_world_is_odometry():
     s = build(CONFIG, redis).robot.read_state()
     assert not s["localized"]
     np.testing.assert_allclose(s["base_pose"], [1.0, 2.0, 0.5])
+
+
+def test_a_pose_left_in_redis_by_a_dead_publisher_is_never_trusted():
+    # Redis keeps the publisher's last values, tracking_valid = 1 included, after it stops (even across reboots).
+    redis = FakeRedis(driver_values())
+    robot = build(CONFIG, redis).robot
+    for _ in range(3):
+        s = robot.read_state()
+        assert s["mocap_valid"] and not s["mocap_fresh"] and s["mocap_age_s"] is None
+        assert s["mocap_pose"] is None and not s["localized"]
+    np.testing.assert_allclose(s["base_pose"], [1.0, 2.0, 0.5])  # plain odometry
+
+
+def test_a_publisher_that_stops_goes_stale_and_the_world_carries_on_through_odometry():
+    now = [0.0]
+    redis = FakeRedis(driver_values())
+    robot = build(CONFIG, redis).robot
+    robot.mocap = MocapFreshness(stale_after_s=0.25, clock=lambda: now[0])
+    robot.read_state()
+    new_frame(redis)
+    now[0] = 0.1
+    s = robot.read_state()
+    assert s["mocap_fresh"] and s["mocap_age_s"] == pytest.approx(0.0) and s["localized"]
+    # The publisher dies here. Within stale_after_s it cannot be told from a still robot: the frozen
+    # pose still counts (the residual window, at most driver_max_vel_xy * stale_after_s of error).
+    now[0] = 0.3
+    s = robot.read_state()
+    assert s["mocap_fresh"] and s["mocap_age_s"] == pytest.approx(0.2)
+    now[0] = 0.4
+    s = robot.read_state()
+    assert not s["mocap_fresh"] and s["mocap_valid"] and s["mocap_pose"] is None
+    # From then on the wheels move the base 0.5 m forward and the world pose follows them, not the frozen mocap.
+    moved = compose([1.0, 2.0, 0.5], [0.5, 0.0, 0.0])
+    redis.values[K.BASE_POSE] = json.dumps(moved.tolist())
+    now[0] = 1.0
+    s = robot.read_state()
+    assert s["localized"] and not s["mocap_fresh"]
+    np.testing.assert_allclose(s["base_pose"], compose([3.0, 4.0, 1.0], [0.5, 0.0, 0.0]), atol=1e-9)
+
+
+def test_mocap_alone_gives_the_pose_without_the_base_driver():
+    values = driver_values()
+    values.pop(K.BASE_POSE)
+    redis = FakeRedis(values)
+    s = live_state(build(CONFIG, redis).robot, redis)
+    assert s["base_pose"] is None and not s["localized"]
+    np.testing.assert_allclose(s["mocap_pose"], [3.0, 4.0, 1.0], atol=1e-9)
 
 
 def test_commands_are_written_in_the_drivers_formats_and_repeats_are_not():
@@ -133,7 +196,7 @@ def test_commands_are_written_in_the_drivers_formats_and_repeats_are_not():
 def test_base_targets_go_to_the_driver_in_odometry_and_never_faster_than_it():
     redis = FakeRedis(driver_values())
     robot = build(CONFIG, redis).robot
-    robot.read_state()  # ties world (3, 4, 1) to odometry (1, 2, 0.5)
+    live_state(robot, redis)  # ties world (3, 4, 1) to odometry (1, 2, 0.5)
     robot.base_target([3.0, 4.0, 1.0], (1.0, 1.0, 1.0))
     odom = [float(v) for v in redis.values[K.BASE_DESIRED_POSE].strip("[]").split(",")]
     np.testing.assert_allclose(odom, [1.0, 2.0, 0.5], atol=1e-9)
@@ -171,16 +234,36 @@ class FakeCameras:
         pass
 
 
+class FakePublisher:
+    """The mocap publisher: a new frame every few milliseconds until stopped."""
+
+    def __init__(self, redis: FakeRedis, period_s: float = 0.005):
+        self.stopped = threading.Event()
+        self._thread = threading.Thread(target=self._run, args=(redis, period_s), daemon=True)
+        self._thread.start()
+
+    def _run(self, redis, period_s):
+        while not self.stopped.wait(period_s):
+            new_frame(redis)
+
+    def stop(self):
+        self.stopped.set()
+        self._thread.join()
+
+
 @pytest.fixture
 def served():
     redis = FakeRedis(driver_values())
+    publisher = FakePublisher(redis)
     server = build(CONFIG, redis)
     server.cameras = FakeCameras()
     server.start()
     control = np.eye(4)
     control[2, 3] = 0.1224
     env = RealEnv(server.url, control, cameras={"wrist": {"parent": "base", "T": np.eye(4)}})
+    env.publisher = publisher
     yield server, env, redis
+    publisher.stop()
     env.close()
     server.shutdown()
 
@@ -194,6 +277,7 @@ def wait_until(condition, timeout_s=2.0):
 
 def test_real_env_reads_the_robot_and_commands_it(served):
     server, env, redis = served
+    wait_until(lambda: env.localization().localized)
     state = env.get_state()
     assert state.base_pose.x == pytest.approx(3.0) and state.base_pose.yaw == pytest.approx(1.0)
     np.testing.assert_allclose(state.arm_q, Q)
@@ -231,13 +315,41 @@ def test_a_silent_client_is_halted_and_told(served):
         env.wait_for_next_tick(0.01)
 
 
-def test_disconnecting_halts_and_frees_the_server_for_the_next_client(served):
+def test_disconnecting_after_commanding_halts_and_frees_the_server_for_the_next_client(served):
     server, env, _ = served
+    env.set_base_target(Pose2D(3.0, 4.0, 1.0), (0.1, 0.1, 0.3))
+    wait_until(lambda: server.commanded)
     env.close()
     wait_until(lambda: server.halts >= 1)
     second = RealEnv(server.url, np.eye(4))
     second.get_state()
     second.close()
+
+
+def test_a_client_that_only_watched_leaves_the_drivers_alone(served):
+    server, env, redis = served
+    wait_until(lambda: env.localization().live)
+    loc = env.localization()
+    assert loc.mocap_pose.x == pytest.approx(3.0) and loc.mocap_pose.yaw == pytest.approx(1.0)
+    assert loc.mocap_fresh and loc.mocap_valid and loc.localized and loc.state_current
+    time.sleep(0.4)  # longer than the watchdog: heartbeats only
+    env.close()
+    time.sleep(0.3)
+    assert server.halts == 0
+    assert [k for k, _ in redis.writes] == []  # not a single command key written
+    second = RealEnv(server.url, np.eye(4))  # and the server is free again
+    second.raw_state()
+    second.close()
+
+
+def test_localization_reports_a_dead_publisher(served):
+    server, env, _ = served
+    wait_until(lambda: env.localization().live)
+    env.publisher.stop()
+    wait_until(lambda: not env.localization().mocap_fresh, timeout_s=2.0)
+    loc = env.localization()
+    assert not loc.live and loc.mocap_pose is None and loc.mocap_valid  # the flag alone still says 1
+    assert loc.mocap_age_s > 0.25
 
 
 def test_a_second_client_is_refused(served):
@@ -273,3 +385,22 @@ def test_kept_cameras_stay_open_and_the_others_idle_out():
     assert not cams.cameras["wrist"].open
     with pytest.raises(KeyError):
         cams.keep(["nope"])
+
+# -- scripts/real_pose ----------------------------------------------------------------
+
+
+def test_real_pose_prints_and_summarizes_what_the_robot_reports(served):
+    from chefbot.scripts.real_pose import line, record, summarize
+
+    server, env, _ = served
+    wait_until(lambda: env.localization().live)
+    samples = [record(env.localization(), 0.02 * i) for i in range(5)]
+    assert line(env.localization()).startswith("LIVE")
+    env.publisher.stop()
+    wait_until(lambda: not env.localization().mocap_fresh)
+    samples += [record(env.localization(), 0.1 + 0.02 * i) for i in range(5)]
+    assert line(env.localization()).startswith("stale")
+    summary = summarize(samples)
+    assert "10 samples, 5 live (50%)" in summary
+    assert "x 0.00 mm" in summary  # the fake publisher's pose does not move
+    assert "longest stretch without a live pose: 0.10 s" in summary

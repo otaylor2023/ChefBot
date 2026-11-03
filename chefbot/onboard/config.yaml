@@ -20,6 +20,9 @@ base:
   # TODO(measure): marker_xy (the body's origin is about the markers' centre; a spin in place would show it).
   marker_yaw_offset_deg: 0.0
   marker_xy: [0.0, 0.0]
+  # The mocap pose counts as live only if it changed within this long (onboard/mocap.py: the publisher writes no
+  # timestamp, and its last values outlive it in Redis). Many missed frames at Motive's rate (measure it: stage 0 test).
+  mocap_stale_s: 0.25
 
 gripper:
   speed: 0.05            # m/s

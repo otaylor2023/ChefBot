@@ -18,6 +18,7 @@ import logging
 import math
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +49,32 @@ def planar(x: float, y: float, yaw: float, z: float = 0.0) -> np.ndarray:
 
 class RobotHalted(RuntimeError):
     """The onboard server held the robot (watchdog, or a halt)."""
+
+
+@dataclass(frozen=True)
+class Localization:
+    """Where the base is and how much to trust it, from the latest state (RealEnv.localization).
+
+    `mocap_pose` is the base pose from mocap alone, None unless the publisher is live (`mocap_fresh`) and
+    tracking (`mocap_valid`). `base_pose` is the base driver's odometry carried into the mocap world through
+    the latest live mocap sample (`localized`), or plain odometry if there never was one; None without the
+    base driver. `state_age_s`: how old this state message is; `state_current`: within RealEnv's max_state_age_s.
+    """
+
+    mocap_pose: Pose2D | None
+    mocap_valid: bool
+    mocap_fresh: bool
+    mocap_age_s: float | None
+    base_pose: Pose2D | None
+    localized: bool
+    state_age_s: float
+    state_current: bool
+    seq: int
+
+    @property
+    def live(self) -> bool:
+        """A pose to act on: mocap tracking now, in a state that is itself current."""
+        return self.mocap_pose is not None and self.state_current
 
 
 class RealEnv(Env):
@@ -128,6 +155,27 @@ class RealEnv(Env):
     def state_age(self) -> float:
         """Seconds since the last state message arrived (a camera frame on the link delays them)."""
         return time.monotonic() - self._state_at
+
+    def localization(self) -> Localization:
+        """The base's pose and the mocap's status. Needs no arm or base driver: mocap alone is enough."""
+        s = self.raw_state()
+
+        def pose(v) -> Pose2D | None:
+            return None if v is None else Pose2D(*(float(x) for x in v))
+
+        age = s.get("mocap_age_s")
+        state_age = time.monotonic() - self._state_at
+        return Localization(
+            mocap_pose=pose(s.get("mocap_pose")),
+            mocap_valid=bool(s.get("mocap_valid")),
+            mocap_fresh=bool(s.get("mocap_fresh")),
+            mocap_age_s=None if age is None else float(age),
+            base_pose=pose(s.get("base_pose")),
+            localized=bool(s.get("localized")),
+            state_age_s=state_age,
+            state_current=state_age <= self.max_state_age_s,
+            seq=int(s.get("seq", -1)),
+        )
 
     def get_state(self) -> EnvState:
         s = self.raw_state()
