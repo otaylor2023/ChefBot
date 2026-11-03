@@ -17,12 +17,13 @@ git clone <ChefBot> ~/ChefBot && cd ~/ChefBot
 
 1. Franka Desk: unlock the joints, FCI on.
 2. The Franka arm driver (real-time torque loop), as for ZitiBot, from `~/OpenSai/drivers/FrankaPanda/redis_driver`.
-3. The mocap publisher (Motive / NatNet), so `tidybot01::pos` and `tidybot01::ori` appear on Redis.
-4. `cd ~/ChefBot && chefbot/onboard/bringup/launch.sh`: OpenSai, the gripper and base drivers, then the
-   onboard server. Ctrl-C stops them all.
+3. The NUC on SRC wifi (`sudo nmcli con up SRC`): the kitchen's mocap streams only there.
+4. `cd ~/ChefBot && chefbot/onboard/bringup/launch.sh`: OpenSai, the gripper and base drivers, the mocap
+   publisher (`mocap.sh`: `chefbot-tidy::pos` / `::ori` on Redis), then the onboard server. Ctrl-C stops them all.
+   `mocap.sh` alone runs just the mocap publisher, printing each frame.
 
 Then, read-only, on the robot: `python -m chefbot.onboard.check` (which drivers are up, nothing moves).
-From the laptop: `ssh -L 8765:localhost:8765 tidybot01`, then `python -m chefbot.envs.real.check`.
+From the laptop: `ssh -L 8765:localhost:8765 tidybot01`, then `python -m chefbot.environments.real.check`.
 
 ## Safety
 

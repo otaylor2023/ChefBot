@@ -8,7 +8,7 @@ gripper driver plain numbers ("0.08"); the hb1 base driver "[x, y, yaw]"; the mo
 
 _ARM = "opensai::controllers::FrankaRobot"
 
-# OpenSai arm controllers (zitibot_panda.xml)
+# OpenSai arm controllers (onboard/bringup/chefbot_fr3.xml)
 ACTIVE_CONTROLLER = f"{_ARM}::active_controller_name"
 JOINT_CONTROLLER = "joint_controller"
 CARTESIAN_CONTROLLER = "cartesian_controller"
@@ -44,7 +44,7 @@ BASE_DESIRED_POSE = "hb1::desired_pose"
 BASE_STOP = "hb1::stop"  # "stop": decelerate and hold
 BASE_MAX_VEL_SCALE = "hb1::max_vel_scale"  # times the driver's --max-vel-xy / --max-vel-yaw
 
-# OptiTrack (Motive / NatNet publisher): the base's rigid body
-MOCAP_POSITION = "tidybot01::pos"
-MOCAP_ORIENTATION = "tidybot01::ori"
-MOCAP_VALID = "tidybot01::tracking_valid"
+# OptiTrack (Motive / NatNet publisher): the base's rigid body, `chefbot-tidy` in the SRC kitchen's Motive
+MOCAP_POSITION = "chefbot-tidy::pos"
+MOCAP_ORIENTATION = "chefbot-tidy::ori"
+MOCAP_VALID = "chefbot-tidy::tracking_valid"

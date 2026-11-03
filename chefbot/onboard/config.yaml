@@ -15,10 +15,11 @@ base:
   # The hb1 driver's own limits (launch: --max-vel-xy, --max-vel-yaw). Targets never go faster.
   driver_max_vel_xy: 0.125
   driver_max_vel_yaw: 0.4
-  # The mocap marker on the base: its yaw relative to the base's heading (ZitiBot's
-  # DEFAULT_MARKER_YAW_OFFSET_DEG), and its position in the base frame.
-  # TODO(measure): marker_xy (ZitiBot's tune_marker_offset.py measures the yaw; the xy is unmeasured).
-  marker_yaw_offset_deg: -38.17
+  # The mocap rigid body on the base (chefbot-tidy): its yaw relative to the base's heading, and its origin's
+  # position in the base frame. Its x runs along the base (the markers are symmetric about it), forward by the
+  # operator's account (the six markers at the front, the lone pair at the back).
+  # TODO(measure): marker_xy (the body's origin is about the markers' centre; a spin in place would show it).
+  marker_yaw_offset_deg: 0.0
   marker_xy: [0.0, 0.0]
 
 gripper:
@@ -30,7 +31,7 @@ limits:
   base_max_vel_xy: 0.125
   base_max_vel_yaw: 0.4
 
-# The RealSenses. Not set up yet: add each one's serial (`rs-enumerate-devices -s`).
-cameras: []
-#  - {name: wrist, serial: "000000000000", width: 640, height: 480, fps: 15}
-#  - {name: base, serial: "000000000000", width: 640, height: 480, fps: 15}
+# The RealSenses (serials: `rs-enumerate-devices -s`).
+cameras:
+  - {name: wrist, serial: "323622271565", width: 640, height: 480, fps: 15}   # D405
+  - {name: pole, serial: "049122252230", width: 640, height: 480, fps: 15}    # D455
