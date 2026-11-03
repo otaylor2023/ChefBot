@@ -49,6 +49,7 @@ $GRIPPER && { [[ -f "$GRIPPER_DIR/launch_gripper.sh" ]] || { echo "missing $GRIP
 $BASE && { [[ -f "$BASE_DRIVER_DIR/redis_driver.py" && -x "$BASE_PYTHON" ]] || { echo "missing the base driver or $BASE_PYTHON" >&2; exit 1; }; }
 
 PIDS=()
+declare -A NAMES  # pid -> which part
 LOGS="$(mktemp -d /tmp/chefbot-bringup.XXXXXX)"
 cleanup() {
 	trap - INT TERM EXIT
@@ -77,6 +78,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+watch_parts() {  # until a part exits: then say which, and stop everything (a dead arm driver leaves OpenSai and the server up)
+	local died=""
+	wait -n -p died "${PIDS[@]}" || true
+	echo "" >&2
+	echo "=== ${NAMES[$died]:-a part} STOPPED (its log: $LOGS): stopping everything ===" >&2
+	exit 1
+}
+
 wait_for_key() {  # key, what must be in its value, timeout
 	local deadline=$((SECONDS + $3))
 	until [[ "$(redis-cli GET "$1" 2>/dev/null)" == *"$2"* ]]; do
@@ -96,6 +105,7 @@ if $ARM_DRIVER; then
 	redis-cli DEL opensai::sensors::FrankaRobot::joint_positions >/dev/null  # a stale value would look live
 	(cd "$GRIPPER_DIR" && exec sh safe_launch_driver.sh) >"$LOGS/arm_driver.log" 2>&1 &
 	PIDS+=($!)
+	NAMES[$!]="the arm driver"
 	deadline=$((SECONDS + 30))
 	until grep -q "safe hold is armed" "$LOGS/arm_driver.log" 2>/dev/null; do
 		if ! kill -0 "${PIDS[-1]}" 2>/dev/null || (( SECONDS >= deadline )); then
@@ -119,6 +129,7 @@ OPENSAI_CONFIG_NAME="$(basename "$OPENSAI_CONFIG")"
 	ln -sfn "$OPENSAI_CONFIG" "$OPENSAI_DIR/config_folder/xml_config_files/$OPENSAI_CONFIG_NAME"
 (cd "$OPENSAI_DIR" && exec bash scripts/launch.sh "$OPENSAI_CONFIG_NAME") >"$LOGS/opensai.log" 2>&1 &
 PIDS+=($!)
+NAMES[$!]="OpenSai"
 wait_for_key "::sai-interfaces-webui::config_file_name" "$(basename "$OPENSAI_CONFIG")" "$READY_TIMEOUT_S"
 echo "1) OpenSai: up (holding the arm)"
 
@@ -127,6 +138,7 @@ if $GRIPPER; then
 	redis-cli DEL opensai::FrankaRobot::gripper::ready >/dev/null  # a stale "1" would look ready
 	(cd "$GRIPPER_DIR" && exec bash launch_gripper.sh) >"$LOGS/gripper.log" 2>&1 &
 	PIDS+=($!)
+	NAMES[$!]="the gripper driver"
 	wait_for_key "opensai::FrankaRobot::gripper::ready" "1" 30
 	echo "2) Franka gripper driver: up (homed)"
 else
@@ -139,6 +151,7 @@ if $BASE; then
 	(cd "$BASE_DRIVER_DIR" && exec "$BASE_PYTHON" redis_driver.py --max-vel-xy "$MAX_VEL_XY" --max-vel-yaw "$MAX_VEL_YAW" \
 		--max-accel-xy "$MAX_ACCEL_XY" --max-accel-yaw "$MAX_ACCEL_YAW") >"$LOGS/base.log" 2>&1 &
 	PIDS+=($!)
+	NAMES[$!]="the base driver"
 	wait_for_key "hb1::current_pose" "[" 15
 	echo "3) hb1 base driver: up"
 else
@@ -150,6 +163,7 @@ if $MOCAP; then
 	redis-cli DEL chefbot-tidy::tracking_valid >/dev/null  # a stale value from an earlier run would look live
 	bash "$(dirname "$0")/mocap.sh" --quiet 2>"$LOGS/mocap.log" &
 	PIDS+=($!)
+	NAMES[$!]="the mocap publisher"
 	deadline=$((SECONDS + 10))
 	until [[ -n "$(redis-cli GET chefbot-tidy::tracking_valid 2>/dev/null)" ]]; do
 		if ! kill -0 "${PIDS[-1]}" 2>/dev/null || (( SECONDS >= deadline )); then
@@ -168,6 +182,7 @@ if $SERVER; then
 	# the repo on its path (three folders up from this script): wherever launch.sh is run from
 	PYTHONPATH="$(cd "$(dirname "$0")/../../.." && pwd)${PYTHONPATH:+:$PYTHONPATH}" "$CHEFBOT_PYTHON" -m chefbot.onboard.server &
 	PIDS+=($!)
+	NAMES[$!]="the onboard server"
 	SERVER_PID=$!
 	deadline=$((SECONDS + 30))
 	until (exec 3<>/dev/tcp/127.0.0.1/"$SERVER_PORT") 2>/dev/null; do  # its port open: it takes clients
@@ -180,10 +195,10 @@ if $SERVER; then
 	echo "5) onboard server: up (port $SERVER_PORT)"
 	echo ""
 	echo "=== ALL UP: the robot is ready (logs in $LOGS). Ctrl-C stops everything. ==="
-	wait "$SERVER_PID"
+	watch_parts
 else
 	echo "5) server skipped"
 	echo ""
 	echo "=== ALL UP: the drivers are ready (logs in $LOGS). Ctrl-C stops them. ==="
-	wait
+	watch_parts
 fi

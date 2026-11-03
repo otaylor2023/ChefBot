@@ -172,3 +172,17 @@ def test_a_joint_move_gets_there(robot, tmp_path):
         assert np.abs(fake.q - target).max() < 1e-3 and fake.sent["base"] == 0
     finally:
         h.close()
+
+
+def test_a_dead_arm_driver_stops_it(robot, tmp_path):
+    fake = FakeRobot()
+    fake.raw_state = lambda: {"arm_frozen_s": 3.0}  # the driver gone: its last joints frozen in Redis
+    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None)
+    h.start_here()
+    try:
+        with pytest.raises(RuntimeError, match="halted"):
+            for _ in range(20):
+                h.step(h.hold_row(), "whole")
+        assert "isn't publishing" in str(h.fault)
+    finally:
+        h.close()

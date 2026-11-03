@@ -62,6 +62,9 @@ class RedisRobot:
         self.gripper_speed = float(gripper["speed"])
         self.gripper_force = float(gripper["force"])
         self.base_max_vel = base_max_vel  # the base driver's --max-vel-xy, --max-vel-yaw
+        # The arm driver's joints change every sample (sensor noise alone): frozen, the driver is gone (its last
+        # values stay in Redis). When they last changed:
+        self._arm_raw, self._arm_changed = None, time.monotonic()
         self._written: dict[str, str] = {}  # last value of each write-on-change key
         self.gripper_closed: bool | None = None
 
@@ -69,6 +72,8 @@ class RedisRobot:
 
     def read_state(self) -> dict:
         v = dict(zip(_STATE_KEYS, self.r.mget(_STATE_KEYS)))
+        if v[K.JOINT_POSITIONS] != self._arm_raw:
+            self._arm_raw, self._arm_changed = v[K.JOINT_POSITIONS], time.monotonic()
         odom = _array(v[K.BASE_POSE])
         mocap_valid = _flag(v[K.MOCAP_VALID])
         position, quat = _array(v[K.MOCAP_POSITION]), _array(v[K.MOCAP_ORIENTATION])
@@ -83,6 +88,7 @@ class RedisRobot:
             "mocap_valid": mocap_valid,
             "arm_q": _array(v[K.JOINT_POSITIONS]),
             "arm_qd": _array(v[K.JOINT_VELOCITIES]),
+            "arm_frozen_s": round(time.monotonic() - self._arm_changed, 3),  # > ~0.2 s: the arm driver isn't publishing
             "gripper_width": _number(v[K.GRIPPER_CURRENT_WIDTH]),
             "gripper_max_width": _number(v[K.GRIPPER_MAX_WIDTH]),
             "gripper_ready": _text(v[K.GRIPPER_READY]),

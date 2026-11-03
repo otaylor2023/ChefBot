@@ -44,6 +44,7 @@ FLANGE_Z_MIN = 0.12  # m above the plate, over the base
 PLATE_CLEAR = 0.05  # m: every arm point (bar the base column's) at least this above the plate, over the base
 FLOOR_CLEAR_Z = -0.30  # m: every arm point above this anywhere (the floor is at -0.335)
 OPEN_WIDTH = 0.08  # m: the Franka Hand fully open
+ARM_FROZEN_S = 0.5  # the arm's joints unchanged this long (the onboard server's arm_frozen_s): its driver is gone
 
 
 class SafetyStop(RuntimeError):
@@ -165,6 +166,7 @@ class RealHost:
         whether the arm is there (the cameras see the real arm)."""
         from chefbot.interface.workspace import path_clear
 
+        self.check_live()
         q0 = np.asarray(self.raw_env.get_state().arm_q, dtype=float)
         q1 = np.asarray(q_home, dtype=float)
         far = float(np.abs(q1 - q0).max())
@@ -201,10 +203,18 @@ class RealHost:
         self._thread.start()
         return self.env.get_state().base_pose
 
+    def check_live(self) -> None:
+        """SafetyStop if the arm driver isn't publishing (its last joints stay in Redis, frozen: commands go nowhere)."""
+        raw = getattr(self.raw_env, "raw_state", None)
+        frozen = (raw() or {}).get("arm_frozen_s") if raw is not None else None
+        if frozen is not None and frozen > ARM_FROZEN_S:
+            raise SafetyStop(f"the arm driver isn't publishing (the joints frozen {frozen:.1f} s): is it running, the arm unlocked?")
+
     def _control(self) -> None:
         """The controller, step after step toward the latest target (holding where it started until there is one)."""
         while not self._stop:
             try:
+                self.check_live()
                 row, mode = self._row or (self._hold, "whole")
                 rec = self.ctl.step(row, mode)
             except Exception as e:  # noqa: BLE001  (a SafetyStop, the link down, the server's halt)
