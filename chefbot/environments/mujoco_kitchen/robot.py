@@ -90,6 +90,23 @@ def arm_spec() -> mujoco.MjSpec:
     return arm
 
 
+def _add_body_parts(link) -> None:
+    """The real robot's fixed parts around the arm (embodiments/tidybot_fr3/robot.yaml `body:`: the pole, the
+    camera on its clamp), solid, at their measured places relative to the arm (on its plate here, ARM_MOUNT_Z up):
+    the controller steers clear of them, and the arm stops on them if it doesn't. (The thin mast above, the sim's
+    pole camera's, is only seen.)"""
+    from chefbot.interface.workspace import load_body
+
+    body = load_body("tidybot_fr3")
+    up = np.array([0.0, 0.0, ARM_MOUNT_Z])
+    for name, xy, r, top in body.cylinders:
+        link.add_geom(name=name.replace(" ", "_"), type=mujoco.mjtGeom.mjGEOM_CYLINDER, size=[r, top / 2, 0],
+                      pos=[xy[0], xy[1], ARM_MOUNT_Z + top / 2], rgba=[0.6, 0.6, 0.62, 1], mass=0)  # fmt: skip
+    for name, a, b, r in body.capsules:
+        link.add_geom(name=name.replace(" ", "_"), type=mujoco.mjtGeom.mjGEOM_CAPSULE, size=[r, 0, 0],
+                      fromto=[*(np.asarray(a) + up), *(np.asarray(b) + up)], rgba=[0.2, 0.2, 0.2, 1], mass=0)  # fmt: skip
+
+
 def robot_spec() -> mujoco.MjSpec:
     """The whole robot: base_link (with its slides and yaw) at the origin, the arm on it as fr3/, the hand as
     fr3/hand/."""
@@ -99,6 +116,7 @@ def robot_spec() -> mujoco.MjSpec:
     link.add_geom(type=mujoco.mjtGeom.mjGEOM_CYLINDER, size=[0.012, 0.6, 0], pos=[POLE_CAM["pos"][0], 0, 0.95],
                   rgba=[0.2, 0.2, 0.2, 1], contype=0, conaffinity=0, group=2, mass=0)  # fmt: skip
     link.add_camera(name="pole", pos=POLE_CAM["pos"], quat=_look_quat(POLE_CAM["pos"], POLE_CAM["look_at"]), fovy=POLE_CAM["fovy"])
+    _add_body_parts(link)
     mount = link.add_frame(pos=[0, 0, ARM_MOUNT_Z])
     mount.attach_body(arm_spec().body("base"), "fr3/", "")
     return base

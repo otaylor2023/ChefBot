@@ -7,9 +7,11 @@ on RealEnv (the onboard server), each step toward the latest target, so the robo
 while the skill thinks or waits on a model. Robot time counts from the skill's first request.
 
 Between the controller and the robot, every arm command is checked (SafetyStop, and the robot holds, if any fails):
-the joints inside their limits, no part of the arm in the pole's keep-out (interface/workspace.py) or within
-PLATE_CLEAR of the base's plate or the flange below `flange_z_min` over the base (within its footprint; beyond it a
-table may be at the plate's height or lower), nothing near the floor (arm base frame). The base moves only if the host
+the joints inside their limits, no part of the arm in the keep-out of the robot's own parts (the embodiment's body:
+the pole, the camera on its clamp; interface/workspace.py) or within its plate clearance of the base's plate, or the
+flange below `flange_z_min` over the plate (within its outline; beyond it a table may be at the plate's height or
+lower), nothing near the floor (arm base frame). The controller steers clear of the same body (embodiments/motion.py),
+a few cm further out: this guard is the backstop. The base moves only if the host
 is made with base=True (an arm-only skill never needs it). dry_run: nothing is sent to the arm or the gripper; the
 arm's joints are taken to be where the controller commanded them (the skill sees its moves made), the cameras are
 the real ones (seeing the robot where it really is). confirm: Enter before each move (episode.py, the skill's
@@ -36,13 +38,11 @@ from chefbot.interface.types import Pose2D
 
 HOME = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)  # the FR3's ready pose: the hand pointing down (the calibrations' start)
 HOME_SPEED = 0.3  # rad/s, the fastest joint, going home
-# Over the base (within its footprint, about the arm base: config/robot_tidybot_fr3.yaml footprint_radius): every arm
-# point at least PLATE_CLEAR above the plate, the flange above FLANGE_Z_MIN. Beyond the base, a table may be at the
-# plate's height or lower: there only the floor (0.335 m below the plate, arm_mount) bounds it.
-FOOTPRINT_RADIUS = 0.36
-FLANGE_Z_MIN = 0.12  # m above the plate, over the base
-PLATE_CLEAR = 0.05  # m: every arm point (bar the base column's) at least this above the plate, over the base
-FLOOR_CLEAR_Z = -0.30  # m: every arm point above this anywhere (the floor is at -0.335)
+# Over the base's plate (within its outline: the embodiment's body), every arm point at least its plate clearance
+# above it, the flange above FLANGE_Z_MIN. Beyond the base, a table may be at the plate's height or lower: there only
+# the floor (0.44 m below the plate on the real base) bounds it.
+FLANGE_Z_MIN = 0.12  # m above the plate, over it
+FLOOR_CLEAR_Z = -0.30  # m: every arm point above this anywhere (the floor is at -0.44 on the real base: plate 44 cm up)
 OPEN_WIDTH = 0.08  # m: the Franka Hand fully open
 ARM_FROZEN_S = 0.5  # the arm's joints unchanged this long (the onboard server's arm_frozen_s): its driver is gone
 # The robot's state can lag while a camera frame (~2 MB) crosses the link ahead of it: the control loop holds (sends
@@ -60,9 +60,16 @@ class GuardedEnv:
     def __init__(self, env, robot: Robot, base: bool = False, dry_run: bool = False, flange_z_min: float = FLANGE_Z_MIN):
         from chefbot.interface.workspace import LIMITS, MARGIN
 
+        from chefbot.interface.workspace import BODY
+
         self.env, self.kin, self.base, self.dry_run, self.flange_z_min = env, robot.kin, base, dry_run, flange_z_min
+        self.body = robot.body or BODY
+        from chefbot.embodiments.constraints import for_robot
+
+        self.constraints = robot.kin.constraints or for_robot(self.body)
         self.lo, self.hi = LIMITS[:, 0] + MARGIN / 2, LIMITS[:, 1] - MARGIN / 2
         self._q = None  # dry run: the arm where it was commanded
+        self._last_q = None  # the last joints sent (a step out of a keep-out the arm is in passes the guard)
         self._width = None
 
     def __getattr__(self, name):  # everything not overridden (cameras, halt, close, raw_state, ...) passes through
@@ -78,25 +85,62 @@ class GuardedEnv:
                                    gripper_width=s.gripper_width if self._width is None else self._width)  # fmt: skip
 
     def check(self, q) -> None:
-        from chefbot.interface.workspace import arm_points, in_keep_out
+        from chefbot.interface.workspace import arm_points
 
         q = np.asarray(q, dtype=float)
         if np.any(q < self.lo) or np.any(q > self.hi):
             raise SafetyStop(f"joints outside their limits: {np.degrees(q).round(1).tolist()}")
-        if in_keep_out(q):
-            raise SafetyStop("the arm would go into the pole's keep-out")
-        pts = arm_points(q)[2:]
-        over_base = np.linalg.norm(pts[:, :2], axis=1) < FOOTPRINT_RADIUS
-        if np.any(over_base & (pts[:, 2] < PLATE_CLEAR)):
-            raise SafetyStop(f"the arm would come within {PLATE_CLEAR * 100:.0f} cm of the base's plate")
+        body = self.body
+        why = self.violation(q)
+        if why:
+            c = self.clearance(q)
+            ref = self._last_q if self._last_q is not None else np.asarray(self.get_state().arm_q, dtype=float)
+            if c < self.clearance(ref) - 1e-5:  # in, and deeper: stop (moving out is let be)
+                raise SafetyStop(f"the arm would go into {why}")
+        pts = arm_points(q, body.hand_m)[2:]
         if pts[:, 2].min() < FLOOR_CLEAR_Z:
             raise SafetyStop(f"the arm would go down to {pts[:, 2].min():.2f} m, near the floor")
         F = self.kin.flange_pose(q)
-        if np.linalg.norm(F[:2, 3]) < FOOTPRINT_RADIUS and F[2, 3] < self.flange_z_min:
+        if body.over_plate(F[:3, 3])[0] and F[2, 3] < self.flange_z_min:
             raise SafetyStop(f"the flange would go to {F[2, 3]:.3f} m over the base, below its floor of {self.flange_z_min} m (arm base frame)")
+
+    def violation(self, q) -> str | None:
+        """The first of the arm's constraints (embodiments/constraints.py, the same the solvers avoid) joints q
+        violate, said, or None."""
+        from chefbot.embodiments.constraints import KeepOut
+        from chefbot.interface.workspace import arm_points
+
+        pts = arm_points(np.asarray(q, dtype=float), self.body.hand_m)
+        for c in self.constraints:
+            d, _ = c.clearance(pts)
+            if (d < 0).any():
+                what = f"the keep-out of the {c.nearest_part(pts)}" if isinstance(c, KeepOut) else c.name
+                return f"{what} ({-d.min() * 100:.1f} cm in)"
+        return None
+
+    def clearance(self, q) -> float:
+        """The arm's least clearance (m; negative: in) from its constraints at joints q."""
+        from chefbot.embodiments.constraints import nearest
+        from chefbot.interface.workspace import arm_points
+
+        return float(nearest(self.constraints, arm_points(np.asarray(q, dtype=float), self.body.hand_m))[0].min())
+
+    def path_clear(self, q0, q1, step: float = 0.02) -> bool:
+        """The joint-space line q0 -> q1 clear of the constraints all the way (from a start inside one: never further
+        in, as the solvers move)."""
+        q0, q1 = np.asarray(q0, float), np.asarray(q1, float)
+        k = max(1, int(np.ceil(np.abs(q1 - q0).max() / step)))
+        floor = min(0.0, self.clearance(q0))
+        for t in np.linspace(0, 1, k + 1)[1:]:
+            c = self.clearance(q0 + (q1 - q0) * t)
+            if c < floor - 1e-5:
+                return False
+            floor = max(floor, min(0.0, c))
+        return True
 
     def set_arm_joint_targets(self, q) -> None:
         self.check(q)
+        self._last_q = np.asarray(q, dtype=float).copy()
         if self.dry_run:
             self._q = np.asarray(q, dtype=float).copy()
             return
@@ -171,8 +215,6 @@ class RealHost:
         """Before the episode: the arm to `q_home` along a straight line in joint space (its path clear of the
         keep-out, every step checked), Enter first (confirm, default the host's). A dry run doesn't move: it only says
         whether the arm is there (the cameras see the real arm)."""
-        from chefbot.interface.workspace import path_clear
-
         self.check_live()
         q0 = np.asarray(self.raw_env.get_state().arm_q, dtype=float)
         q1 = np.asarray(q_home, dtype=float)
@@ -182,7 +224,7 @@ class RealHost:
         if self.dry_run:
             self.log(f"[real] dry run: the arm is {np.degrees(far):.0f} deg from home and won't go there; the skill sees it where it is")
             return
-        if not path_clear(q0, q1):
+        if not self.env.path_clear(q0, q1):
             raise SafetyStop("the straight way home passes the pole's keep-out: move the arm nearer home first")
         if self.confirm if confirm is None else confirm:
             input(f"\nHome: the arm to its ready pose, {np.degrees(far):.0f} deg at most ({far / HOME_SPEED:.1f} s). Enter to move (Ctrl-C stops): ")

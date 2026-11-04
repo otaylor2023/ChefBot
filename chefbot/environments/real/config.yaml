@@ -25,7 +25,8 @@ cameras:
         [0, 0, 0, 1]]
   # The pole D455 (onboard/calibration/pole.py --card, 2026-11-03: the hand card, 26 poses spread over the workspace,
   # 1.0 px rms): 0.25 m behind the base center, 0.26 m left, 1.04 m up, looking forward 7.4 deg down. Its height comes
-  # through config/robot_tidybot_fr3.yaml's arm_mount (0.335 m; TODO(verify) on the real base). Its mount isn't very
+  # through config/robot_tidybot_fr3.yaml's arm_mount (0.335 m, the sim base's; the real plate is 0.44 m up, measured
+  # 2026-11-03: in this frame's z the camera is 0.105 m low, relative to the arm exact). Its mount isn't very
   # stable: `track` has environments/real keep the pose current from the hand card in its frames (mount_track.py).
   # The one before (one 70 mm marker on the hand, 15 poses, 1.2 px rms; data_2026-11-03/pole.json) put points 2-7 mm
   # away from this one at 0.9 m:

@@ -211,3 +211,21 @@ def test_a_late_state_holds_and_a_lost_one_stops_it(robot, tmp_path):
         assert h.fault is not None and "lost" in str(h.fault)
     finally:
         h.close()
+
+
+def test_a_low_tilted_grasp_past_an_elbow_limit_is_reached(robot, tmp_path):
+    # 2026-11-03, chefbot_v30_fr3 on a spice jar: the old per-tick IK pinned joint 4 at its limit and stalled 0.35 m
+    # short ("grasp pose not reached"), though the arm reaches it (shoulder forward, wrist bent: joint 6 ~235 deg).
+    h, fake = host_on(robot, tmp_path)
+    try:
+        row = [0.3881, 0.0303, 0.1511, -0.1564, 0.87, -0.3109, 0.3493, 0.0]
+        for _ in range(250):  # fast profile: well under 250 control steps
+            rec = h.step(row, "arm")
+            if rec["pos_error_m"] < 0.003:
+                break
+        assert rec["pos_error_m"] < 0.003 and rec["rot_error_rad"] < 0.02, rec
+        lim = np.asarray(robot.kin.ik.joint_limits)
+        assert np.all(fake.q >= lim[:, 0]) and np.all(fake.q <= lim[:, 1])
+        assert abs(fake.q[0]) < np.radians(20)  # no swing round: joint 1 stays near forward
+    finally:
+        h.close()
