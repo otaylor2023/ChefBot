@@ -226,20 +226,26 @@ class RealHost:
         if self.dry_run:
             self.log(f"[real] dry run: the arm is {np.degrees(far):.0f} deg from home and won't go there; the skill sees it where it is")
             return
-        if not self.env.path_clear(q0, q1):
-            raise SafetyStop("the straight way home passes the pole's keep-out: move the arm nearer home first")
+        path = self._home_path(q0, q1)
+        if path is None:
+            raise SafetyStop("no clear joint path home (around the pole's keep-out): move the arm nearer home first")
+        if len(path) > 1:
+            self.log(f"[real] home: the straight way passes the keep-out; going around ({len(path) - 1} waypoint(s))")
         if self.confirm if confirm is None else confirm:
-            input(f"\nHome: the arm to its ready pose, {np.degrees(far):.0f} deg at most ({far / HOME_SPEED:.1f} s). Enter to move (Ctrl-C stops): ")
+            input(f"\nHome: the arm to its ready pose, {np.degrees(far):.0f} deg at most. Enter to move (Ctrl-C stops): ")
         tick = 0.05
-        n = max(1, int(math.ceil(far / (HOME_SPEED * tick))))
-        k = 0
-        while k < n:
-            if self._state_late():  # the state stalled on the link: hold the last target, then go on
-                time.sleep(0.02)
-                continue
-            k += 1
-            self.env.set_arm_joint_targets(q0 + (q1 - q0) * (k / n))
-            self.raw_env.wait_for_next_tick(tick)
+        start = q0
+        for w in path:
+            n = max(1, int(math.ceil(float(np.abs(w - start).max()) / (HOME_SPEED * tick))))
+            k = 0
+            while k < n:
+                if self._state_late():  # the state stalled on the link: hold the last target, then go on
+                    time.sleep(0.02)
+                    continue
+                k += 1
+                self.env.set_arm_joint_targets(start + (w - start) * (k / n))
+                self.raw_env.wait_for_next_tick(tick)
+            start = w
         t0 = time.monotonic()
         while time.monotonic() - t0 < 5.0:
             if not self._state_late() and np.abs(np.asarray(self.raw_env.get_state().arm_q) - q1).max() <= 0.02:
@@ -267,6 +273,26 @@ class RealHost:
         frozen = (raw() or {}).get("arm_frozen_s") if raw is not None else None
         if frozen is not None and frozen > ARM_FROZEN_S:
             raise SafetyStop(f"the arm driver isn't publishing (the joints frozen {frozen:.1f} s): is it running, the arm unlocked?")
+
+    def _home_path(self, q0, q1):
+        """Joint waypoints home clear of the arm's constraints (embodiments/arm_solvers/route.py's joint_path, the
+        guard's own check on every leg as well), or None."""
+        if self.env.path_clear(q0, q1):
+            return [q1]
+        from chefbot.embodiments.arm_solvers.route import Router
+
+        kin = self.robot.kin
+        planner = Router(None, kin.ik, kin.constraints, kin.body.hand_m if kin.body is not None else 0.0)
+        path = planner.joint_path(q0, q1)
+        if path is None:
+            return None
+        legs, a = [], q0
+        for w in path:
+            if not self.env.path_clear(a, w):
+                return None
+            legs.append(np.asarray(w, dtype=float))
+            a = w
+        return legs
 
     def _state_late(self) -> bool:
         """The robot's state is STATE_LATE_S..STATE_LOST_S old (a stall on the link: wait); past that, raise."""

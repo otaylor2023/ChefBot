@@ -116,6 +116,25 @@ class Router:
                     return [v, g], None
         return None, f"{len(goals)} clear IK solution(s), but no clear joint path to one"
 
+    def joint_path(self, q0, q1, tries: int = 60) -> list | None:
+        """Joint waypoints from q0 to q1 (the last is q1), each leg a straight joint-space line clear of the
+        constraints (from a start inside one: never further in): straight if it is, else through one waypoint (the
+        posture; the shoulder's joints moved first or last; clear joints between), else None."""
+        q0, q1 = np.asarray(q0, dtype=float), np.asarray(q1, dtype=float)
+        if self._segment_clear(q0, q1):
+            return [q1]
+        n = len(q0)
+        shoulder_first, wrist_first = q0.copy(), q0.copy()
+        shoulder_first[: min(4, n)] = q1[: min(4, n)]
+        wrist_first[min(4, n):] = q1[min(4, n):]
+        vias = [self.ik._posture, shoulder_first, wrist_first]
+        vias += [np.clip(q0 + (q1 - q0) * self._rng.uniform(0.2, 0.8) + self._rng.normal(0, 0.5, n), self.lim[:, 0],
+                         self.lim[:, 1]) for _ in range(tries)]  # fmt: skip
+        for v in vias:
+            if self.clearance(v) >= 0 and self._segment_clear(q0, v) and self._segment_clear(v, q1):
+                return [np.asarray(v, dtype=float), q1]
+        return None
+
     # -- the step --------------------------------------------------------------------
 
     def step(self, target: np.ndarray, q, dt: float, max_lin: float, max_ang: float, max_joint: float) -> np.ndarray:

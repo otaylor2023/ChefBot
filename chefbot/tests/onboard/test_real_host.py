@@ -244,3 +244,18 @@ def test_going_home_waits_out_a_stall_on_the_link(robot, tmp_path):
     RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None).go_home()
     assert np.abs(fake.q - np.array(HOME)).max() < 1e-6
     assert fake.max_state_age_s >= 3.0
+
+
+def test_going_home_goes_around_the_keep_out_when_the_straight_way_doesnt_clear(robot, tmp_path):
+    # 2026-11-04: after a pick ended reaching 0.66 m out, the straight joint path home passed the pole's keep-out
+    # and --home refused; now it plans a clear path (route.py joint_path), each leg checked by the guard too.
+    from chefbot.environments.real.host import HOME
+
+    fake = FakeRobot()
+    fake.q = np.radians([13.0, 33.0, -8.0, -111.0, -2.0, 173.0, 55.0])  # where that pick left the arm
+    said = []
+    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=said.append)
+    assert not h.env.path_clear(fake.q, np.array(HOME))
+    h.go_home()
+    assert np.abs(fake.q - np.array(HOME)).max() < 1e-3
+    assert any("going around" in s for s in said)
