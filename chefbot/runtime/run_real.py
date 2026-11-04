@@ -7,7 +7,7 @@ Before: the robot up with the onboard server (onboard/bringup/launch.sh: the arm
 server), and on this computer `ssh -L 8765:localhost:8765 tidybot01` (environments/real/config.yaml's url), the
 vision server for skills that use it (VISION_URL), the model keys in .env.
 
---home first takes the arm to its ready pose (the hand pointing down). Every move waits for Enter (--yes: doesn't). --dry-run: nothing is sent to the arm or the gripper, the arm taken
+--home first takes the arm to its ready pose (the hand pointing down). --confirm: Enter before each move (the default runs them; Ctrl-C stops). --dry-run: nothing is sent to the arm or the gripper, the arm taken
 to be where it was commanded, the cameras real. Arm only unless --base. The episode's files (result.json,
 trace.jsonl, calls.jsonl, skill_log.txt, the skill's images) go to runs/real/<skill>__<time>/; nothing scores it.
 """
@@ -45,7 +45,7 @@ def main() -> None:
     ap.add_argument("--robot", default="tidybot_fr3", help="the embodiment the real robot is (default tidybot_fr3)")
     ap.add_argument("--speed", default="slow", help="speed profile (default slow: first real runs)")
     ap.add_argument("--dry-run", action="store_true", help="send nothing to the arm or the gripper")
-    ap.add_argument("--yes", action="store_true", help="don't wait for Enter before each move")
+    ap.add_argument("--confirm", action="store_true", help="wait for Enter before each move")
     ap.add_argument("--base", action="store_true", help="let the base move (default: it holds)")
     ap.add_argument("--home", action="store_true", help="the arm to its ready pose before the skill (a skill can do it itself: act_joints)")
     ap.add_argument("--flange-z-min", type=float, default=FLANGE_Z_MIN, help="the flange's height floor over the base, arm base frame (m)")
@@ -65,12 +65,12 @@ def main() -> None:
         if f"built for robot {skill.robot}" not in str(e) or "needs" in str(e):
             raise SystemExit(str(e))
         print(f"[run_real] note: {skill.path} was built for robot {skill.robot}; running it on {robot.name} (the real robot)")
-    access = {**skill.access(), "confirm_moves": not a.yes}
+    access = {**skill.access(), "confirm_moves": a.confirm}
     if not a.base and not access.get("arm_only"):
         print("[run_real] note: the skill isn't arm only, but the base holds (--base lets it move)")
         access["arm_only"] = True
     out = RUNS / f"{skill.path.replace('/', '-')}__{time.strftime('%m%d-%H%M%S')}{'_dry' if a.dry_run else ''}"
-    host = RealHost(robot, robot.speed(a.speed), out, dry_run=a.dry_run, confirm=not a.yes, base=a.base, url=a.url,
+    host = RealHost(robot, robot.speed(a.speed), out, dry_run=a.dry_run, confirm=a.confirm, base=a.base, url=a.url,
                     flange_z_min=a.flange_z_min)  # fmt: skip
     if a.home:
         try:
