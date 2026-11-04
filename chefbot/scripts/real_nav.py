@@ -93,6 +93,34 @@ def relative_point(origin: dict, forward: float, left: float, turn_deg: float) -
 ARM_MOVED_RAD = 0.05  # a joint moving more than this while the base drives stops it
 
 
+def low_footprint(raw: dict, low_height: float, base_radius: float = 0.33, link_radius: float = 0.08,
+                  clearance: float = 0.05) -> float:  # fmt: skip
+    """The footprint against LOW obstacles (counter tops): the base, plus only the arm's points lower than
+    low_height + clearance (higher parts pass over). Unknown arm: the full arm counts."""
+    q = raw.get("arm_q")
+    if q is None or len(q) != 7:
+        return arm_footprint(raw, base_radius, link_radius)["radius"]
+    from chefbot.robot.kinematics.arm_outline import arm_points
+
+    pts = arm_points(q)
+    # Thickness about each point: the links' link_radius; the flange and hand narrower; the fingertips thin.
+    radii = [link_radius] * (len(pts) - 2) + [0.06, 0.03]
+    under = [(p, r) for p, r in zip(pts, radii) if p[2] - r < low_height + clearance]
+    return max([base_radius] + [math.hypot(p[0], p[1]) + r for p, r in under])
+
+
+def layered_grids(tall, low, low_height: float, raw: dict, base_radius: float = 0.33, margin: float = 0.10):
+    """Plan and body grids: tall obstacles grown by the full footprint (arm included), low ones by low_footprint."""
+    from chefbot.robot.nav.grid import OccupancyGrid
+
+    full = arm_footprint(raw, base_radius)["radius"]
+    lowfp = low_footprint(raw, low_height, base_radius)
+    def both(extra):
+        t, l = tall.inflate(full + extra), low.inflate(lowfp + extra)
+        return OccupancyGrid(t.occupied | l.occupied, tall.resolution, tall.origin)
+    return both(margin), both(0.0), {"full_m": full, "low_m": lowfp, "low_height_m": low_height}
+
+
 def arm_footprint(raw: dict, base_radius: float = 0.33, link_radius: float = 0.08) -> dict:
     """The footprint circle (base centre) covering the base and, if its joints are known, the arm seen from above."""
     q = raw.get("arm_q")
@@ -428,11 +456,20 @@ def main() -> None:
             log_dir = REPO / "runs" / "real_nav" / stamp
             log_dir.mkdir(parents=True, exist_ok=True)
             footprint = args.footprint
+            grids = {}
             if args.arm == "auto":
                 fp = arm_footprint(env.raw_state(), base_radius=args.footprint)
                 footprint = fp["radius"]
                 print(f"footprint {footprint:.3f} m ({fp['note']}" + (f"; arm reaches {fp['reach_ahead_m']:.2f} m ahead)" if fp["arm"] else ")"))
-            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, footprint=footprint,
+                from chefbot.scripts.real_map import load_layers
+
+                layers = load_layers(args.map)
+                if layers is not None:
+                    plan_g, body_g, info = layered_grids(*layers, env.raw_state(), base_radius=args.footprint, margin=args.margin)
+                    grids = {"plan_grid": plan_g, "body_grid": body_g}
+                    print(f"  against walls {info['full_m']:.3f} m; against low obstacles (<= {info['low_height_m']:.2f} m) "
+                          f"{info['low_m']:.3f} m: the arm passes over them")  # fmt: skip
+            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, footprint=footprint, **grids,
                                 margin=args.margin, log_dir=log_dir, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
                                 yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist)  # fmt: skip
             (log_dir / "result.json").write_text(json.dumps(result, indent=2, default=str))

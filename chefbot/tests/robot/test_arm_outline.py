@@ -45,3 +45,30 @@ def test_the_footprint_grows_to_cover_the_arm():
     stretched[1], stretched[3] = 0.6, -0.5
     fp = arm_footprint({"arm_q": stretched, "arm_live": True})
     assert fp["radius"] > 0.33 + 0.2 and fp["arm_live"]
+
+
+LOCKED = [-0.0327909, -0.829123, -0.0034275, -2.31953, -0.0898839, 2.33443, 0.859095]  # HT-4a/4b's locked arm
+
+
+def test_an_arm_above_a_counter_passes_over_it_but_not_over_a_wall():
+    from chefbot.scripts.real_nav import arm_footprint, low_footprint
+
+    full = arm_footprint({"arm_q": LOCKED})["radius"]
+    assert full > 0.5  # the arm reaches ~0.54 m ahead: walls keep that far
+    assert low_footprint({"arm_q": LOCKED}, low_height=0.93) == pytest.approx(0.33)  # its tip is ~12 cm above the counter
+    assert low_footprint({"arm_q": LOCKED}, low_height=1.05) == pytest.approx(0.46 + 0.03, abs=0.01)  # taller: the hand counts
+    assert low_footprint({}, low_height=0.93) == pytest.approx(0.33)  # unknown arm: the full (here: base) footprint
+
+
+def test_layered_maps_keep_walls_further_than_counters():
+    from chefbot.scripts.real_map import build_layers
+    from chefbot.scripts.real_nav import layered_grids
+
+    spec = {"resolution": 0.05, "bounds": [[0, 0], [4, 3]],
+            "obstacles": [{"name": "counter", "box": {"center": [2.0, 1.5], "size": [1.0, 0.6]}, "height_m": 0.93}]}  # fmt: skip
+    tall, low, h, _ = build_layers(spec)
+    assert h == 0.93 and low.occupied.any() and not tall.is_free(-0.05, 1.0) and tall.is_free(2.0, 1.5)
+    plan, body, info = layered_grids(tall, low, h, {"arm_q": LOCKED}, margin=0.05)
+    assert info["low_m"] < info["full_m"]
+    # 0.45 m from the counter's edge is free for the base; 0.45 m from a wall is not.
+    assert plan.is_free(2.0, 1.5 - 0.3 - 0.45) and not plan.is_free(0.45, 1.5)

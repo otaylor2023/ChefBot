@@ -16,6 +16,7 @@ The spec (all in metres, world frame, as real_pose / real_nav print poses):
     obstacles:                                    # counters, cabinets, tables, walls, a box on the floor
       - {name: counter_north, box: {center: [x, y], size: [length, depth], yaw_deg: 0}}
       - {name: island, polygon: [[x, y], [x, y], [x, y], ...]}
+      - {name: counter, box: {...}, height_m: 0.93}  # with a height: a LOW obstacle the arm may reach over
     places:                                       # base poses to go to by name (real_nav go <name> --map ...)
       stove: {x: 1.5, y: -3.9, yaw_deg: -90}
 
@@ -67,6 +68,14 @@ def obstacle_polygon(o: dict) -> list:
 
 def build(spec: dict) -> tuple[OccupancyGrid, dict]:
     """The occupancy grid (bounds' outside and every obstacle occupied) and the places."""
+    tall, low, low_height, places = build_layers(spec)
+    return OccupancyGrid(tall.occupied | low.occupied, tall.resolution, tall.origin), places
+
+
+def build_layers(spec: dict):
+    """Two grids: TALL (outside the bounds = walls, and obstacles without a height) and LOW (obstacles with a
+    `height_m`, e.g. a counter top), the low obstacles' greatest height, and the places. The arm may reach over a low
+    obstacle when every part of it there is higher (scripts/real_nav.py), never over a tall one."""
     res = float(spec.get("resolution", 0.05))
     (xmin, ymin), (xmax, ymax) = spec["bounds"]
     pad = 2 * res  # a ring of occupied cells around the bounds
@@ -75,25 +84,39 @@ def build(spec: dict) -> tuple[OccupancyGrid, dict]:
     rows = int(math.ceil((ymax - ymin + 2 * pad) / res))
     cc, rr = np.meshgrid(np.arange(cols), np.arange(rows))
     centres = np.column_stack([origin[0] + (cc.ravel() + 0.5) * res, origin[1] + (rr.ravel() + 0.5) * res])
-    occupied = ~((centres[:, 0] >= xmin) & (centres[:, 0] <= xmax) & (centres[:, 1] >= ymin) & (centres[:, 1] <= ymax))
+    tall = ~((centres[:, 0] >= xmin) & (centres[:, 0] <= xmax) & (centres[:, 1] >= ymin) & (centres[:, 1] <= ymax))
+    low = np.zeros(len(centres), dtype=bool)
+    low_height = 0.0
     for o in spec.get("obstacles") or []:
         poly = np.asarray(obstacle_polygon(o))
-        occupied |= inside(centres, poly)
+        layer = low if o.get("height_m") is not None else tall
+        if o.get("height_m") is not None:
+            low_height = max(low_height, float(o["height_m"]))
+        layer |= inside(centres, poly)
         # Thin obstacles (a wall drawn as a line-thin box) still block: mark the cells their corners fall in.
         for x, y in poly:
             r, c = int((y - origin[1]) // res), int((x - origin[0]) // res)
             if 0 <= r < rows and 0 <= c < cols:
-                occupied[r * cols + c] = True
-    grid = OccupancyGrid(occupied.reshape(rows, cols), res, origin)
+                layer[r * cols + c] = True
     places = {name: {"x": float(p["x"]), "y": float(p["y"]), "yaw_deg": float(p.get("yaw_deg", 0.0))}
               for name, p in (spec.get("places") or {}).items()}  # fmt: skip
-    return grid, places
+    shape = (rows, cols)
+    return OccupancyGrid(tall.reshape(shape), res, origin), OccupancyGrid(low.reshape(shape), res, origin), low_height, places
 
 
 def load(map_dir: Path) -> tuple[OccupancyGrid, dict]:
     map_dir = Path(map_dir)
     places = yaml.safe_load((map_dir / "places.yaml").read_text()) if (map_dir / "places.yaml").exists() else {}
     return OccupancyGrid.load(map_dir / "grid.npy"), places or {}
+
+
+def load_layers(map_dir: Path):
+    """(tall, low, low_height) if the map has layers (built from a spec with heights), else None."""
+    map_dir = Path(map_dir)
+    if not (map_dir / "grid_tall.npy").exists():
+        return None
+    meta = yaml.safe_load((map_dir / "grid_low.yaml").read_text())
+    return OccupancyGrid.load(map_dir / "grid_tall.npy"), OccupancyGrid.load(map_dir / "grid_low.npy"), float(meta.get("height_m", 0.0))
 
 
 def render(grid: OccupancyGrid, inflated: OccupancyGrid | None = None, path=None, marks: dict | None = None) -> str:
@@ -175,8 +198,13 @@ def main() -> None:
     if args.cmd == "build":
         spec = yaml.safe_load(args.spec.read_text())
         grid, places = build(spec)
+        tall, low, low_height, _ = build_layers(spec)
         out = args.spec.parent
         grid.save(out / "grid.npy", out / "grid.yaml")
+        tall.save(out / "grid_tall.npy", out / "grid_tall.yaml")
+        low.save(out / "grid_low.npy", out / "grid_low.yaml")
+        meta = yaml.safe_load((out / "grid_low.yaml").read_text()) | {"height_m": low_height}
+        (out / "grid_low.yaml").write_text(yaml.safe_dump(meta))
         (out / "places.yaml").write_text(yaml.safe_dump(places, sort_keys=True))
         free = 100 * (1 - grid.occupied.mean())
         print(f"{grid.shape[0]} x {grid.shape[1]} cells at {grid.resolution} m, {free:.0f}% free; {len(places)} places -> {out}")

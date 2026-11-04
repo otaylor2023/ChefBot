@@ -7,10 +7,14 @@
 # bounds: PROVISIONAL, NOT MEASURED. The counter plus ~1 m all round, and the places the base has been today.
 #   Replace with the room's real free floor (walls, cabinets, the Motive table) before driving outside known space.
 resolution: 0.05
-bounds: [[-1.40, -0.05], [3.90, 3.85]]   # ymin: HT-3b's known floor. xmax / ymax: Jack, 2026-11-03 "move around the full counter" (not measured)
+# xmax, ymax: WALLS (Jack, 2026-11-03, "roughly"): 53 in (1.35 m) past the counter's east end -> x 3.97; 6 ft (1.83 m)
+#   behind its far side -> y 4.37; each taken 5 cm closer for the "roughly". xmin, ymin: the open west end and near side
+#   (ymin: HT-3b's known floor).
+bounds: [[-1.40, -0.05], [3.92, 4.32]]
 obstacles:
   - name: Chef-botcounter-top
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
+    height_m: 0.93   # its top (the corner markers' centres): a low obstacle, the arm may pass over it
 places:
   # base poses (x, y, yaw); the base faces yaw (the way the arm faces)
   near_side: {x: 1.49, y: 1.00, yaw_deg: 90}       # in front of the counter's -y long side, facing it
@@ -27,3 +31,8 @@ places:
   lap_east: {x: 3.27, y: 2.06, yaw_deg: 180}
   lap_far: {x: 1.49, y: 3.19, yaw_deg: -90}
   lap_west: {x: -0.29, y: 2.06, yaw_deg: 0}
+  # A closer lap (HT-4c): base footprint 0.33 against the counter when the arm is higher than it; 0.45 m out.
+  close_near: {x: 1.49, y: 1.13, yaw_deg: 90}
+  close_east: {x: 3.07, y: 2.06, yaw_deg: 180}
+  close_far: {x: 1.49, y: 2.99, yaw_deg: -90}
+  close_west: {x: -0.09, y: 2.06, yaw_deg: 0}
