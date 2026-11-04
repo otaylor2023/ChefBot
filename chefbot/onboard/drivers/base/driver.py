@@ -9,13 +9,15 @@ still); hb1::kill = "kill" stops it. base_controller.py, constants.py and utils.
 unchanged from that commit (README.md).
 
 What differs, for safety:
-- Commands expire. A target counts only if hb1::cmd_seq changed within --command-timeout (0.5 s); the onboard
+- Commands expire. A target counts only if hb1::cmd_seq changed within --command-timeout (0.3 s); the onboard
   server bumps it with every base target (robot_io.base_target). Without fresh commands the base brakes and holds
   where it is, so a dead client, server or Wi-Fi link stops it. (ZitiBot's driver re-sent the last goal forever.)
   Starting up, the value already in Redis is never fresh.
 - hb1::heartbeat counts up every loop, braking or not, so readers can tell a live driver from odometry left in
   Redis by an earlier run (Redis keeps it, across reboots).
 - State is published every loop, also while braking; kill exits the loop.
+- The loop exits, without another heartbeat, once the Vehicle's CAN control thread has died: otherwise the
+  heartbeat would keep counting while odometry froze and commands went nowhere.
 - Braking (no fresh command, hb1::stop, a garbled goal) uses --brake-accel (0.25 m/s^2, 0.8 rad/s^2: the gamepad
   teleop's own limits, which Jack drove with; and 3x the jerk limit where the Vehicle has one: this copy, ZitiBot's, has
   none), not the gentle motion limits (0.1 m/s^2): HT-4c
@@ -80,7 +82,11 @@ class DriverLoop:
         self._publish()
 
     def step(self) -> bool:
-        """One tick; False once killed."""
+        """One tick; False once killed or once the Vehicle's control thread has died."""
+        thread = getattr(self.v, "control_loop_thread", None)
+        if thread is not None and not thread.is_alive():
+            self.mode = "dead"  # no publish: the heartbeat stops, so readers see a dead driver
+            return False
         now = self.clock()
         self._apply_scale()
         seq = self.r.get(CMD_SEQ)
@@ -197,6 +203,9 @@ def main() -> None:
     try:
         while loop.step():
             time.sleep(0.01)
+        if loop.mode == "dead":
+            print("[base] the Vehicle's CAN control thread died: exiting", flush=True)
+            sys.exit(1)
         print("[base] killed", flush=True)
     except KeyboardInterrupt:
         print("[base] interrupted", flush=True)

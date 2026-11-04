@@ -173,3 +173,29 @@ def test_the_default_timeout_is_the_servers_watchdog():
     now[0] += 0.31
     loop.step()
     assert loop.mode == "idle"
+
+
+def test_a_dead_can_thread_stops_the_heartbeat_and_exits_the_loop(rig):
+    loop, vehicle, redis, now = rig
+
+    class Thread:
+        alive = True
+
+        def is_alive(self):
+            return self.alive
+
+    vehicle.control_loop_thread = Thread()
+    assert loop.step()
+    beat = redis.values[D.HEARTBEAT]
+    vehicle.control_loop_thread.alive = False
+    now[0] += 0.01
+    assert loop.step() is False and loop.mode == "dead"
+    assert redis.values[D.HEARTBEAT] == beat  # readers see the driver as dead
+
+
+def test_the_drivers_redis_keys_match_onboard_keys():
+    # The driver runs in another env and keeps its own copy of the names; they must not drift.
+    from chefbot.onboard import keys as K
+
+    assert (D.POSE, D.VEL, D.DESIRED, D.STOP) == (K.BASE_POSE, K.BASE_VELOCITY, K.BASE_DESIRED_POSE, K.BASE_STOP)
+    assert (D.MAX_VEL_SCALE, D.CMD_SEQ, D.HEARTBEAT) == (K.BASE_MAX_VEL_SCALE, K.BASE_CMD_SEQ, K.BASE_HEARTBEAT)
