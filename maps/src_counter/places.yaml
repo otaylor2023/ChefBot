@@ -1,3 +1,19 @@
+close_east:
+  x: 3.07
+  y: 2.06
+  yaw_deg: 180.0
+close_far:
+  x: 1.49
+  y: 2.99
+  yaw_deg: -90.0
+close_near:
+  x: 1.49
+  y: 1.13
+  yaw_deg: 90.0
+close_west:
+  x: -0.09
+  y: 2.06
+  yaw_deg: 0.0
 east_end:
   x: 3.1
   y: 2.06
