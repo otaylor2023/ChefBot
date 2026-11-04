@@ -86,12 +86,54 @@ cleanup() {
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM  # Ctrl-C: stop everything, then out (not back to waiting on what was just stopped)
 
-watch_parts() {  # until a part exits: then say which, and stop everything (a dead arm driver leaves OpenSai and the server up)
-	local died=""
-	wait -n -p died "${PIDS[@]}" || true
-	echo "" >&2
-	echo "=== ${NAMES[${died:-none}]:-a part} STOPPED (its log: $LOGS): stopping everything ===" >&2
-	exit 1
+ACTIVE_CONTROLLER_KEY="opensai::controllers::FrankaRobot::active_controller_name"
+JOINT_GOAL_KEY="opensai::controllers::FrankaRobot::joint_controller::joint_task::goal_position"
+JOINT_GOAL_VEL_KEY="opensai::controllers::FrankaRobot::joint_controller::joint_task::goal_velocity"
+JOINTS_KEY="opensai::sensors::FrankaRobot::joint_positions"
+
+arm_float() {  # OpenSai's float_controller (chefbot_fr3.xml): no stiffness, light damping
+	redis-cli SET "$ACTIVE_CONTROLLER_KEY" float_controller >/dev/null
+	echo "=== ARM FLOATING: move it by hand. h holds it where it is. (A laptop run's moves are ignored meanwhile.) ==="
+}
+
+arm_hold() {  # back to the joint controller, its goal where the arm is now (OpenSai re-initializes it there too)
+	local q
+	q="$(redis-cli --raw GET "$JOINTS_KEY")"
+	if [[ "$q" != \[* ]]; then
+		echo "=== no joint reading from the arm driver: not switching (still $(redis-cli --raw GET "$ACTIVE_CONTROLLER_KEY")) ===" >&2
+		return
+	fi
+	redis-cli SET "$JOINT_GOAL_KEY" "$q" >/dev/null
+	redis-cli SET "$JOINT_GOAL_VEL_KEY" "[0,0,0,0,0,0,0]" >/dev/null
+	redis-cli SET "$ACTIVE_CONTROLLER_KEY" joint_controller >/dev/null
+	echo "=== ARM HOLDING where it is ==="
+}
+
+watch_parts() {  # until a part exits (then say which, and stop everything); meanwhile f / h float and hold the arm
+	local keys="" pid k
+	if $OPENSAI && [[ -t 0 ]]; then
+		keys=1
+		echo "keys: f floats the arm (move it by hand), h holds it where it is"
+	fi
+	while true; do
+		for pid in "${PIDS[@]}"; do
+			if ! kill -0 "$pid" 2>/dev/null; then
+				echo "" >&2
+				echo "=== ${NAMES[$pid]:-a part} STOPPED (its log: $LOGS): stopping everything ===" >&2
+				exit 1
+			fi
+		done
+		if [[ -n "$keys" ]]; then
+			k=""
+			read -rsn1 -t 0.5 k || true
+			case "$k" in
+				f | F) arm_float ;;
+				h | H) arm_hold ;;
+			esac
+		else
+			sleep 0.5
+		fi
+	done
 }
 
 wait_for_key() {  # key, what must be in its value, timeout

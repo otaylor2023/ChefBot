@@ -11,8 +11,9 @@ Redis, copied unchanged from ZitiBot (`otaylor2023/ZitiBot`, `controllers/tidybo
 | `base_controller.py` (Vehicle: casters over CAN with phoenix6, Ruckig trajectory, odometry) | same name | `ebde293233d177f32dddd4541e3da927b5bbf01b849e04c5388dbdd8eb9d1923` |
 | `constants.py` (base geometry, encoder offsets for Base #3) | same name | `0c89f0461e0a86aafca00652590a45777baa5ad901f47cd81f6c6e170926233d` |
 | `utils.py` (PID file) | same name | `749f8bc018758cf6db7e8bec3b95a7ce01c31bb49521a539ff5904d984e2aa5a` |
+| `gamepad_teleop.py` (drive the base by gamepad; run by `onboard/bringup/gamepad.sh` at the driver's limits) | same name | `ef30974ff4c746ff4db5cfda2975912b81270b30a16d52cec070ce78363db7ef` |
 
-Keep `base_controller.py`, `constants.py` and `utils.py` as copied. Runs in the robot's `zitibot` env (phoenix6, ruckig,
+Keep `base_controller.py`, `constants.py`, `utils.py` and `gamepad_teleop.py` as copied. Runs in the robot's `zitibot` env (phoenix6, ruckig,
 threadpoolctl, redis), from this folder (the files import each other by name):
 
     cd chefbot/onboard/drivers/base && ~/miniforge3/envs/zitibot/bin/python driver.py --max-vel-xy 0.125 --max-vel-yaw 0.4

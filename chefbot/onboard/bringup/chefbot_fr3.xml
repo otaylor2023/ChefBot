@@ -36,6 +36,19 @@
 		</jointTask>
 	</controller>
 
+	<controller name="float_controller">
+		<!-- The arm floating, to move by hand (launch.sh: f floats, h holds it again where it is): no stiffness, light
+		     damping so it doesn't drift off when let go; gravity compensated by the Franka (as with zero torques).
+		     OpenSai re-initializes a controller's tasks to the arm's state on every switch, so h doesn't snap back. -->
+		<jointTask name="joint_task" useDynamicDecoupling="false">
+			<velocitySaturation enabled="false" />
+			<otg type="disabled" />
+			<gains kp="0 0 0 0 0 0 0"
+				kv="4 4 4 4 1.5 1 0.5"
+				ki="0 0 0 0 0 0 0" />
+		</jointTask>
+	</controller>
+
 	<controller name="cartesian_controller">
 		<motionForceTask name="cartesian_task"
 			linkName="end-effector">
