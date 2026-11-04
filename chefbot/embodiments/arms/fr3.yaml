@@ -15,7 +15,17 @@ kinematics:
     - [0.0, -0.5, 0.0, -2.0, 0.0, 3.07, 0.785]
     - [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
 
-# No joint_limits: the FR3's own, from the MJCF.
+# The real FR3's limits (Franka's datasheet; interface/workspace.py LIMITS), 0.06 rad inside them: just inside the
+# real host's guard (0.05), so the IK never plans a pose the robot would refuse. (The MJCF's own are wider: joint 1
+# +-2.90 not +-2.74, joint 4 down to -3.08 not -3.04, joint 6 0.44-4.62 not 0.54-4.52.)
+joint_limits:
+  - [-2.6837, 2.6837]
+  - [-1.7237, 1.7237]
+  - [-2.8407, 2.8407]
+  - [-2.9821, -0.2118]
+  - [-2.7465, 2.7465]
+  - [0.6045, 4.4569]
+  - [-2.9559, 2.9559]
 
 postures:
   stow: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
