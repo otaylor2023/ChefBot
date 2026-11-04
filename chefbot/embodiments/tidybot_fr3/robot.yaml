@@ -30,7 +30,31 @@ hand:                     # measured on the model
 start_q: [0.0, -0.53, 0.0, -1.49, 0.0, 1.31, 0.79]
 
 control:
+  arm_solver: qp           # embodiments/arm_solvers: qp, osc or legacy (CHEFBOT_ARM_SOLVER, run_real --solver override)
   hz: 15
   speed: normal
   limits:
     base_max_vel: [0.5, 0.5, 1.0]
+
+# The robot's own fixed parts the arm must keep clear of, in the arm base frame (x forward, y left, z up from the
+# arm's plate), as measured on the real robot (2026-11-03). One definition for all: the controller's IK steers around
+# them (embodiments/motion.py), the real host's guard stops on them (environments/real/host.py), the robot computer's
+# calibration plans around them (onboard/calibration), and the sim has them as solid geometry (mujoco_kitchen).
+# The real base: 19 in wide, 22 in long, its plate 0.44 m up (the sim's Menagerie base: 0.335); the arm centered
+# across it, the front of its foot 1 in back from the front edge (the foot reaches 0.072 m ahead of joint 1), so the
+# edge is 0.097 m ahead of the arm. The pole (a camera mast): 7.5 in back from the front edge and 3 in in from the
+# left, 48 in off the floor; the D455 on a clamp, where pole.py calibrated it.
+body:
+  hand_m: 0.13065        # the fingertips, out from the flange along its z (the real hand on its 27.25 mm holder)
+  link_radius_m: 0.08    # the arm's links about their centerline (the points the checks use)
+  spare_m: 0.03          # and this to spare (at least an inch: the loader refuses less): an obstacle keeps out
+                         # radius + link_radius_m + spare_m from its axis
+  plate_clear_m: 0.05    # every point along the arm (bar the base column) at least this above the plate, over it
+  plate:                 # the base's top, the arm's plate in it
+    x: [-0.462, 0.097]
+    y: [-0.241, 0.241]
+  obstacles:
+    - name: pole
+      cylinder: {xy: [-0.093, 0.165], radius: 0.03, top: 0.78}
+    - name: pole camera on its clamp
+      capsule: {a: [-0.093, 0.165, 0.65], b: [-0.25, 0.26, 0.70], radius: 0.062}  # a D455: 124 mm wide

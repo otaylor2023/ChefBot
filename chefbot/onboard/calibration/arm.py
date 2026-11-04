@@ -19,8 +19,7 @@ from chefbot.onboard import keys as K
 TAU_J = "opensai::sensors::FrankaRobot::joint_torques"  # measured (link-side torque sensors)
 GRAVITY = "opensai::sensors::FrankaRobot::model::robot_gravity"  # libfranka's model, with Desk's end-effector load
 from chefbot.interface.workspace import (  # noqa: F401  (shared with the real host)
-    LIMITS, MARGIN, POLE_CAMERA, POLE_CAMERA_RADIUS, POLE_RADIUS, POLE_TOP, POLE_XY, TCP_Z, _inside, arm_points, in_keep_out,
-    path_clear)
+    BODY, LIMITS, MARGIN, TCP_Z, _inside, arm_points, in_keep_out, path_clear)
 
 # OpenSai's joint task (chefbot_fr3.xml) moves smoothly to a goal itself (jerk-limited, up to 0.5 rad/s): the goal
 # goes ahead in large steps only so that a stall shows early.
