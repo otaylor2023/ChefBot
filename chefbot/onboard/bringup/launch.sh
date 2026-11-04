@@ -21,10 +21,16 @@ OPENSAI_CONFIG="${OPENSAI_CONFIG:-$(cd "$(dirname "$0")" && pwd)/chefbot_fr3.xml
 BASE_DRIVER_DIR="${BASE_DRIVER_DIR:-$(cd "$(dirname "$0")/../drivers/base" && pwd)}"  # ChefBot's copy (its README.md)
 BASE_PYTHON="${BASE_PYTHON:-$HOME/miniforge3/envs/zitibot/bin/python}"  # has phoenix6, ruckig
 CHEFBOT_PYTHON="${CHEFBOT_PYTHON:-$HOME/chefbot_calib/env/bin/python}"  # numpy, redis, pyrealsense2, websockets, msgpack(-numpy)
-MAX_VEL_XY="${MAX_VEL_XY:-0.125}"      # keep equal to onboard/config.yaml base.driver_max_vel_xy
-MAX_VEL_YAW="${MAX_VEL_YAW:-0.4}"      # ... and base.driver_max_vel_yaw
-MAX_ACCEL_XY="${MAX_ACCEL_XY:-0.1}"
-MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-0.5}"
+ONBOARD_CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.yaml"
+# The base driver's limits: onboard/config.yaml's base.driver_max_* (their one copy; MAX_VEL_XY etc. override for a run).
+read -r CFG_VXY CFG_VYAW CFG_AXY CFG_AYAW < <("$CHEFBOT_PYTHON" -c 'import sys, yaml
+b = yaml.safe_load(open(sys.argv[1]))["base"]
+print(b["driver_max_vel_xy"], b["driver_max_vel_yaw"], b["driver_max_accel_xy"], b["driver_max_accel_yaw"])' "$ONBOARD_CONFIG") || true
+[[ -n "${CFG_AYAW:-}" ]] || { echo "couldn't read the base driver's limits from $ONBOARD_CONFIG" >&2; exit 1; }
+MAX_VEL_XY="${MAX_VEL_XY:-$CFG_VXY}"
+MAX_VEL_YAW="${MAX_VEL_YAW:-$CFG_VYAW}"
+MAX_ACCEL_XY="${MAX_ACCEL_XY:-$CFG_AXY}"
+MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-$CFG_AYAW}"
 READY_TIMEOUT_S=90
 SERVER_PORT="${SERVER_PORT:-8765}"  # keep equal to onboard/config.yaml server.port
 

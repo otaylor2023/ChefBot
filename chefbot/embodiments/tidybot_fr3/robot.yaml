@@ -45,6 +45,8 @@ control:
 # edge is 0.097 m ahead of the arm. The pole (a camera mast): 7.5 in back from the front edge and 3 in in from the
 # left, 48 in off the floor; the D455 on a clamp, where pole.py calibrated it.
 body:
+  plate_height_m: 0.44   # the arm's plate (the arm base frame's z = 0) above the floor, on the real base (Jack,
+                         # 2026-11-03; the sim's Menagerie base: 0.335, config/robot_tidybot_fr3.yaml arm_mount)
   hand_m: 0.13065        # the fingertips, out from the flange along its z (the real hand on its 27.25 mm holder)
   link_radius_m: 0.08    # the arm's links about their centerline (the points the checks use)
   spare_m: 0.03          # and this to spare (at least an inch: the loader refuses less): an obstacle keeps out

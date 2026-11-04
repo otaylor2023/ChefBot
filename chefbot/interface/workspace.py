@@ -38,6 +38,7 @@ class Body:
 
     hand_m: float
     grow: float
+    plate_height: float  # m: the arm's plate (the arm base frame's z = 0) above the floor
     plate_x: tuple[float, float]
     plate_y: tuple[float, float]
     plate_clear: float
@@ -58,7 +59,7 @@ class Body:
                 raise ValueError(f"obstacle {o.get('name')!r}: a cylinder or a capsule")
         if float(c["spare_m"]) < MIN_SPARE_M:
             raise ValueError(f"body spare_m {c['spare_m']} m: at least {MIN_SPARE_M} m (an inch) past the parts and the links")
-        return cls(float(c["hand_m"]), float(c["link_radius_m"]) + float(c["spare_m"]), tuple(c["plate"]["x"]),
+        return cls(float(c["hand_m"]), float(c["link_radius_m"]) + float(c["spare_m"]), float(c["plate_height_m"]), tuple(c["plate"]["x"]),
                    tuple(c["plate"]["y"]), float(c["plate_clear_m"]), tuple(cyl), tuple(cap))  # fmt: skip
 
     def clearance(self, p, margin: float = 0.0):
