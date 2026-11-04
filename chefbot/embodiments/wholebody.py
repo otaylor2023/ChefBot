@@ -5,8 +5,10 @@ where the episode started, fixed): the flange pose, the gripper (closed at >= 0.
 acts only when that changes), and where the robot root should be. Each control step (1 / control.hz) runs ticks of the environment until the step's time is up. Every tick:
   - the base drives toward its target: by itself when the environment's base can (Env.set_base_target), else by
     velocity control (P on the error, within the speed profile's base limit);
-  - the arm takes one clipped Cartesian step toward the flange target relative to where the base is now (so a held
-    object stays put while the base moves), solved by IK, each joint's change clipped too.
+  - the arm takes one resolved-rate step toward the flange target relative to where the base is now (so a held
+    object stays put while the base moves), by the robot's arm solver (embodiments/arm_solvers: qp, osc or legacy),
+    within the joint limits, around the arm's constraints (embodiments/constraints.py: the pole, the plate), at the
+    speed profile's rates.
 Step sizes are the speed profile's rates times the tick.
 
 Partial modes (step(..., mode=)): "arm", an 8-D [x, y, z, qw, qx, qy, qz, gripper] flange target in the robot
@@ -22,6 +24,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from mink.exceptions import NoSolutionFound
 from scipy.spatial.transform import Rotation
 
 from chefbot.embodiments import Robot, Speed
@@ -180,32 +183,28 @@ class WholeBodyController:
             if self.on_tick:
                 self.on_tick()
             return True
-        # Arm: one clipped step toward the flange target, relative to where the base is now ("arm" steps: in the
-        # root frame already).
+        # Arm: one resolved-rate step toward the flange target, relative to where the base is now ("arm" steps: in
+        # the root frame already): the joint velocity that best closes the whole error, the joint limits as
+        # constraints, scaled to the profile's rates. (Before 2026-11-03 each tick solved a short clipped Cartesian
+        # step exactly; at a joint limit that had no solution, the fallback seeds pulled it back, and the arm
+        # stalled 0.35 m short of a low tilted grasp the arm reaches, saying ik_ok.)
         F_target = arm_root if arm_root is not None else np.linalg.inv(root) @ T_flange_world
         # Step from the last command while the arm tracks it (stepping from the measured joints compounds the
         # servo's lag), from the measured joints when it doesn't (blocked, in contact).
         q_meas = np.asarray(s.arm_q, dtype=float)
         q = self._q_cmd if self._q_cmd is not None and np.abs(self._q_cmd - q_meas).max() < TRACKING_SLACK else q_meas
-        F = self.kin.flange_pose(q)
-        dp = F_target[:3, 3] - F[:3, 3]
-        pos_clip, rot_clip, joint_clip = sp.arm_lin * self.tick_s, sp.arm_ang * self.tick_s, sp.joint * self.tick_s
-        if np.linalg.norm(dp) > pos_clip:
-            dp *= pos_clip / np.linalg.norm(dp)
-        rot = Rotation.from_matrix(F_target[:3, :3] @ F[:3, :3].T).as_rotvec()
-        if np.linalg.norm(rot) > rot_clip:
-            rot *= rot_clip / np.linalg.norm(rot)
-        Fd = np.eye(4)
-        Fd[:3, :3] = Rotation.from_rotvec(rot).as_matrix() @ F[:3, :3]
-        Fd[:3, 3] = F[:3, 3] + dp
-        q_ik = self.kin.ik.solve_pose(Fd, seed=q)
-        if q_ik is not None:
-            self._q_cmd = q + np.clip(q_ik - q, -joint_clip, joint_clip)
+        try:
+            q_next = self.kin.arm_step(F_target, q, self.tick_s, sp.arm_lin, sp.arm_ang, sp.joint)
+        except NoSolutionFound:  # the QP found nothing: hold (anything else, a host's SafetyStop above all, goes up)
+            q_next = None
+        if q_next is not None:
+            self._q_cmd = q_next
             env.set_arm_joint_targets(self._q_cmd)
+        ok = q_next is not None
         env.wait_for_next_tick(self.tick_s)
         if self.on_tick:
             self.on_tick()
-        return q_ik is not None
+        return ok
 
     def _base_xy(self) -> tuple[float, float]:
         p = self.env.get_state().base_pose

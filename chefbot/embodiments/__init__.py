@@ -80,8 +80,18 @@ class Robot:
         return RobotConfig.load(CONFIG_DIR / self.raw["robot_config"])
 
     @cached_property
+    def body(self):
+        """The robot's own fixed parts the arm keeps clear of (robot.yaml `body:`; interface/workspace.py Body), or
+        None."""
+        from chefbot.interface.workspace import Body
+
+        return Body.from_config(self.raw["body"]) if "body" in self.raw else None
+
+    @cached_property
     def kin(self) -> "Kinematics":
-        return Kinematics(self.config)
+        from chefbot.embodiments import arm_solvers
+
+        return Kinematics(self.config, self.body, arm_solvers.chosen(self.raw.get("control", {}).get("arm_solver")))
 
     def speed(self, name: str | None = None) -> Speed:
         """A speed profile (default: the robot's), clipped to its hardware limits."""
@@ -98,8 +108,15 @@ class Robot:
 class Kinematics:
     """The arm's IK on the flange and the frames everything shares: the root on the base, the flange."""
 
-    def __init__(self, config: RobotConfig):
+    def __init__(self, config: RobotConfig, body=None, solver: str = "qp"):
+        from chefbot.embodiments import constraints
+
         self.config = config
+        self.body = body  # interface/workspace.py Body or None
+        self.constraints = constraints.for_robot(body)  # where the arm may not go: every solver avoids them
+        self.solver = solver  # embodiments/arm_solvers: the controller's arm solver (set before the first arm_step)
+        self._solver = None
+        self.log = None  # where the router says it's going around (or can't)
         self.ik = ArmIK(tcp_xyz=(0.0, 0.0, 0.0), joint_limits=config.joint_limits, posture=np.asarray(config.arm_ready),
                         pos_tolerance=config.ik_pos_tolerance, pose_pos_tolerance=IK_POS_TOLERANCE,
                         pose_rot_tolerance=IK_ROT_TOLERANCE, max_iters=config.ik_max_iters, dt=config.ik_dt,
@@ -128,3 +145,14 @@ class Kinematics:
     def flange_pose(self, q) -> np.ndarray:
         """The flange (4x4) in the arm base frame, for joints q."""
         return self.ik.fk(np.asarray(q, dtype=float))
+
+    def arm_step(self, target: np.ndarray, q, dt: float, max_lin: float, max_ang: float, max_joint: float) -> np.ndarray:
+        """The controller's arm step: the joints after dt from q toward the flange pose `target`, within the joint
+        limits and clear of the constraints, by the chosen solver (embodiments/arm_solvers). Raises mink's
+        NoSolutionFound when it can't (the controller holds)."""
+        if self._solver is None:
+            from chefbot.embodiments import arm_solvers
+
+            hand = self.body.hand_m if self.body is not None else 0.0
+            self._solver = arm_solvers.make(self.solver, self.ik, self.constraints, hand, self.log)
+        return self._solver.step(target, q, dt, max_lin, max_ang, max_joint)
