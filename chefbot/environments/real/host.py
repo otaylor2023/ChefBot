@@ -195,6 +195,8 @@ class RealHost:
             # flange_to_control serves pose targets only, which the host never sends (GuardedEnv refuses them)
             env = RealEnv.from_config(np.eye(4), url=url, flange_in_base=lambda q: mount @ kin.flange_pose(q))
         self.raw_env = env
+        if hasattr(env, "max_state_age_s"):  # get_state fails only past STATE_LOST_S: shorter stalls are waited out
+            env.max_state_age_s = max(env.max_state_age_s, STATE_LOST_S)
         keep = getattr(env, "keep_cameras_open", None)
         if keep is not None:
             keep(list(env.camera_mounts) if cameras is None else list(cameras))
@@ -230,11 +232,18 @@ class RealHost:
             input(f"\nHome: the arm to its ready pose, {np.degrees(far):.0f} deg at most ({far / HOME_SPEED:.1f} s). Enter to move (Ctrl-C stops): ")
         tick = 0.05
         n = max(1, int(math.ceil(far / (HOME_SPEED * tick))))
-        for k in range(1, n + 1):
+        k = 0
+        while k < n:
+            if self._state_late():  # the state stalled on the link: hold the last target, then go on
+                time.sleep(0.02)
+                continue
+            k += 1
             self.env.set_arm_joint_targets(q0 + (q1 - q0) * (k / n))
             self.raw_env.wait_for_next_tick(tick)
         t0 = time.monotonic()
-        while time.monotonic() - t0 < 5.0 and np.abs(np.asarray(self.raw_env.get_state().arm_q) - q1).max() > 0.02:
+        while time.monotonic() - t0 < 5.0:
+            if not self._state_late() and np.abs(np.asarray(self.raw_env.get_state().arm_q) - q1).max() <= 0.02:
+                break
             self.raw_env.wait_for_next_tick(tick)
         err = float(np.abs(np.asarray(self.raw_env.get_state().arm_q) - q1).max())
         self.log(f"[real] home ({np.degrees(err):.1f} deg off)")
@@ -259,11 +268,18 @@ class RealHost:
         if frozen is not None and frozen > ARM_FROZEN_S:
             raise SafetyStop(f"the arm driver isn't publishing (the joints frozen {frozen:.1f} s): is it running, the arm unlocked?")
 
+    def _state_late(self) -> bool:
+        """The robot's state is STATE_LATE_S..STATE_LOST_S old (a stall on the link: wait); past that, raise."""
+        late = getattr(self.raw_env, "state_age", None)
+        if late is None or late() <= STATE_LATE_S:
+            return False
+        if late() > STATE_LOST_S:
+            raise RuntimeError(f"no state from the robot for {late():.1f} s: lost the onboard server?")
+        return True
+
     def _control(self) -> None:
         """The controller, step after step toward the latest target (holding where it started until there is one)."""
         late = getattr(self.raw_env, "state_age", None)
-        if late is not None:
-            self.raw_env.max_state_age_s = STATE_LOST_S  # get_state itself fails only past this
         while not self._stop:
             try:
                 if late is not None and late() > STATE_LATE_S:

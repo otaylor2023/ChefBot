@@ -229,3 +229,18 @@ def test_a_low_tilted_grasp_past_an_elbow_limit_is_reached(robot, tmp_path):
         assert abs(fake.q[0]) < np.radians(20)  # no swing round: joint 1 stays near forward
     finally:
         h.close()
+
+
+def test_going_home_waits_out_a_stall_on_the_link(robot, tmp_path):
+    # 2026-11-04: the state went 1.35 s stale on poor wifi while going home, and the run stopped (get_state's 0.5 s);
+    # the control loop already waits such stalls out, now going home does too.
+    from chefbot.environments.real.host import HOME
+
+    fake = FakeRobot()
+    fake.q = np.array(HOME) + np.radians([6, -5, 4, 5, -4, 3, 10])
+    t0 = time.monotonic()
+    fake.state_age = lambda: 1.2 if 0.1 < time.monotonic() - t0 < 0.5 else 0.0
+    fake.max_state_age_s = 0.5
+    RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None).go_home()
+    assert np.abs(fake.q - np.array(HOME)).max() < 1e-6
+    assert fake.max_state_age_s >= 3.0
