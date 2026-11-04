@@ -10,7 +10,7 @@ resolution: 0.05
 # xmax, ymax: WALLS (Jack, 2026-11-03, "roughly"): 53 in (1.35 m) past the counter's east end -> x 3.97; 6 ft (1.83 m)
 #   behind its far side -> y 4.37; each taken 5 cm closer for the "roughly". xmin, ymin: the open west end and near side
 #   (ymin: HT-3b's known floor).
-bounds: [[-1.40, -0.05], [3.92, 4.32]]
+bounds: [[-2.00, -0.05], [3.92, 4.32]]   # xmin: the open west end (Jack); the base stood at x -1.01 (HT-4d)
 obstacles:
   - name: Chef-botcounter-top
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
