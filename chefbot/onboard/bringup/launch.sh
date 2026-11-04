@@ -136,7 +136,9 @@ NAMES[$!]="OpenSai"
 wait_for_key "::sai-interfaces-webui::config_file_name" "$(basename "$OPENSAI_CONFIG")" "$READY_TIMEOUT_S"
 echo "1) OpenSai: up (holding the arm)"
 else
-	redis-cli DEL opensai::commands::FrankaRobot::control_torques >/dev/null  # no stale torques: zero, floating
+	# zero torques: floating (SET, never DEL: the driver reads this key every tick, and a missing one kills it,
+	# "Could not deserialize custom string to eigen data", 1.1 s in: 2026-11-03)
+	redis-cli SET opensai::commands::FrankaRobot::control_torques "[0,0,0,0,0,0,0]" >/dev/null
 	echo "1) OpenSai skipped: THE ARM FLOATS (gravity compensated; it falls slowly if the load is off)"
 fi
 
