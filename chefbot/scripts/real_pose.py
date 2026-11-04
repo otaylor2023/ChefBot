@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-from chefbot.envs.real.env import CONFIG, Localization, RealEnv, load_config
+from chefbot.environments.real.env import CONFIG, Localization, RealEnv, load_config
 
 REPO = Path(__file__).resolve().parents[2]
 

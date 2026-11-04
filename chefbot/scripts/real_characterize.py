@@ -33,7 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
-from chefbot.envs.real.env import CONFIG, RealEnv, load_config
+from chefbot.environments.real.env import CONFIG, RealEnv, load_config
 from chefbot.interface.types import Pose2D
 from chefbot.scripts.real_nav import Fence, go, relative_point, wrap
 

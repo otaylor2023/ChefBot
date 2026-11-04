@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from chefbot.envs.real.env import CONFIG, RealEnv, load_config
+from chefbot.environments.real.env import CONFIG, RealEnv, load_config
 from chefbot.interface.types import Pose2D
 from chefbot.robot.nav.grid import OccupancyGrid
 from chefbot.scripts.real_map import box_polygon, inside, render

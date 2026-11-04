@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pytest
 
-from chefbot.envs.real.env import RealEnv
+from chefbot.environments.real.env import RealEnv
 from chefbot.interface.types import Pose2D
 from chefbot.onboard.sim import SimRobot
 from chefbot.scripts import real_trials as T
