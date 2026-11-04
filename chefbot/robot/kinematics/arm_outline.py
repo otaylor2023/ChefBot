@@ -17,7 +17,10 @@ DH = [(0.0, 0.333, 0.0), (0.0, 0.0, -np.pi / 2), (0.0, 0.316, np.pi / 2), (0.082
       (-0.0825, 0.384, -np.pi / 2), (0.0, 0.0, np.pi / 2), (0.088, 0.0, np.pi / 2)]  # fmt: skip
 FLANGE_D = 0.107
 HAND_TIP = 0.1034 + 0.06  # Franka Hand: flange to fingertip centre, plus the fingers' reach (m), along the flange z
-ARM_MOUNT = (0.0, 0.0, 0.335)  # the arm base in the base frame (config/robot_tidybot_fr3.yaml; TODO(verify) there)
+# The arm base in the base frame. Height: Jack, 2026-11-03: the real base is 44 cm tall and the arm sits on top of it.
+# (config/robot_tidybot_fr3.yaml's 0.335 m is MuJoCo Menagerie's generic TidyBot++, marked TODO(verify) there.)
+# x, y: assumed at the base centre, as that config has it; not measured.
+ARM_MOUNT = (0.0, 0.0, 0.44)
 
 
 def _link(a: float, d: float, alpha: float, theta: float) -> np.ndarray:
