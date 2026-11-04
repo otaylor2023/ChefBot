@@ -9,9 +9,9 @@
 #   4) the mocap publisher (mocap.sh, next to this script; skipped with a warning off SRC wifi)
 #   5) python -m chefbot.onboard.server, in the foreground
 # Ctrl-C stops them all (the arm driver first: the arm's brakes hold it). Desk first: joints unlocked, FCI on.
-# arm.sh, next to this script, is just 0) and 1).
+# arm.sh, next to this script, is just 0) and 1); float.sh just 0) (the arm floating, gravity compensated: move it by hand).
 #
-# Usage: chefbot/onboard/bringup/launch.sh [--no-arm-driver] [--no-gripper] [--no-base] [--no-mocap] [--no-server]
+# Usage: chefbot/onboard/bringup/launch.sh [--no-arm-driver] [--no-opensai] [--no-gripper] [--no-base] [--no-mocap] [--no-server]
 #   (--no-arm-driver: one is already running, started by hand)
 # Paths and limits come from the environment, with these defaults:
 set -euo pipefail
@@ -28,15 +28,16 @@ MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-0.5}"
 READY_TIMEOUT_S=90
 SERVER_PORT="${SERVER_PORT:-8765}"  # keep equal to onboard/config.yaml server.port
 
-ARM_DRIVER=true GRIPPER=true BASE=true MOCAP=true SERVER=true
+ARM_DRIVER=true OPENSAI=true GRIPPER=true BASE=true MOCAP=true SERVER=true
 for arg in "$@"; do
 	case "$arg" in
 		--no-arm-driver) ARM_DRIVER=false ;;
+		--no-opensai) OPENSAI=false ;;  # nothing holds the arm: it floats on the driver's zero torques
 		--no-gripper) GRIPPER=false ;;
 		--no-base) BASE=false ;;
 		--no-mocap) MOCAP=false ;;
 		--no-server) SERVER=false ;;
-		-h | --help) sed -n '2,19p' "$0"; exit 0 ;;
+		-h | --help) sed -n '2,20p' "$0"; exit 0 ;;
 		*) echo "unknown option: $arg" >&2; exit 1 ;;
 	esac
 done
@@ -123,6 +124,7 @@ if $ARM_DRIVER; then  # hold where the arm is now (it may have sagged since the 
 		"$(redis-cli --raw GET opensai::sensors::FrankaRobot::joint_positions)" >/dev/null
 fi
 
+if $OPENSAI; then
 echo "1) OpenSai ($(basename "$OPENSAI_CONFIG")): starting..."
 # OpenSai takes only configs in its own config folder: link ours in (as the other projects' configs sit there).
 OPENSAI_CONFIG_NAME="$(basename "$OPENSAI_CONFIG")"
@@ -133,6 +135,10 @@ PIDS+=($!)
 NAMES[$!]="OpenSai"
 wait_for_key "::sai-interfaces-webui::config_file_name" "$(basename "$OPENSAI_CONFIG")" "$READY_TIMEOUT_S"
 echo "1) OpenSai: up (holding the arm)"
+else
+	redis-cli DEL opensai::commands::FrankaRobot::control_torques >/dev/null  # no stale torques: zero, floating
+	echo "1) OpenSai skipped: THE ARM FLOATS (gravity compensated; it falls slowly if the load is off)"
+fi
 
 if $GRIPPER; then
 	echo "2) Franka gripper driver: starting..."
