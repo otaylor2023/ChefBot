@@ -15,6 +15,10 @@ obstacles:
   - name: Chef-botcounter-top
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
     height_m: 0.93   # its top (the corner markers' centres): a low obstacle, the arm may pass over it
+stations:
+  # Square to the counter's sides, from its box: base centre 0.45 m out from each edge's middle (the closer lap's distance,
+  # HT-4c), facing it, the last 0.25 m straight in along the edge's normal.
+  - {obstacle: Chef-botcounter-top, prefix: counter, standoff: 0.45, approach: 0.25}
 places:
   # base poses (x, y, yaw); the base faces yaw (the way the arm faces)
   near_side: {x: 1.49, y: 1.00, yaw_deg: 90}       # in front of the counter's -y long side, facing it

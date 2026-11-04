@@ -19,6 +19,10 @@ The spec (all in metres, world frame, as real_pose / real_nav print poses):
       - {name: counter, box: {...}, height_m: 0.93}  # with a height: a LOW obstacle the arm may reach over
     places:                                       # base poses to go to by name (real_nav go <name> --map ...)
       stove: {x: 1.5, y: -3.9, yaw_deg: -90}
+    stations:                                     # places generated square to a box obstacle's sides:
+      - {obstacle: counter, prefix: counter, standoff: 0.45, approach: 0.25}
+        # -> counter_south / _north / _east / _west: the base centre `standoff` out from the middle of each edge,
+        #    facing it squarely; real_nav goes the last `approach` m straight in along the edge's normal
 
 The output is the repo's map format (robot/nav OccupancyGrid: grid.npy + grid.yaml, row along +y, col along +x),
 so robot/nav's A* plans on it unchanged. Obstacles are the furniture itself; the planner grows them by the robot's
@@ -57,6 +61,25 @@ def inside(points: np.ndarray, polygon) -> np.ndarray:
             xi = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
         result ^= crosses & (x < xi)
     return result
+
+
+def stations(spec: dict) -> dict:
+    """Base poses square to the sides of box obstacles (spec `stations`), named by the side's outward direction in the
+    world (+x east, +y north): the base centre `standoff` m out from the middle of the edge, facing it."""
+    out = {}
+    boxes = {o["name"]: o["box"] for o in spec.get("obstacles") or [] if "box" in o}
+    for st in spec.get("stations") or []:
+        b = boxes[st["obstacle"]]
+        (cx, cy), (L, W), yaw = b["center"], b["size"], math.radians(b.get("yaw_deg", 0.0))
+        c, s_ = math.cos(yaw), math.sin(yaw)
+        for along, across, half in ((1, 0, L / 2), (-1, 0, L / 2), (0, 1, W / 2), (0, -1, W / 2)):
+            nx, ny = c * along - s_ * across, s_ * along + c * across  # the edge's outward normal, world
+            d = half + float(st["standoff"])
+            heading = math.degrees(math.atan2(-ny, -nx))  # facing the edge
+            side = ("east" if nx > 0 else "west") if abs(nx) >= abs(ny) else ("north" if ny > 0 else "south")
+            out[f"{st.get('prefix', st['obstacle'])}_{side}"] = {
+                "x": cx + nx * d, "y": cy + ny * d, "yaw_deg": round(heading, 6), "approach_m": float(st.get("approach", 0.0))}
+    return out
 
 
 def obstacle_polygon(o: dict) -> list:
@@ -100,6 +123,7 @@ def build_layers(spec: dict):
                 layer[r * cols + c] = True
     places = {name: {"x": float(p["x"]), "y": float(p["y"]), "yaw_deg": float(p.get("yaw_deg", 0.0))}
               for name, p in (spec.get("places") or {}).items()}  # fmt: skip
+    places |= stations(spec)
     shape = (rows, cols)
     return OccupancyGrid(tall.reshape(shape), res, origin), OccupancyGrid(low.reshape(shape), res, origin), low_height, places
 

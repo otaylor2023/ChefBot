@@ -14,6 +14,26 @@ close_west:
   x: -0.09
   y: 2.06
   yaw_deg: 0.0
+counter_east:
+  approach_m: 0.25
+  x: 3.07
+  y: 2.06
+  yaw_deg: -180.0
+counter_north:
+  approach_m: 0.25
+  x: 1.49
+  y: 2.99
+  yaw_deg: -90.0
+counter_south:
+  approach_m: 0.25
+  x: 1.49
+  y: 1.1300000000000001
+  yaw_deg: 90.0
+counter_west:
+  approach_m: 0.25
+  x: -0.08999999999999986
+  y: 2.06
+  yaw_deg: -0.0
 east_end:
   x: 3.1
   y: 2.06

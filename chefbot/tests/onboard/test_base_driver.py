@@ -22,12 +22,16 @@ class FakeRedis:
 
 class FakeOtg:
     max_velocity = [0.125, 0.125, 0.4]
+    max_acceleration = [0.1, 0.1, 0.5]
+    max_jerk = [1.0, 1.0, 3.0]
 
 
 class FakeVehicle:
     def __init__(self):
         self.x, self.dx = np.zeros(3), np.zeros(3)
         self.max_vel = np.array([0.125, 0.125, 0.4])
+        self.max_accel = np.array([0.1, 0.1, 0.5])
+        self.max_jerk = np.array([1.0, 1.0, 3.0])
         self.otg_inp = FakeOtg()
         self.commands = []
 
@@ -44,7 +48,7 @@ def rig():
     # Left by an earlier run: an old command sequence and a goal far away.
     redis = FakeRedis({D.CMD_SEQ: "41", D.DESIRED: "[5.0, 5.0, 0.0]", D.STOP: "stop"})
     vehicle = FakeVehicle()
-    loop = D.DriverLoop(vehicle, redis, command_timeout_s=0.5, clock=lambda: now[0])
+    loop = D.DriverLoop(vehicle, redis, command_timeout_s=0.5, clock=lambda: now[0])  # (default is 0.3)
     return loop, vehicle, redis, now
 
 
@@ -144,3 +148,28 @@ def test_the_planar_speed_limit_holds_along_any_direction(rig, goal):
     along = min(vx / abs(d[0]) if abs(d[0]) > 1e-9 else np.inf, vy / abs(d[1]) if abs(d[1]) > 1e-9 else np.inf)
     assert along <= 0.125 + 1e-9 and along >= 0.125 * 0.99
     assert w == pytest.approx(0.4)
+
+
+def test_braking_is_harder_than_moving_and_moving_gets_the_gentle_limits_back(rig):
+    loop, vehicle, redis, now = rig
+    now[0] += 0.01
+    loop.step()  # idle at start: braking limits
+    assert vehicle.otg_inp.max_acceleration == pytest.approx([0.25, 0.25, 0.8])
+    assert vehicle.otg_inp.max_jerk == pytest.approx([3.0, 3.0, 9.0])
+    command(redis, [0.3, 0.0, 0.0])
+    loop.step()
+    assert vehicle.otg_inp.max_acceleration == pytest.approx([0.1, 0.1, 0.5])  # smooth motion
+    assert vehicle.otg_inp.max_jerk == pytest.approx([1.0, 1.0, 3.0])
+    now[0] += 0.6
+    loop.step()  # expired: brake hard
+    assert vehicle.commands[-1][0] == "velocity" and vehicle.otg_inp.max_acceleration == pytest.approx([0.25, 0.25, 0.8])
+
+
+def test_the_default_timeout_is_the_servers_watchdog():
+    redis, vehicle, now = FakeRedis(), FakeVehicle(), [0.0]
+    loop = D.DriverLoop(vehicle, redis, clock=lambda: now[0])
+    command(redis, [0.3, 0.0, 0.0])
+    loop.step()
+    now[0] += 0.31
+    loop.step()
+    assert loop.mode == "idle"
