@@ -45,6 +45,9 @@ PLATE_CLEAR = 0.05  # m: every arm point (bar the base column's) at least this a
 FLOOR_CLEAR_Z = -0.30  # m: every arm point above this anywhere (the floor is at -0.335)
 OPEN_WIDTH = 0.08  # m: the Franka Hand fully open
 ARM_FROZEN_S = 0.5  # the arm's joints unchanged this long (the onboard server's arm_frozen_s): its driver is gone
+# The robot's state can lag while a camera frame (~2 MB) crosses the link ahead of it: the control loop holds (sends
+# nothing new; the arm holds its last target) while it is STATE_LATE_S..STATE_LOST_S old, and stops only past that.
+STATE_LATE_S, STATE_LOST_S = 0.4, 3.0
 
 
 class SafetyStop(RuntimeError):
@@ -212,8 +215,16 @@ class RealHost:
 
     def _control(self) -> None:
         """The controller, step after step toward the latest target (holding where it started until there is one)."""
+        late = getattr(self.raw_env, "state_age", None)
+        if late is not None:
+            self.raw_env.max_state_age_s = STATE_LOST_S  # get_state itself fails only past this
         while not self._stop:
             try:
+                if late is not None and late() > STATE_LATE_S:
+                    if late() > STATE_LOST_S:
+                        raise RuntimeError(f"no state from the robot for {late():.1f} s: lost the onboard server?")
+                    time.sleep(0.02)  # a frame on the link: hold, then go on
+                    continue
                 self.check_live()
                 row, mode = self._row or (self._hold, "whole")
                 rec = self.ctl.step(row, mode)

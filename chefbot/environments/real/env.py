@@ -125,6 +125,10 @@ class RealEnv(Env):
             raise TimeoutError("no state from the onboard server")
         return self._state
 
+    def state_age(self) -> float:
+        """Seconds since the last state message arrived (a camera frame on the link delays them)."""
+        return time.monotonic() - self._state_at
+
     def get_state(self) -> EnvState:
         s = self.raw_state()
         age = time.monotonic() - self._state_at

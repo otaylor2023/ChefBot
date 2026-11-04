@@ -190,3 +190,24 @@ def test_a_dead_arm_driver_stops_it(robot, tmp_path):
         assert "isn't publishing" in str(h.fault)
     finally:
         h.close()
+
+
+def test_a_late_state_holds_and_a_lost_one_stops_it(robot, tmp_path):
+    fake = FakeRobot()
+    age = {"s": 0.0}
+    fake.state_age = lambda: age["s"]
+    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None)
+    h.start_here()
+    try:
+        age["s"] = 1.0  # a frame on the link
+        time.sleep(0.15)  # the step under way finishes
+        n = fake.sent["arm"]
+        time.sleep(0.3)
+        assert fake.sent["arm"] == n and h.fault is None  # held, not stopped
+        age["s"] = 0.0
+        h.step(h.hold_row(), "whole")  # and goes on
+        age["s"] = 5.0
+        time.sleep(0.3)
+        assert h.fault is not None and "lost" in str(h.fault)
+    finally:
+        h.close()
