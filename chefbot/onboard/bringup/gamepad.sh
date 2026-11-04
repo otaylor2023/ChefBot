@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Drive the base by gamepad: ChefBot's copy of ZitiBot's gamepad_teleop.py (onboard/drivers/base, unchanged), in the
-# robot's zitibot env, its Vehicle held to the base driver's limits (onboard/config.yaml base.driver_max_*: full stick
-# is that fast) instead of the script's own 1 m/s and 3.14 rad/s.
+# robot's zitibot env, at the script's own speeds (full stick: 1 m/s, 3.14 rad/s). --slow holds it to the base driver's
+# limits instead (onboard/config.yaml base.driver_max_*; MAX_VEL_XY / MAX_VEL_YAW / MAX_ACCEL_XY / MAX_ACCEL_YAW
+# override them).
 #
 # The gamepad (Logitech F710, XInput): Start begins control, Back stops it; hold the left bumper to drive in the
 # base's frame, the right one in the world's; the left stick moves, the right stick turns; let go of the bumper and
@@ -10,14 +11,21 @@
 # The base driver must not be running (both would hold the CAN bus): this refuses if it is (launch.sh or base.sh
 # started it; or start launch.sh with --no-base).
 #
-# Usage: chefbot/onboard/bringup/gamepad.sh      MAX_VEL_XY / MAX_VEL_YAW / MAX_ACCEL_XY / MAX_ACCEL_YAW override the config
+# Usage: chefbot/onboard/bringup/gamepad.sh [--slow]
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DRIVER_DIR="$(cd "$HERE/../drivers/base" && pwd)"
 CONFIG="$(cd "$HERE/.." && pwd)/config.yaml"
 BASE_PYTHON="${BASE_PYTHON:-$HOME/miniforge3/envs/zitibot/bin/python}"  # phoenix6, ruckig, pygame
-case "${1:-}" in -h | --help) sed -n '2,14p' "$0"; exit 0 ;; esac
+SLOW=false
+for arg in "$@"; do
+	case "$arg" in
+		--slow) SLOW=true ;;
+		-h | --help) sed -n '2,15p' "$0"; exit 0 ;;
+		*) echo "unknown option: $arg" >&2; exit 1 ;;
+	esac
+done
 
 [[ -x "$BASE_PYTHON" ]] || { echo "no python at $BASE_PYTHON (set BASE_PYTHON)" >&2; exit 1; }
 if pgrep -f "[d]rivers/base/driver.py" >/dev/null || pgrep -f "[t]idybot_base/redis_driver.py" >/dev/null; then
@@ -26,6 +34,10 @@ if pgrep -f "[d]rivers/base/driver.py" >/dev/null || pgrep -f "[t]idybot_base/re
 fi
 
 cd "$DRIVER_DIR"  # gamepad_teleop imports base_controller, which imports constants and utils, by name
+if ! $SLOW; then
+	echo "[gamepad] the teleop's own speeds (full stick 1 m/s, 3.14 rad/s; --slow for the driver's limits); Start begins, hold a bumper to drive"
+	exec "$BASE_PYTHON" "$DRIVER_DIR/gamepad_teleop.py"
+fi
 exec "$BASE_PYTHON" -c '
 import sys, yaml
 b = yaml.safe_load(open(sys.argv[1]))["base"]

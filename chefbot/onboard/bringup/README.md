@@ -24,7 +24,7 @@ msgpack, msgpack-numpy, opencv; no planning, IK or simulator.
    `arm.sh` is just the arm driver and OpenSai; `float.sh` just the arm driver (the arm floating on zero torques);
    `mocap.sh` alone runs just the mocap publisher, printing each frame.
 4. To drive the base by hand: `gamepad.sh` (the TidyBot++ gamepad teleop, `onboard/drivers/base/gamepad_teleop.py`,
-   in the zitibot env, at the base driver's limits). Not while a base driver runs: start launch.sh with `--no-base`,
+   in the zitibot env, at its own speeds; `--slow` for the base driver's limits). Not while a base driver runs: start launch.sh with `--no-base`,
    or use it alone.
 
 Then, read-only, on the robot: `python -m chefbot.onboard.check` (which drivers are up, nothing moves).
