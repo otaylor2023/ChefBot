@@ -5,7 +5,7 @@
 #      and seeds a hold at the arm's joints; asks for sudo once, for the CPU governor)
 #   1) OpenSai with chefbot_fr3.xml, next to this script (arm joint + Cartesian controllers, Redis, web UI)
 #   2) the Franka gripper driver (OpenSai's drivers/FrankaPanda/redis_driver/launch_gripper.sh)
-#   3) the hb1 base driver (ZitiBot's controllers/tidybot_base/redis_driver.py)
+#   3) the hb1 base driver (ChefBot's copy of ZitiBot's: onboard/drivers/base/driver.py, in the zitibot env)
 #   4) the mocap publisher (mocap.sh, next to this script; skipped with a warning off SRC wifi)
 #   5) python -m chefbot.onboard.server, in the foreground
 # Ctrl-C stops them all (the arm driver first: the arm's brakes hold it). Desk first: joints unlocked, FCI on.
@@ -18,7 +18,7 @@ set -euo pipefail
 
 OPENSAI_DIR="${OPENSAI_DIR:-$HOME/OpenSai}"
 OPENSAI_CONFIG="${OPENSAI_CONFIG:-$(cd "$(dirname "$0")" && pwd)/chefbot_fr3.xml}"  # ChefBot's own (not ZitiBot's zitibot_panda.xml)
-BASE_DRIVER_DIR="${BASE_DRIVER_DIR:-$OPENSAI_DIR/ZitiBot/controllers/tidybot_base}"
+BASE_DRIVER_DIR="${BASE_DRIVER_DIR:-$(cd "$(dirname "$0")/../drivers/base" && pwd)}"  # ChefBot's copy (its README.md)
 BASE_PYTHON="${BASE_PYTHON:-$HOME/miniforge3/envs/zitibot/bin/python}"  # has phoenix6, ruckig
 CHEFBOT_PYTHON="${CHEFBOT_PYTHON:-$HOME/chefbot_calib/env/bin/python}"  # numpy, redis, pyrealsense2, websockets, msgpack(-numpy)
 MAX_VEL_XY="${MAX_VEL_XY:-0.125}"      # keep equal to onboard/config.yaml base.driver_max_vel_xy
@@ -47,7 +47,7 @@ for f in "$OPENSAI_DIR/bin/OpenSai_main" "$OPENSAI_DIR/scripts/launch.sh"; do
 	[[ -e "$f" ]] || { echo "missing $f (OPENSAI_DIR=$OPENSAI_DIR)" >&2; exit 1; }
 done
 $GRIPPER && { [[ -f "$GRIPPER_DIR/launch_gripper.sh" ]] || { echo "missing $GRIPPER_DIR/launch_gripper.sh" >&2; exit 1; }; }
-$BASE && { [[ -f "$BASE_DRIVER_DIR/redis_driver.py" && -x "$BASE_PYTHON" ]] || { echo "missing the base driver or $BASE_PYTHON" >&2; exit 1; }; }
+$BASE && { [[ -f "$BASE_DRIVER_DIR/driver.py" && -x "$BASE_PYTHON" ]] || { echo "missing the base driver or $BASE_PYTHON" >&2; exit 1; }; }
 
 PIDS=()
 declare -A NAMES  # pid -> which part
@@ -156,8 +156,10 @@ fi
 
 if $BASE; then
 	echo "3) hb1 base driver (max vel $MAX_VEL_XY m/s, $MAX_VEL_YAW rad/s): starting..."
-	pkill -TERM -f "$BASE_DRIVER_DIR/redis_driver.py" 2>/dev/null || true  # a stale one holds the CAN bus
-	(cd "$BASE_DRIVER_DIR" && exec "$BASE_PYTHON" redis_driver.py --max-vel-xy "$MAX_VEL_XY" --max-vel-yaw "$MAX_VEL_YAW" \
+	# A stale base driver holds the CAN bus: ours, or ZitiBot's (its checkout on the NUC, as launch.sh ran before).
+	pkill -TERM -f "[d]rivers/base/driver.py" 2>/dev/null || true
+	pkill -TERM -f "[t]idybot_base/redis_driver.py" 2>/dev/null || true
+	(cd "$BASE_DRIVER_DIR" && exec "$BASE_PYTHON" "$BASE_DRIVER_DIR/driver.py" --max-vel-xy "$MAX_VEL_XY" --max-vel-yaw "$MAX_VEL_YAW" \
 		--max-accel-xy "$MAX_ACCEL_XY" --max-accel-yaw "$MAX_ACCEL_YAW") >"$LOGS/base.log" 2>&1 &
 	PIDS+=($!)
 	NAMES[$!]="the base driver"
