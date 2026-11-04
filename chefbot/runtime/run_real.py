@@ -4,8 +4,8 @@ robot (environments/real/host.py).
     python -m chefbot.runtime.run_real --skill pick_up/chefbot_v30 --arg object="red cup" [--dry-run] [--yes]
 
 Before: the robot up with the onboard server (onboard/bringup/launch.sh: the arm and base drivers, OpenSai, the
-server), and on this computer `ssh -L 8765:localhost:8765 tidybot01` (environments/real/config.yaml's url), the
-vision server for skills that use it (VISION_URL), the model keys in .env.
+server), and on this computer environments/real/up.sh (the tunnel to the onboard server, environments/real/
+config.yaml's url, and the vision server for skills that use it, VISION_URL), the model keys in .env.
 
 --home first takes the arm to its ready pose (the hand pointing down). --confirm: Enter before each move (the default runs them; Ctrl-C stops). --dry-run: nothing is sent to the arm or the gripper, the arm taken
 to be where it was commanded, the cameras real. Arm only unless --base. The episode's files (result.json,

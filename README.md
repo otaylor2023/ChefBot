@@ -120,9 +120,10 @@ arm's Cartesian controller; our IK still plans and checks them).
 chefbot/onboard/bringup/launch.sh               # OpenSai, gripper and base drivers, then the onboard server
 python -m chefbot.onboard.check                 # read-only: which drivers are up
 
-# laptop
-ssh -L 8765:localhost:8765 tidybot01
+# laptop (the GPU computer): the tunnel to the onboard server and the vision server, watched until Ctrl-C
+chefbot/environments/real/up.sh                 # --check: just say what's up; --no-vision, --no-tunnel
 python -m chefbot.environments.real.check               # read-only: state, and the arm controller's point vs config
+python -m chefbot.runtime.run_real --skill bringup/v1 --home   # a lab skill on the real robot
 ```
 
 Not yet: the real kitchen's map, real grasp / placement proposers and fixture
