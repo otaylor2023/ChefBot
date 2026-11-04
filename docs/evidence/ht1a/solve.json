@@ -1,0 +1,127 @@
+{
+  "live_samples": {
+    "forward": 868,
+    "back": 751,
+    "left": 442,
+    "right": 1029,
+    "spin": 1866
+  },
+  "up_from_rotation": {
+    "axis": [
+      -0.0057,
+      0.0128,
+      -0.9999
+    ],
+    "nearest": "z",
+    "off_deg": 0.8033587891710137,
+    "samples": 1548
+  },
+  "up_from_positions": {
+    "normal": [
+      -0.0008,
+      -0.0064,
+      1.0
+    ],
+    "nearest": "z",
+    "off_deg": 0.3686871238888788,
+    "spread_m": [
+      0.0005,
+      0.1749,
+      0.3311
+    ]
+  },
+  "up_axis": "z",
+  "up_axis_agree": true,
+  "floor_frame": {
+    "X": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "Y": [
+      0.0,
+      1.0,
+      0.0
+    ]
+  },
+  "forward": {
+    "distance_m": 0.7919538878779496,
+    "steady_samples": 604,
+    "steady_m": 0.5870662302892239,
+    "travel_deg": -2.363527966106713,
+    "marker_heading_deg": 0.4136373035249655,
+    "offset_deg": 2.777165269631678,
+    "heading_change_deg": 3.0621063212373945,
+    "straightness": 0.008622009624347936,
+    "endpoint_vs_line_deg": 0.019477610032317075,
+    "ok": true
+  },
+  "left": {
+    "distance_m": 0.7898572146517622,
+    "steady_samples": 328,
+    "steady_m": 0.5829516316395507,
+    "travel_deg": 85.1026711680677,
+    "marker_heading_deg": -1.1948105778716804,
+    "offset_deg": 3.7025182540606214,
+    "heading_change_deg": 1.5747248744317945,
+    "straightness": 0.003855116781746868,
+    "endpoint_vs_line_deg": 0.011022231741926127,
+    "ok": true
+  },
+  "back": {
+    "distance_m": 0.6835726838135064,
+    "steady_samples": 476,
+    "steady_m": 0.4767266364500729,
+    "travel_deg": 178.85033824471157,
+    "marker_heading_deg": 1.8589930859334736,
+    "offset_deg": 3.0086548412218934,
+    "heading_change_deg": 0.4213378407927045,
+    "straightness": 0.0014200479662001123,
+    "endpoint_vs_line_deg": -0.02764114991700577,
+    "ok": true
+  },
+  "right": {
+    "distance_m": 0.8675212010154735,
+    "steady_samples": 615,
+    "steady_m": 0.6615412864071675,
+    "travel_deg": -96.36523089218103,
+    "marker_heading_deg": -3.3036804688564256,
+    "offset_deg": 3.0615504233246114,
+    "heading_change_deg": 2.1530720392471903,
+    "straightness": 0.005453903203182795,
+    "endpoint_vs_line_deg": -0.017269080535131955,
+    "ok": true
+  },
+  "moves_used": [
+    "back",
+    "forward",
+    "left",
+    "right"
+  ],
+  "marker_yaw_offset_deg": 3.1374705336307382,
+  "offset_disagreement_deg": {
+    "forward": -0.36030526399906015,
+    "left": 0.5650477204298832,
+    "back": -0.12881569240884466,
+    "right": -0.07592011030612693
+  },
+  "mirrored": false,
+  "spin": {
+    "marker_xy": [
+      0.07186513575182094,
+      -0.001829270539989126
+    ],
+    "marker_xy_std_m": [
+      0.0010370535783021258,
+      0.000979829344029245
+    ],
+    "radius_m": 0.0719025695855431,
+    "circle_rms_m": 0.0010404075955092506,
+    "turned_deg": 378.92202948301565,
+    "centre": [
+      -0.10477257512990276,
+      0.22792320906811314
+    ],
+    "turned_left": false
+  }
+}

@@ -1,0 +1,6 @@
+robot-side samples: 12580 live, 128 s; base travelled 4.93 m
+base centre to counter: min 0.713 m (at t 59.2 s)
+base circle (0.33 m) to counter: min gap 0.383 m
+arm box (locked pose, 0.85 x 0.20 m, reaching 0.54 m ahead) to counter: min gap 0.307 m; overlaps 0
+heading while hugging (y > 0.8): -0.6 .. 36.2 deg
+y while along the counter (x 0.6..2.3): 0.846 .. 0.867 (target 0.86)

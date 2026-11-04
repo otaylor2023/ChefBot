@@ -1,0 +1,13 @@
+HT-2a re-run: server frozen at robot t 1793753795.667 (recorder covers -23.6 .. 3.3 s around it)
+speed at the freeze: 0.119 m/s, yaw rate 14.5 deg/s
+  freeze + 0.00 s: speed 0.119 m/s, travelled 0 mm
+  freeze + 0.25 s: speed 0.095 m/s, travelled 25 mm
+  freeze + 0.50 s: speed 0.082 m/s, travelled 42 mm
+  freeze + 0.60 s: speed 0.082 m/s, travelled 51 mm
+  freeze + 0.75 s: speed 0.058 m/s, travelled 59 mm
+  freeze + 1.00 s: speed 0.017 m/s, travelled 66 mm
+  freeze + 1.50 s: speed 0.002 m/s, travelled 66 mm
+  freeze + 2.00 s: speed 0.001 m/s, travelled 66 mm
+  freeze + 2.90 s: speed 0.000 m/s, travelled 66 mm
+below 5 mm/s at freeze + 1.11 s; total travel after the freeze 66 mm (until the kill at +3.0 s)
+yaw change after the freeze 11.5 deg

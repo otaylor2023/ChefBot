@@ -1,0 +1,12 @@
+HT-4d stop test (brake 0.25 m/s^2, timeout 0.3 s): speed at the freeze 0.131 m/s, yaw rate 17.7 deg/s
+  freeze + 0.00 s: speed 0.131 m/s, yaw  17.7 deg/s, travelled 0 mm
+  freeze + 0.15 s: speed 0.130 m/s, yaw  17.2 deg/s, travelled 21 mm
+  freeze + 0.30 s: speed 0.125 m/s, yaw  17.4 deg/s, travelled 40 mm
+  freeze + 0.40 s: speed 0.123 m/s, yaw  18.6 deg/s, travelled 53 mm
+  freeze + 0.50 s: speed 0.102 m/s, yaw  14.8 deg/s, travelled 63 mm
+  freeze + 0.60 s: speed 0.078 m/s, yaw  10.8 deg/s, travelled 71 mm
+  freeze + 0.80 s: speed 0.020 m/s, yaw   2.6 deg/s, travelled 78 mm
+  freeze + 1.00 s: speed 0.004 m/s, yaw   0.5 deg/s, travelled 78 mm
+  freeze + 1.50 s: speed 0.001 m/s, yaw   0.2 deg/s, travelled 78 mm
+at rest (< 5 mm/s, < 1 deg/s) at freeze + 0.90 s; travel after the freeze 78 mm; turned 11.0 deg
+HT-4c for comparison (brake 0.1, timeout 0.5): 0.119 m/s -> at rest 1.11 s, 66 mm, 11.5 deg

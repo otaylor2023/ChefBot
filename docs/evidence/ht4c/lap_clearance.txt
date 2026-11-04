@@ -1,0 +1,9 @@
+close lap, robot-side: 20959 samples, 214 s, 10.33 m, turned 755 deg
+base centre to the counter: min 0.426 m -> base body (0.33 m circle) gap min 0.096 m
+arm parts lower than the counter top + 5 cm: min gap 0.099 m (must stay > 0)
+arm parts higher (allowed over the counter): lowest is 1.143 m, 0.213 m above the top; min horizontal gap 0.054 m (negative = over it)
+peak speed 0.298 m/s (99th pct 0.153)
+east-wall gap: base centre max x 3.09 -> 0.83 m to the (5 cm-closer) wall; far wall 1.31 m
+speed check: base centre (mocap) peak 0.298, marker itself 0.291 there, wheels' odometry 0.144 there; odometry peak overall 0.155 m/s
+  share of time > 0.17 m/s by mocap: 0.26%; samples around the peak: [0.211, 0.211, 0.211, 0.298, 0.298, 0.298, 0.298]
+  largest gap between samples: 13 ms
