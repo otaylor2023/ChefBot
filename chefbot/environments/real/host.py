@@ -138,8 +138,9 @@ class RealHost:
 
     def __init__(self, robot: Robot, speed: Speed, out_dir: Path, record: bool = False, dry_run: bool = False,
                  confirm: bool = True, base: bool = False, url: str | None = None, flange_z_min: float = FLANGE_Z_MIN,
-                 log=print, env=None):  # fmt: skip
-        """env: the robot's Env (default: RealEnv from environments/real/config.yaml; tests give a fake)."""
+                 log=print, env=None, cameras=None):  # fmt: skip
+        """env: the robot's Env (default: RealEnv from environments/real/config.yaml; tests give a fake).
+        cameras: the skill's (its manifest's), held open on the robot for the run; None: all of them."""
         self.robot, self.out, self.record, self.log, self.setup = robot, Path(out_dir), record, log, None
         self.confirm, self.dry_run, self.n_moves = confirm, dry_run, 0
         kin = robot.kin
@@ -150,6 +151,9 @@ class RealHost:
             # flange_to_control serves pose targets only, which the host never sends (GuardedEnv refuses them)
             env = RealEnv.from_config(np.eye(4), url=url, flange_in_base=lambda q: mount @ kin.flange_pose(q))
         self.raw_env = env
+        keep = getattr(env, "keep_cameras_open", None)
+        if keep is not None:
+            keep(list(env.camera_mounts) if cameras is None else list(cameras))
         self.env = GuardedEnv(self.raw_env, robot, base=base, dry_run=dry_run, flange_z_min=flange_z_min)
         self.ctl = WholeBodyController(self.env, robot, speed)
         self.hz = self.ctl.hz
@@ -327,13 +331,15 @@ class RealHost:
         F = np.array(p["flange_pose_odom"])
         return [*F[:3, 3].tolist(), *quat_wxyz(F[:3, :3]), 1.0 if p["gripper_closed_cmd"] else 0.0, *p["base_pose_odom"]]
 
-    def rgbd(self) -> dict[str, dict]:
-        """Each camera's frame, its pose in odom from its calibration (the pole's tracked, the wrist's through the
-        arm's measured joints: where the camera really was, also in a dry run)."""
+    def rgbd(self, names=None) -> dict[str, dict]:
+        """The cameras' frames (`names`, or all), each one's pose in odom from its calibration (the pole's tracked,
+        the wrist's through the arm's measured joints: where the camera really was, also in a dry run)."""
         self._clock_on = True
         inv = np.linalg.inv(self.ctl.odom)
         out = {}
         for name in self.raw_env.camera_mounts:
+            if names is not None and name not in names:
+                continue
             r = self.raw_env.get_camera_rgbd(name)
             out[name] = {"rgb": r.rgb, "depth": r.depth, "K": np.asarray(r.intrinsics), "D": None, "model": "pinhole",
                          "cam_to_odom": inv @ r.cam_to_world}  # fmt: skip

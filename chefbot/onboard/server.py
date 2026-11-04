@@ -91,8 +91,8 @@ class OnboardServer:
                         moving = False
                     continue
                 op = message.get("op")
-                if op == P.RGBD:
-                    frames.put(message)
+                if op in (P.RGBD, P.CAMERAS_KEEP):
+                    frames.put(message)  # on the frame worker: opening a camera takes a second
                 elif op in P.COMMANDS:
                     moving = self._command(op, message, send) and op != P.HALT
         except ConnectionClosed:
@@ -100,6 +100,7 @@ class OnboardServer:
         finally:
             done.set()
             frames.put(None)
+            self.cameras.kept = set()  # the client's cameras idle out again
             self._halt(None, "the client disconnected")
             with self._client_lock:
                 self._client = None
@@ -166,6 +167,12 @@ class OnboardServer:
                 continue
             if request is None:
                 return
+            if request.get("op") == P.CAMERAS_KEEP:
+                try:
+                    self.cameras.keep(list(request.get("cameras") or []))
+                except Exception as exc:
+                    send({"type": P.ERROR, "message": f"cameras_keep: {type(exc).__name__}: {exc}"})
+                continue
             reply = {"type": P.RGBD, "id": request.get("id")}
             try:
                 reply.update(ok=True, **self.cameras.grab(request["camera"]))

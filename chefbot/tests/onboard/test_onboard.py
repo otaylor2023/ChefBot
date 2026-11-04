@@ -241,3 +241,32 @@ def test_a_second_client_is_refused(served):
     server, env, _ = served
     with pytest.raises(RuntimeError, match="another client"):
         RealEnv(server.url, np.eye(4))
+
+
+def test_kept_cameras_stay_open_and_the_others_idle_out():
+    from chefbot.onboard.cameras import Cameras
+
+    class Cam:
+        def __init__(self):
+            self.open, self.last_used, self.opened = False, 0.0, 0
+
+        def grab(self):
+            self.open, self.opened = True, self.opened + 1
+            return {}
+
+        def close(self):
+            self.open = False
+
+    cams = Cameras([{"name": "wrist", "serial": "1"}, {"name": "pole", "serial": "2"}], idle_s=0.0)
+    cams.cameras = {"wrist": Cam(), "pole": Cam()}
+    cams.keep(["wrist"])
+    assert cams.cameras["wrist"].open and cams.cameras["wrist"].opened == 1  # opened at once
+    cams.cameras["pole"].grab()
+    time.sleep(0.01)
+    cams.close_idle()
+    assert cams.cameras["wrist"].open and not cams.cameras["pole"].open
+    cams.keep([])
+    cams.close_idle()
+    assert not cams.cameras["wrist"].open
+    with pytest.raises(KeyError):
+        cams.keep(["nope"])

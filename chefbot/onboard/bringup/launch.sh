@@ -76,13 +76,14 @@ cleanup() {
 	pkill -TERM -f "OpenSai_main.*$(basename "$OPENSAI_CONFIG")" 2>/dev/null || true
 	wait 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM  # Ctrl-C: stop everything, then out (not back to waiting on what was just stopped)
 
 watch_parts() {  # until a part exits: then say which, and stop everything (a dead arm driver leaves OpenSai and the server up)
 	local died=""
 	wait -n -p died "${PIDS[@]}" || true
 	echo "" >&2
-	echo "=== ${NAMES[$died]:-a part} STOPPED (its log: $LOGS): stopping everything ===" >&2
+	echo "=== ${NAMES[${died:-none}]:-a part} STOPPED (its log: $LOGS): stopping everything ===" >&2
 	exit 1
 }
 

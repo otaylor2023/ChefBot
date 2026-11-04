@@ -251,8 +251,10 @@ def run_episode(host, task, seed: int, skill_dir: Path, out: Path, ledger: M.Led
                 elif op == "observe":
                     clock["n_observe"] += 1
                     cams = {}
-                    rgbd = host.rgbd()
                     declared = access.get("cameras") if isinstance(access.get("cameras"), list) else None
+                    wanted = req.get("cameras") or declared
+                    # a real robot grabs only the cameras asked for (each one's frame takes time); a sim renders all
+                    rgbd = host.rgbd(wanted) if getattr(host, "realtime", False) and wanted else host.rgbd()
                     unknown = [n for n in req.get("cameras") or [] if n not in rgbd]
                     if unknown:
                         raise KeyError(f"no camera {unknown}; cameras: {sorted(rgbd)}")

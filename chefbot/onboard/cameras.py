@@ -64,6 +64,7 @@ class Cameras:
         self.cameras = {s["name"]: Camera(s["name"], s["serial"], s.get("width", 640), s.get("height", 480), s.get("fps", 15)) for s in specs}
         self.idle_s = idle_s
         self._lock = threading.Lock()
+        self.kept: set[str] = set()  # open for the client however long idle (a skill's cameras)
 
     def grab(self, name: str) -> dict:
         if name not in self.cameras:
@@ -71,10 +72,21 @@ class Cameras:
         with self._lock:
             return self.cameras[name].grab()
 
+    def keep(self, names) -> None:
+        """Hold these open (opening them now) and let the others idle out; [] holds none."""
+        unknown = [n for n in names if n not in self.cameras]
+        if unknown:
+            raise KeyError(f"no camera {unknown} (have: {sorted(self.cameras)})")
+        self.kept = set(names)
+        for name in self.kept:
+            with self._lock:
+                if not self.cameras[name].open:
+                    self.cameras[name].grab()  # starts it (and its auto exposure settles)
+
     def close_idle(self) -> None:
         with self._lock:
-            for camera in self.cameras.values():
-                if camera.open and time.monotonic() - camera.last_used > self.idle_s:
+            for name, camera in self.cameras.items():
+                if name not in self.kept and camera.open and time.monotonic() - camera.last_used > self.idle_s:
                     camera.close()
 
     def close(self) -> None:

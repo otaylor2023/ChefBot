@@ -226,6 +226,11 @@ class RealEnv(Env):
         except Exception as exc:  # the config's (or the last tracked) mount stands
             log.warning("tracking camera %r: %s: %s", cam, type(exc).__name__, exc)
 
+    def keep_cameras_open(self, names) -> None:
+        """The server holds these cameras open (opening them now) until another list or this client goes: frames
+        from them come at once, not after a second's start-up each time one has idled out."""
+        self._send({"op": P.CAMERAS_KEEP, "cameras": list(names)})
+
     def camera_pose(self, cam: str) -> np.ndarray:
         """Camera to world (OpenCV axes), from its mount and where the robot is now."""
         mount = self.camera_mounts[cam]

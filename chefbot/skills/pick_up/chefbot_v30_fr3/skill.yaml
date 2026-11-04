@@ -4,6 +4,7 @@ entry: main.py:run
 interface: chefbot-v1
 robot: tidybot_fr3
 arm_only: true
+cameras: [wrist, pole]  # wrist to perceive; both at the hover (saved images)
 args:
   object:
     type: string

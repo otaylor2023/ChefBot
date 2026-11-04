@@ -70,7 +70,9 @@ def main() -> None:
         print("[run_real] note: the skill isn't arm only, but the base holds (--base lets it move)")
         access["arm_only"] = True
     out = RUNS / f"{skill.path.replace('/', '-')}__{time.strftime('%m%d-%H%M%S')}{'_dry' if a.dry_run else ''}"
+    cams = access.get("cameras")
     host = RealHost(robot, robot.speed(a.speed), out, dry_run=a.dry_run, confirm=a.confirm, base=a.base, url=a.url,
+                    cameras=cams if isinstance(cams, list) else ([] if cams is False else None),
                     flange_z_min=a.flange_z_min)  # fmt: skip
     if a.home:
         try:
