@@ -278,7 +278,7 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
 
 
 def drive(robot, env: RealEnv, goal: Pose2D, *, approach_m: float = 0.0, confirm=input, log_dir: Path | None = None,
-          log_path: Path | None = None, quiet: bool = False, preflight=None) -> dict:  # fmt: skip
+          log_path: Path | None = None, quiet: bool = False, preflight=None, via=None) -> dict:  # fmt: skip
     """robot.go_to_pose(goal) on the real robot, with the checks before it, Enter first (`confirm`), Ctrl-C to stop,
     every tick logged (log_dir/leg00.jsonl.. or `log_path`), and a result dict: ok, reason, moved, final errors (by
     mocap), path, path_m, the legs' reasons, and the move's summary (summarize_move). `preflight`: a reason not to move,
@@ -315,7 +315,10 @@ def drive(robot, env: RealEnv, goal: Pose2D, *, approach_m: float = 0.0, confirm
                   f"off path {row.get('off_line') or 0.0:5.3f} m", end="", flush=True)  # fmt: skip
 
     robot.drive_log = log
-    robot.go_to_pose(goal, approach_m)
+    if via:
+        robot.go_through(via, goal)  # one smooth drive through the via poses
+    else:
+        robot.go_to_pose(goal, approach_m)
     try:
         res = robot.wait()
     except KeyboardInterrupt:
@@ -381,11 +384,12 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
 
 
 def go_planned(env: RealEnv, goal: Pose2D, grid, *, robot=None, margin: float = 0.10, confirm=input,
-               log_dir: Path | None = None, approach_m: float = 0.0, arm: str = "auto", **robot_args) -> dict:  # fmt: skip
-    """A* on `grid` to `goal` and the path driven: Robot(RealEnv).go_to_pose, its footprint kept `margin` clear of
-    the map at the heading the base will have along the path (the robot layer plans, drives and stops)."""
+               log_dir: Path | None = None, approach_m: float = 0.0, arm: str = "auto", via=None, **robot_args) -> dict:  # fmt: skip
+    """A* on `grid` to `goal` and the path driven: Robot(RealEnv).go_to_pose (or go_through `via`), its footprint kept
+    `margin` clear of the map at the heading the base will have along the path (the robot layer plans, drives and
+    stops)."""
     robot = robot or make_robot(env, grid, margin=margin, arm=arm, **robot_args)
-    return drive(robot, env, goal, approach_m=approach_m, confirm=confirm, log_dir=log_dir, quiet=True)
+    return drive(robot, env, goal, approach_m=approach_m, confirm=confirm, log_dir=log_dir, quiet=True, via=via)
 
 
 def counter_box(map_dir: Path, name: str | None = None) -> tuple:
@@ -490,10 +494,57 @@ def park(env: RealEnv, args) -> list[dict]:
     (session / "session.json").write_text(json.dumps({"targets": targets, "args": {k: (str(v) if isinstance(v, Path) else v)
                                                       for k, v in vars(args).items()}}, indent=2))  # fmt: skip
     results = []
+    route = None
+    if args.around:
+        import yaml
+
+        route = yaml.safe_load((Path(args.map) / "routes.yaml").read_text())["island_north_south"]
     for i, target in enumerate(targets):
         box = boxes[i]
-        pose, info = choose_stance(robot, box, target, args.out, args.approach)
+        via = None
+        if route is not None:
+            here = env.localization().mocap_pose
+            side_now = "north" if here.y > box[0][1] else "south"
+            side_to = "north" if target[1] > box[0][1] else "south"
+            if side_now != side_to:  # one smooth drive through the gap's middle, the heading kept until after it
+                wps = route["north"] + route["gap"] + route["south"]
+                wps = wps if side_now == "north" else wps[::-1]
+                via = [Pose2D(wx, wy, here.yaw) for wx, wy in wps]
+        if via is not None:
+            from chefbot.robot.nav.goal import counter_park_candidates
+
+            plan_space = robot._space.with_margin(args.margin)
+            clear = [(p, inf) for p, inf in counter_park_candidates(*box[:3], target, out_m=tuple(args.out or (0.45, 0.48)))
+                     if plan_space.is_free(p.x, p.y, p.yaw)]  # fmt: skip
+            pose, info = clear[0] if clear else (None, "no stance clear for the footprint")
+            if pose is not None:
+                print(f"[{i + 1}/{len(targets)}] around the island, {side_now} to {side_to}, through {len(via)} points without stopping")
+        else:
+            pose, info = choose_stance(robot, box, target, args.out, args.approach)
         head = f"[{i + 1}/{len(targets)}] target ({target[0]:.3f}, {target[1]:.3f})"
+        if pose is None and info == "no stance reachable from here" and not args.plan_only:
+            # A path that needs a turn where the base may not turn (a heading zone, a tight aisle): turn in place to
+            # the stance's heading first, where the base is (if it may), then plan again.
+            from chefbot.robot.nav.goal import counter_park_candidates
+
+            cands = counter_park_candidates(*box[:3], target, out_m=tuple(args.out or (0.45, 0.48)))
+            here = env.localization().mocap_pose
+            if cands and here is not None:
+                yaw = cands[0][0].yaw
+                # Back away from what the base faces (into the aisle) and turn there; else turn where it is.
+                for back in (0.35, 0.0):
+                    turn = Pose2D(here.x - back * math.cos(here.yaw), here.y - back * math.sin(here.yaw), yaw)
+                    print(f"{head}: no path with the turn on the way; {'backing ' + format(back, '.2f') + ' m and ' if back else ''}"
+                          f"turning to {math.degrees(yaw):.0f} deg first")
+                    tlog = session / f"{i:02d}_turn_first_{int(back * 100)}"
+                    tlog.mkdir(parents=True, exist_ok=True)
+                    rt = go_planned(env, turn, grid, robot=robot, log_dir=tlog, confirm=lambda _: None)
+                    print(f"    turn: {rt['reason']}")
+                    if rt.get("ok"):
+                        pose, info = choose_stance(robot, box, target, args.out, args.approach)
+                        break
+                    if rt.get("moved"):
+                        break  # it moved and stopped: don't try another
         if pose is None:
             print(f"{head}: skipped, {info}")  # nothing moved: go on to the next target
             results.append({"target": target, "ok": False, "reason": info, "moved": False, "skipped": True})
@@ -507,7 +558,7 @@ def park(env: RealEnv, args) -> list[dict]:
         log_dir = session / f"{i:02d}_{info['side']}"
         log_dir.mkdir(parents=True, exist_ok=True)  # go_planned may refuse before it makes it
         t0 = time.monotonic()
-        r = go_planned(env, pose, grid, robot=robot, log_dir=log_dir, confirm=lambda _: None, approach_m=args.approach)
+        r = go_planned(env, pose, grid, robot=robot, log_dir=log_dir, confirm=lambda _: None, approach_m=args.approach, via=via)
         elapsed = time.monotonic() - t0
         end = env.localization().mocap_pose
         asked = math.degrees(wrap(pose.yaw - start.yaw))
@@ -614,6 +665,8 @@ def main() -> None:
     k.add_argument("--seed", type=int, default=0)
     k.add_argument("--sides", nargs="+", choices=("south", "north", "east", "west"), default=None,
                    help="draw --random targets on these counter sides only (a counter against a wall)")
+    k.add_argument("--around", action="store_true",
+                   help="between the island's sides, go round by the map's routes.yaml waypoints (keeping the heading)")
     k.add_argument("--hold", action="store_true",
                    help="once inside --tol / --yaw-tol, hold the base where it is (no re-aiming for millimetres)")
     k.add_argument("--alternate", nargs="+", default=None, metavar=("COUNTER", "SIDE"),

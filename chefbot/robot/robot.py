@@ -124,6 +124,36 @@ class Robot(RobotAPI):
         a counter), after a stop at its start."""
         self._motion.start(lambda preempt: self._run_go_to_pose(goal, preempt, approach_m))
 
+    def go_through(self, via: list[Pose2D], goal: Pose2D) -> None:
+        """Through the `via` poses (each at its own heading) to `goal` as one smooth drive: each stretch planned as
+        go_to_pose plans (clear for the footprint at the headings along it), the stretches joined into one path the
+        follower rounds the corners of, with no stop at the via poses."""
+        self._motion.start(lambda preempt: self._run_go_through(list(via), goal, preempt))
+
+    def _run_go_through(self, via: list[Pose2D], goal: Pose2D, preempt: threading.Event) -> MotionResult:
+        lost = self._loc.why_not_live(self._env.get_state())
+        if lost is not None:
+            return self._result(MotionStatus.NOT_LOCALIZED, lost)
+        pose = self.get_base_pose()
+        body, plan = self._space, self._space.with_margin(self._cfg.safety_margin)
+        if not body.is_free(pose.x, pose.y, pose.yaw):
+            return self._result(MotionStatus.NO_PATH, "base is in collision on the map")
+        begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
+        if begin is None:
+            return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
+        path, start = [], pose
+        for k, target in enumerate(via + [goal]):
+            points, why = plan_at_headings(plan, body, start, begin, target, target.yaw)
+            if points is None:
+                return self._result(MotionStatus.NO_PATH, f"stretch {k + 1} of {len(via) + 1}: {why}")
+            stretch = headings(start, subdivide(points, 1.0), target.yaw)
+            path += stretch if not path else stretch[1:]
+            start, begin = target, (target.x, target.y)
+        path_m = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(path, path[1:]))
+        result = self._drive(path, preempt)
+        result.data.update(path=[(p.x, p.y) for p in path], path_m=path_m)
+        return result
+
     def align_to_point(self, target: np.ndarray) -> None:
         target = np.asarray(target, dtype=float).reshape(3)
         self._motion.start(lambda preempt: self._run_align(target, preempt))
