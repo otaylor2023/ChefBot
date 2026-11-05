@@ -7,7 +7,7 @@ Before: the robot up with the onboard server (onboard/bringup/launch.sh: the arm
 server), and on this computer environments/real/up.sh (the tunnel to the onboard server, environments/real/
 config.yaml's url, and the vision server for skills that use it, VISION_URL), the model keys in .env.
 
---home first takes the arm to its ready pose (the hand pointing down). --confirm: Enter before each move (the default runs them; Ctrl-C stops). --dry-run: nothing is sent to the arm or the gripper, the arm taken
+--ready first takes the arm to the ready position (interface/workspace.py READY: looking forward and down; --home is the same). --confirm: Enter before each move (the default runs them; Ctrl-C stops). --dry-run: nothing is sent to the arm or the gripper, the arm taken
 to be where it was commanded, the cameras real. Arm only unless --base. The episode's files (result.json,
 trace.jsonl, calls.jsonl, skill_log.txt, the skill's images) go to runs/real/<skill>__<time>/; nothing scores it.
 """
@@ -47,7 +47,7 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="send nothing to the arm or the gripper")
     ap.add_argument("--confirm", action="store_true", help="wait for Enter before each move")
     ap.add_argument("--base", action="store_true", help="let the base move (default: it holds)")
-    ap.add_argument("--home", action="store_true", help="the arm to its ready pose before the skill (a skill can do it itself: act_joints)")
+    ap.add_argument("--ready", "--home", dest="ready", action="store_true", help="the arm to the ready position before the skill (--home: the same)")
     ap.add_argument("--flange-z-min", type=float, default=FLANGE_Z_MIN, help="the flange's height floor over the base, arm base frame (m)")
     ap.add_argument("--solver", help="the arm solver (embodiments/arm_solvers: qp, osc, legacy; default the robot's)")
     ap.add_argument("--url", help="the onboard server (default: environments/real/config.yaml's)")
@@ -79,9 +79,9 @@ def main() -> None:
     host = RealHost(robot, robot.speed(a.speed), out, dry_run=a.dry_run, confirm=a.confirm, base=a.base, url=a.url,
                     cameras=cams if isinstance(cams, list) else ([] if cams is False else None),
                     flange_z_min=a.flange_z_min)  # fmt: skip
-    if a.home:
+    if a.ready:
         try:
-            host.go_home()
+            host.go_ready()
         except BaseException:
             host.close()
             raise

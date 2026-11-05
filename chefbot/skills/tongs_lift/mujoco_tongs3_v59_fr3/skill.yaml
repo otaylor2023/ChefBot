@@ -14,7 +14,7 @@ models:
   gemini-3.1-flash-lite: {runs: api, provider: google, key: GEMINI_API_KEY}
   grounding-dino: {runs: vision_models}
   sam2: {runs: vision_models}
-assumes: tongs on a surface in front of the robot, in the cameras' view from the arm's ready pose (run_real --home), and the food where `where` says, both within the arm's reach without the base moving
+assumes: tongs on a surface in front of the robot, in the cameras' view from the ready position (run_real --ready), and the food where `where` says, both within the arm's reach without the base moving
 privileged: false
 provenance:
   ported_from: tongs_lift/mujoco_tongs3_v59 (the mujoco_tongs lab, the sim's tidybot_fr3)

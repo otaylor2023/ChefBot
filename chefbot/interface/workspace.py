@@ -27,12 +27,12 @@ EMBODIMENTS = Path(__file__).resolve().parent.parent / "embodiments"
 LIMITS = np.array([[-2.7437, 2.7437], [-1.7837, 1.7837], [-2.9007, 2.9007], [-3.0421, -0.1518], [-2.8065, 2.8065],
                    [0.5445, 4.5169], [-3.0159, 3.0159]])  # fmt: skip
 MARGIN = 0.1
-# Home (the real host's --home; launch.sh's h): the flange 0.85 m over the plate above the arm's base, the hand and the
-# wrist camera looking forward and 35 deg down at a counter ahead (2026-11-04: the arm where it was left, rounded;
-# 2.5 cm clear of the keep-out). Before: READY_DOWN, the hand straight down, which sees only the floor in front of a
-# counter; the calibrations keep their own poses.
-HOME = (0.0, -1.34, 0.0, -2.01, 0.0, 1.62, 0.785)
-READY_DOWN = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)
+# The ready position (the real host's --ready; launch.sh's r): the flange 0.85 m over the plate above the arm's base, the
+# hand and the wrist camera looking forward and 35 deg down at a counter ahead (2026-11-04: the arm where it was left,
+# rounded; 2.5 cm clear of the keep-out). Before it: HAND_DOWN, the hand straight down, which sees only the floor in
+# front of a counter; the calibrations keep their own poses.
+READY = (0.0, -1.34, 0.0, -2.01, 0.0, 1.62, 0.785)
+HAND_DOWN = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)
 MIN_SPARE_M = 0.0254  # every keep-out clears its part by the links' radius and at least an inch more
 # An arm already in a keep-out may move out, never deeper: by more than this (a path out of it can wobble a mm deeper
 # first; 2026-11-04 the way home from 2.8 cm in dipped 1 mm, and a 0.01 mm rule refused it).

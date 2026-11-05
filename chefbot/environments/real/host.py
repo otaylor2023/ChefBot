@@ -36,8 +36,8 @@ from chefbot.embodiments import Robot, Speed
 from chefbot.embodiments.wholebody import WholeBodyController, quat_wxyz
 from chefbot.interface.types import Pose2D
 
-from chefbot.interface.workspace import DEEPER_SLACK_M, HOME  # noqa: E402  (the FR3's ready pose: one copy, the robot computer's too)
-HOME_SPEED = 0.3  # rad/s, the fastest joint, going home
+from chefbot.interface.workspace import DEEPER_SLACK_M, READY  # noqa: E402  (the ready position: one copy, the robot computer's too)
+READY_SPEED = 0.3  # rad/s, the fastest joint, going home
 # Over the base's plate (within its outline: the embodiment's body), every arm point at least its plate clearance
 # above it, the flange above FLANGE_Z_MIN. Beyond the base, a table may be at the plate's height or lower: there only
 # the floor (0.44 m below the plate on the real base) bounds it.
@@ -213,30 +213,30 @@ class RealHost:
 
     # -- episode -------------------------------------------------------------------
 
-    def go_home(self, q_home=HOME, confirm: bool | None = None) -> None:
+    def go_ready(self, q_ready=READY, confirm: bool | None = None) -> None:
         """Before the episode: the arm to `q_home` along a straight line in joint space (its path clear of the
         keep-out, every step checked), Enter first (confirm, default the host's). A dry run doesn't move: it only says
         whether the arm is there (the cameras see the real arm)."""
         self.check_live()
         q0 = np.asarray(self.raw_env.get_state().arm_q, dtype=float)
-        q1 = np.asarray(q_home, dtype=float)
+        q1 = np.asarray(q_ready, dtype=float)
         far = float(np.abs(q1 - q0).max())
         if far < 0.02:
             return
         if self.dry_run:
-            self.log(f"[real] dry run: the arm is {np.degrees(far):.0f} deg from home and won't go there; the skill sees it where it is")
+            self.log(f"[real] dry run: the arm is {np.degrees(far):.0f} deg from the ready position and won't go there; the skill sees it where it is")
             return
-        path = self._home_path(q0, q1)
+        path = self._ready_path(q0, q1)
         if path is None:
-            raise SafetyStop("no clear joint path home (around the pole's keep-out): move the arm nearer home first")
+            raise SafetyStop("no clear joint path to the ready position (around the pole's keep-out): move the arm nearer it first")
         if len(path) > 1:
-            self.log(f"[real] home: the straight way passes the keep-out; going around ({len(path) - 1} waypoint(s))")
+            self.log(f"[real] ready: the straight way passes the keep-out; going around ({len(path) - 1} waypoint(s))")
         if self.confirm if confirm is None else confirm:
-            input(f"\nHome: the arm to its ready pose, {np.degrees(far):.0f} deg at most. Enter to move (Ctrl-C stops): ")
+            input(f"\nReady: the arm to the ready position, {np.degrees(far):.0f} deg at most. Enter to move (Ctrl-C stops): ")
         tick = 0.05
         start = q0
         for w in path:
-            n = max(1, int(math.ceil(float(np.abs(w - start).max()) / (HOME_SPEED * tick))))
+            n = max(1, int(math.ceil(float(np.abs(w - start).max()) / (READY_SPEED * tick))))
             k = 0
             while k < n:
                 if self._state_late():  # the state stalled on the link: hold the last target, then go on
@@ -252,7 +252,7 @@ class RealHost:
                 break
             self.raw_env.wait_for_next_tick(tick)
         err = float(np.abs(np.asarray(self.raw_env.get_state().arm_q) - q1).max())
-        self.log(f"[real] home ({np.degrees(err):.1f} deg off)")
+        self.log(f"[real] ready ({np.degrees(err):.1f} deg off)")
 
     def start(self, task=None, seed: int = 0) -> Pose2D:
         """The robot starts where it is: odom is fixed here, and control begins."""
@@ -274,7 +274,7 @@ class RealHost:
         if frozen is not None and frozen > ARM_FROZEN_S:
             raise SafetyStop(f"the arm driver isn't publishing (the joints frozen {frozen:.1f} s): is it running, the arm unlocked?")
 
-    def _home_path(self, q0, q1):
+    def _ready_path(self, q0, q1):
         """Joint waypoints home clear of the arm's constraints (embodiments/arm_solvers/route.py's joint_path, the
         guard's own check on every leg as well), or None."""
         if self.env.path_clear(q0, q1):

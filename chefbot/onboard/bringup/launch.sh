@@ -95,21 +95,21 @@ JOINTS_KEY="opensai::sensors::FrankaRobot::joint_positions"
 arm_float() {  # OpenSai's float_controller (chefbot_fr3.xml): no stiffness, light damping
 	redis-cli SET "$ACTIVE_CONTROLLER_KEY" float_controller >/dev/null
 	ARM_MODE="floating"
-	echo "=== ARM FLOATING: move it by hand. s holds it where it is, h takes it home. (A laptop run's moves are ignored meanwhile.) ==="
+	echo "=== ARM FLOATING: move it by hand. h holds it where it is, r takes it to the ready position. (A laptop run's moves are ignored meanwhile.) ==="
 }
 
 ARM_MODE="held"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
-arm_home() {  # the joint task's goal to the ready pose (interface/workspace.py HOME), if the straight way there is clear
+arm_ready() {  # the joint task's goal to the ready position (interface/workspace.py READY), if the straight way there is clear
 	local q verdict
 	q="$(redis-cli --raw GET "$JOINTS_KEY")"
-	[[ "$q" == \[* ]] || { echo "=== no joint reading from the arm driver: not going home ===" >&2; return; }
+	[[ "$q" == \[* ]] || { echo "=== no joint reading from the arm driver: not going to the ready position ===" >&2; return; }
 	verdict="$(PYTHONPATH="$REPO_DIR" "$CHEFBOT_PYTHON" -c 'import json, sys
-from chefbot.interface.workspace import HOME, path_clear
-print(("clear " if path_clear(json.loads(sys.argv[1]), HOME) else "blocked ") + json.dumps(list(HOME)))' "$q" 2>&1)" || true
+from chefbot.interface.workspace import READY, path_clear
+print(("clear " if path_clear(json.loads(sys.argv[1]), READY) else "blocked ") + json.dumps(list(READY)))' "$q" 2>&1)" || true
 	if [[ "$verdict" != clear* ]]; then
-		echo "=== NOT going home: the straight way there passes the pole's keep-out (${verdict%% *}). f, move the arm nearer home by hand, then h ===" >&2
+		echo "=== NOT going to the ready position: the straight way there passes the pole's keep-out (${verdict%% *}). f, move the arm nearer it by hand, then r ===" >&2
 		return
 	fi
 	if [[ "$ARM_MODE" == floating ]]; then  # hold first: a switch resets the controller's goal to where the arm is
@@ -119,7 +119,7 @@ print(("clear " if path_clear(json.loads(sys.argv[1]), HOME) else "blocked ") + 
 	redis-cli SET "$JOINT_GOAL_VEL_KEY" "[0,0,0,0,0,0,0]" >/dev/null
 	redis-cli SET "$JOINT_GOAL_KEY" "${verdict#clear }" >/dev/null
 	ARM_MODE="held"
-	echo "=== ARM GOING HOME (OpenSai's joint task, at most 0.5 rad/s); f floats it, s holds it where it is ==="
+	echo "=== ARM GOING TO THE READY POSITION (OpenSai's joint task, at most 0.5 rad/s); f floats it, h holds it where it is ==="
 }
 
 arm_hold() {  # back to the joint controller, its goal where the arm is now (OpenSai re-initializes it there too)
@@ -133,7 +133,7 @@ arm_hold() {  # back to the joint controller, its goal where the arm is now (Ope
 	redis-cli SET "$JOINT_GOAL_VEL_KEY" "[0,0,0,0,0,0,0]" >/dev/null
 	redis-cli SET "$ACTIVE_CONTROLLER_KEY" joint_controller >/dev/null
 	ARM_MODE="held"
-	echo "=== ARM HOLDING where it is (f floats it, h takes it home) ==="
+	echo "=== ARM HOLDING where it is (f floats it, r takes it to the ready position) ==="
 }
 
 BASE_PID="" GAMEPAD_PID=""
@@ -196,7 +196,7 @@ watch_parts() {  # until a part exits (then say which, and stop everything); mea
 	local keys="" pid k
 	if { $OPENSAI || $BASE; } && [[ -t 0 ]]; then
 		keys=1
-		$OPENSAI && echo "keys: f floats the arm (move it by hand), s holds it where it is, h takes it home"
+		$OPENSAI && echo "keys: f floats the arm (move it by hand), h holds it where it is, r takes it to the ready position"
 		$BASE && echo "keys: g gives the base to the gamepad, b gives it back to its driver"
 	fi
 	while true; do
@@ -217,8 +217,8 @@ watch_parts() {  # until a part exits (then say which, and stop everything); mea
 			read -rsn1 -t 0.5 k || true
 			case "$k" in
 				f | F) $OPENSAI && arm_float ;;
-				s | S) $OPENSAI && arm_hold ;;
-				h | H) $OPENSAI && arm_home ;;
+				h | H) $OPENSAI && arm_hold ;;
+				r | R) $OPENSAI && arm_ready ;;
 				g | G) $BASE && gamepad_start ;;
 				b | B) $BASE && gamepad_stop ;;
 			esac

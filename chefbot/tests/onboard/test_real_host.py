@@ -151,21 +151,21 @@ def test_the_bringup_skill_runs_through_the_episode_on_it(robot, tmp_path):
 
 
 def test_it_goes_home_first_and_a_dry_run_doesnt(robot, tmp_path):
-    from chefbot.environments.real.host import HOME
+    from chefbot.environments.real.host import READY as HOME
 
     fake = FakeRobot()
     fake.q = np.array(HOME) + np.radians([10, -8, 5, 6, -5, 4, 20])
     h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None)
-    h.go_home()
+    h.go_ready()
     assert np.abs(fake.q - np.array(HOME)).max() < 1e-6
     fake.q = np.array(HOME) + np.radians(15)
     q_before = fake.q.copy()
-    RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None, dry_run=True).go_home()
+    RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None, dry_run=True).go_ready()
     assert np.allclose(fake.q, q_before)
 
 
 def test_a_joint_move_gets_there(robot, tmp_path):
-    from chefbot.environments.real.host import HOME
+    from chefbot.environments.real.host import READY as HOME
 
     h, fake = host_on(robot, tmp_path)
     try:
@@ -234,14 +234,14 @@ def test_a_low_tilted_grasp_past_an_elbow_limit_is_reached(robot, tmp_path):
 def test_going_home_waits_out_a_stall_on_the_link(robot, tmp_path):
     # 2026-11-04: the state went 1.35 s stale on poor wifi while going home, and the run stopped (get_state's 0.5 s);
     # the control loop already waits such stalls out, now going home does too.
-    from chefbot.environments.real.host import HOME
+    from chefbot.environments.real.host import READY as HOME
 
     fake = FakeRobot()
     fake.q = np.array(HOME) + np.radians([6, -5, 4, 5, -4, 3, 10])
     t0 = time.monotonic()
     fake.state_age = lambda: 1.2 if 0.1 < time.monotonic() - t0 < 0.5 else 0.0
     fake.max_state_age_s = 0.5
-    RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None).go_home()
+    RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None).go_ready()
     assert np.abs(fake.q - np.array(HOME)).max() < 1e-6
     assert fake.max_state_age_s >= 3.0
 
@@ -249,14 +249,14 @@ def test_going_home_waits_out_a_stall_on_the_link(robot, tmp_path):
 def test_going_home_goes_around_the_keep_out_when_the_straight_way_doesnt_clear(robot, tmp_path):
     # 2026-11-04: after a pick ended reaching 0.66 m out, the straight joint path home passed the pole's keep-out
     # and --home refused; now it plans a clear path (route.py joint_path), each leg checked by the guard too.
-    from chefbot.environments.real.host import HOME
-    from chefbot.interface.workspace import READY_DOWN
+    from chefbot.environments.real.host import READY as HOME
+    from chefbot.interface.workspace import HAND_DOWN
 
     fake = FakeRobot()
-    fake.q = np.array(READY_DOWN)  # the old home (hand down): its straight way to today's home passes the keep-out
+    fake.q = np.array(HAND_DOWN)  # the old home (hand down): its straight way to today's home passes the keep-out
     said = []
     h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=said.append)
     assert not h.env.path_clear(fake.q, np.array(HOME))
-    h.go_home()
+    h.go_ready()
     assert np.abs(fake.q - np.array(HOME)).max() < 1e-3
     assert any("going around" in s for s in said)
