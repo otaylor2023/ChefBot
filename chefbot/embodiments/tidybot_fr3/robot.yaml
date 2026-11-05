@@ -37,7 +37,7 @@ control:
   # never exceed it, and a speed profile over it is refused wherever the base can move (2026-11-04: 0.25 m/s,
   # 0.8 rad/s; the acceleration Jack measured braking at).
   limits:
-    base_max_vel: [0.25, 0.25, 0.8]     # m/s, m/s, rad/s
+    base_max_vel: [0.5, 0.5, 0.8]       # m/s, m/s, rad/s  (speed-exp, Jack 2026-11-05: experiment branch, not main; was 0.25)
     base_max_accel: [0.25, 0.25, 0.8]   # m/s^2, m/s^2, rad/s^2
     # The base's measured stop with this driver, from the last fresh command to rest (its 0.3 s command timeout
     # included), as d(v) = v * tau + v^2 / (2 * brake): navigation never drives faster than it can stop in the free

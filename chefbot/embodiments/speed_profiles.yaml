@@ -14,3 +14,7 @@ normal: {base_max_vel: [0.2, 0.2, 0.375],  arm_lin: 0.1,  arm_ang: 0.625, joint:
 fast:   {base_max_vel: [0.5, 0.5, 1.0],    arm_lin: 0.4,  arm_ang: 2.0,  joint: 1.0}   # its base: over tidybot_fr3's cap
 # The gamepad's (onboard/bringup: launch.sh's g, gamepad.sh): the base's only, at the cap.
 teleop: {base_max_vel: [0.25, 0.25, 0.8], base_max_accel: [0.25, 0.25, 0.8]}
+# speed-exp (Jack, 2026-11-05; local experiment branch, not main): the base only, stepping toward the driver's 0.5 m/s
+# sanity bound with the stop re-measured at each step. Acceleration stays the cap's 0.25.
+exp35:  {base_max_vel: [0.35, 0.35, 0.8]}
+exp50:  {base_max_vel: [0.5, 0.5, 0.8]}
