@@ -33,8 +33,12 @@ control:
   arm_solver: qp           # embodiments/arm_solvers: qp, osc or legacy (CHEFBOT_ARM_SOLVER, run_real --solver override)
   hz: 15
   speed: normal
+  # The base's hard cap (interface/limits.py): the base driver runs at it (launch.sh), the onboard server and the gamepad
+  # never exceed it, and a speed profile over it is refused wherever the base can move (2026-11-04: 0.25 m/s,
+  # 0.8 rad/s; the acceleration Jack measured braking at).
   limits:
-    base_max_vel: [0.5, 0.5, 1.0]
+    base_max_vel: [0.25, 0.25, 0.8]     # m/s, m/s, rad/s
+    base_max_accel: [0.25, 0.25, 0.8]   # m/s^2, m/s^2, rad/s^2
 
 # The robot's own fixed parts the arm must keep clear of, in the arm base frame (x forward, y left, z up from the
 # arm's plate), as measured on the real robot (2026-11-03). One definition for all: the controller's IK steers around

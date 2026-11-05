@@ -138,7 +138,10 @@ def test_base_targets_go_to_the_driver_in_odometry_and_never_faster_than_it():
     odom = [float(v) for v in redis.values[K.BASE_DESIRED_POSE].strip("[]").split(",")]
     np.testing.assert_allclose(odom, [1.0, 2.0, 0.5], atol=1e-9)
     assert redis.values[K.BASE_MAX_VEL_SCALE] == "1.000"
-    robot.base_target([3.0, 4.0, 1.0], (0.0625, 0.0625, 0.4))
+    from chefbot.interface.limits import base_cap
+
+    cap = base_cap("tidybot_fr3")["vel"]  # the driver runs at the robot's hard base cap
+    robot.base_target([3.0, 4.0, 1.0], (cap[0] / 2, cap[1] / 2, cap[2] / 2))
     assert redis.values[K.BASE_MAX_VEL_SCALE] == "0.500"
 
 

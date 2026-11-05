@@ -26,7 +26,10 @@ def build_robot(config: dict, redis_client=None) -> RedisRobot:
         redis_client.ping()
     base = config["base"]
     frames = BaseFrames(np.radians(base["marker_yaw_offset_deg"]), base["marker_xy"])
-    return RedisRobot(redis_client, frames, config["gripper"], (base["driver_max_vel_xy"], base["driver_max_vel_yaw"]))
+    from chefbot.interface.limits import base_cap
+
+    cap = base_cap(config.get("embodiment", "tidybot_fr3"))["vel"]  # the robot's hard base cap: the driver runs at it
+    return RedisRobot(redis_client, frames, config["gripper"], (cap[0], cap[2]))
 
 
 def build_cameras(config: dict) -> Cameras:

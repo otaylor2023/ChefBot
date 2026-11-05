@@ -43,7 +43,9 @@ def main() -> None:
     ap.add_argument("--skill", required=True, help="a registered skill, e.g. pick_up/chefbot_v30")
     ap.add_argument("--arg", action="append", default=[], type=_arg, help="a skill argument, name=value (repeatable)")
     ap.add_argument("--robot", default="tidybot_fr3", help="the embodiment the real robot is (default tidybot_fr3)")
-    ap.add_argument("--speed", default="slow", help="speed profile (default slow: first real runs)")
+    ap.add_argument("--speed", default="slow", help="the speed profile for the arm and the base (default slow: first real runs)")
+    ap.add_argument("--arm-speed", help="the arm's speed profile (default --speed)")
+    ap.add_argument("--base-speed", help="the base's speed profile (default --speed; only with --base, and refused over the robot's base cap)")
     ap.add_argument("--dry-run", action="store_true", help="send nothing to the arm or the gripper")
     ap.add_argument("--confirm", action="store_true", help="wait for Enter before each move")
     ap.add_argument("--base", action="store_true", help="let the base move (default: it holds)")
@@ -76,7 +78,11 @@ def main() -> None:
         access["arm_only"] = True
     out = RUNS / f"{skill.path.replace('/', '-')}__{time.strftime('%m%d-%H%M%S')}{'_dry' if a.dry_run else ''}"
     cams = access.get("cameras")
-    host = RealHost(robot, robot.speed(a.speed), out, dry_run=a.dry_run, confirm=a.confirm, base=a.base, url=a.url,
+    try:  # arm only (no --base): the base's speed is 0 and its profile isn't checked
+        speed = robot.speed(a.speed, arm=a.arm_speed, base=a.base_speed, use_base=a.base)
+    except ValueError as e:
+        raise SystemExit(f"[run_real] {e}")
+    host = RealHost(robot, speed, out, dry_run=a.dry_run, confirm=a.confirm, base=a.base, url=a.url,
                     cameras=cams if isinstance(cams, list) else ([] if cams is False else None),
                     flange_z_min=a.flange_z_min)  # fmt: skip
     if a.ready:
@@ -88,7 +94,7 @@ def main() -> None:
     ledger = M.Ledger(out / "model_ledger.jsonl", a.model_usd)
     vision = M.Vision(vision_url) if access.get("vision") else None
     limits = {**LIMITS, "model_usd": a.model_usd, "think_s": a.think_s, "control_steps": a.steps}
-    print(f"[run_real] {skill.path} on the real robot ({robot.name}, speed {a.speed}) with {dict(a.arg)}; out {out}")
+    print(f"[run_real] {skill.path} on the real robot ({robot.name}, speed {speed.name}) with {dict(a.arg)}; out {out}")
     try:
         result = run_episode(host, None, 0, skill.dir, out, ledger, vision, access, interface=skill.interface, limits=limits,
                              record=False, tag="real", args=dict(a.arg) or None)  # fmt: skip

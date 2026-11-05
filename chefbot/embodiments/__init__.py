@@ -93,16 +93,19 @@ class Robot:
 
         return Kinematics(self.config, self.body, arm_solvers.chosen(self.raw.get("control", {}).get("arm_solver")))
 
-    def speed(self, name: str | None = None) -> Speed:
-        """A speed profile (default: the robot's), clipped to its hardware limits."""
-        name = name or self.raw["control"]["speed"]
-        profiles = yaml.safe_load(SPEED_PROFILES.read_text())
-        if name not in profiles:
-            raise ValueError(f"no speed profile {name!r}; profiles: {', '.join(profiles)}")
-        p = profiles[name]
-        lim = self.raw["control"].get("limits", {})
-        base = np.minimum(p["base_max_vel"], lim.get("base_max_vel", p["base_max_vel"]))
-        return Speed(name, tuple(float(v) for v in base), float(p["arm_lin"]), float(p["arm_ang"]), float(p["joint"]))
+    def speed(self, name: str | None = None, *, arm: str | None = None, base: str | None = None, use_arm: bool = True,
+              use_base: bool = True) -> Speed:  # fmt: skip
+        """The arm's rates from profile `arm` and the base's from `base` (each default `name`, then the robot's own).
+        A base profile over the robot's hard cap (control.limits) is refused, not clipped. use_base=False (an arm-only
+        run): the base's speed is 0, nothing can move it, and its profile isn't checked; use_arm=False likewise."""
+        from chefbot.interface import limits
+
+        default = self.raw["control"]["speed"]
+        arm_name, base_name = arm or name or default, base or name or default
+        arm_lin, arm_ang, joint = limits.arm_profile(arm_name) if use_arm else (0.0, 0.0, 0.0)
+        vel = limits.base_profile(base_name, self.name)[0] if use_base else (0.0, 0.0, 0.0)
+        label = arm_name if (arm_name == base_name or not use_base) else (base_name if not use_arm else f"arm {arm_name}, base {base_name}")
+        return Speed(label, tuple(float(v) for v in vel), arm_lin, arm_ang, joint)
 
 
 class Kinematics:

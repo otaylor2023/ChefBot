@@ -31,7 +31,10 @@ class OnboardServer:
         self.cameras = cameras
         self.state_hz = float(config["server"]["state_hz"])
         self.watchdog_s = float(config["server"]["watchdog_s"])
-        self.limits = config.get("limits", {})
+        from chefbot.interface.limits import base_cap
+
+        cap = base_cap(config.get("embodiment", "tidybot_fr3"))["vel"]  # told to the client: it checks its speeds against them
+        self.limits = {"base_max_vel_xy": cap[0], "base_max_vel_yaw": cap[2]}
         self._server = serve(self._handle, config["server"]["host"], int(config["server"]["port"]), max_size=None)
         self._thread: threading.Thread | None = None
         self._client_lock = threading.Lock()

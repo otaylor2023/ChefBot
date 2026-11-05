@@ -61,7 +61,7 @@ def robot():
 
 def host_on(robot, tmp_path, **kw):
     fake = FakeRobot()
-    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None, **kw)
+    h = RealHost(robot, robot.speed("fast", use_base=False), tmp_path, confirm=False, env=fake, log=lambda *a: None, **kw)
     h.start_here()
     return h, fake
 
@@ -139,7 +139,7 @@ def test_the_bringup_skill_runs_through_the_episode_on_it(robot, tmp_path):
     from chefbot.runtime.episode import run_episode
 
     fake = FakeRobot()
-    host = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None)
+    host = RealHost(robot, robot.speed("fast", use_base=False), tmp_path, confirm=False, env=fake, log=lambda *a: None)
     skill = skills.load("bringup/v1")
     try:
         result = run_episode(host, None, 0, skill.dir, tmp_path / "ep", M.Ledger(tmp_path / "ledger.jsonl", 0.0), None,
@@ -155,12 +155,12 @@ def test_it_goes_home_first_and_a_dry_run_doesnt(robot, tmp_path):
 
     fake = FakeRobot()
     fake.q = np.array(HOME) + np.radians([10, -8, 5, 6, -5, 4, 20])
-    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None)
+    h = RealHost(robot, robot.speed("fast", use_base=False), tmp_path, confirm=False, env=fake, log=lambda *a: None)
     h.go_ready()
     assert np.abs(fake.q - np.array(HOME)).max() < 1e-6
     fake.q = np.array(HOME) + np.radians(15)
     q_before = fake.q.copy()
-    RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None, dry_run=True).go_ready()
+    RealHost(robot, robot.speed("fast", use_base=False), tmp_path, confirm=False, env=fake, log=lambda *a: None, dry_run=True).go_ready()
     assert np.allclose(fake.q, q_before)
 
 
@@ -181,7 +181,7 @@ def test_a_joint_move_gets_there(robot, tmp_path):
 def test_a_dead_arm_driver_stops_it(robot, tmp_path):
     fake = FakeRobot()
     fake.raw_state = lambda: {"arm_frozen_s": 3.0}  # the driver gone: its last joints frozen in Redis
-    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None)
+    h = RealHost(robot, robot.speed("fast", use_base=False), tmp_path, confirm=False, env=fake, log=lambda *a: None)
     h.start_here()
     try:
         with pytest.raises(RuntimeError, match="halted"):
@@ -196,7 +196,7 @@ def test_a_late_state_holds_and_a_lost_one_stops_it(robot, tmp_path):
     fake = FakeRobot()
     age = {"s": 0.0}
     fake.state_age = lambda: age["s"]
-    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None)
+    h = RealHost(robot, robot.speed("fast", use_base=False), tmp_path, confirm=False, env=fake, log=lambda *a: None)
     h.start_here()
     try:
         age["s"] = 1.0  # a frame on the link
@@ -241,7 +241,7 @@ def test_going_home_waits_out_a_stall_on_the_link(robot, tmp_path):
     t0 = time.monotonic()
     fake.state_age = lambda: 1.2 if 0.1 < time.monotonic() - t0 < 0.5 else 0.0
     fake.max_state_age_s = 0.5
-    RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=lambda *a: None).go_ready()
+    RealHost(robot, robot.speed("fast", use_base=False), tmp_path, confirm=False, env=fake, log=lambda *a: None).go_ready()
     assert np.abs(fake.q - np.array(HOME)).max() < 1e-6
     assert fake.max_state_age_s >= 3.0
 
@@ -255,8 +255,21 @@ def test_going_home_goes_around_the_keep_out_when_the_straight_way_doesnt_clear(
     fake = FakeRobot()
     fake.q = np.array(HAND_DOWN)  # the old home (hand down): its straight way to today's home passes the keep-out
     said = []
-    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=fake, log=said.append)
+    h = RealHost(robot, robot.speed("fast", use_base=False), tmp_path, confirm=False, env=fake, log=said.append)
     assert not h.env.path_clear(fake.q, np.array(HOME))
     h.go_ready()
     assert np.abs(fake.q - np.array(HOME)).max() < 1e-3
     assert any("going around" in s for s in said)
+
+
+def test_a_profile_over_the_base_cap_is_refused_when_the_base_can_move(robot):
+    # 2026-11-04: one hard base cap (embodiments/tidybot_fr3/robot.yaml control.limits, interface/limits.py), a profile
+    # over it refused, not clipped; an arm-only run's base speed is 0 and its profile not checked.
+    with pytest.raises(ValueError, match="over tidybot_fr3's base cap"):
+        robot.speed("fast")
+    assert robot.speed("fast", use_base=False).base_max_vel == (0.0, 0.0, 0.0)
+    assert robot.speed("teleop", use_arm=False).base_max_vel == (0.25, 0.25, 0.8)
+    with pytest.raises(ValueError, match="no arm rates"):
+        robot.speed("teleop")
+    s = robot.speed(arm="normal", base="slow")
+    assert s.arm_lin == 0.1 and s.base_max_vel == (0.08, 0.08, 0.15)

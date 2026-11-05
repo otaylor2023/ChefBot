@@ -12,13 +12,8 @@ redis:
   port: 6379
 
 base:
-  # The hb1 driver's own limits, its hardware ceiling (bringup/launch.sh passes them to onboard/drivers/base/driver.py:
-  # this is their one copy). Targets never go faster; a run's speed profile (embodiments/speed_profiles.yaml) asks
-  # for at most these.
-  driver_max_vel_xy: 0.125
-  driver_max_vel_yaw: 0.4
-  driver_max_accel_xy: 0.1
-  driver_max_accel_yaw: 0.5
+  # The hb1 driver's speed: the robot's hard base cap, embodiments/tidybot_fr3/robot.yaml control.limits (its one copy;
+  # interface/limits.py reads it, here and on the laptop).
   # The mocap rigid body on the base (chefbot-tidy): its yaw relative to the base's heading, and its origin's
   # position in the base frame. Its x runs along the base (the markers are symmetric about it), forward by the
   # operator's account (the six markers at the front, the lone pair at the back).
@@ -29,11 +24,6 @@ base:
 gripper:
   speed: 0.05            # m/s
   force: 20.0            # N, when closing on an object
-
-# Told to the client in "hello" (it checks its own speeds against them).
-limits:
-  base_max_vel_xy: 0.125
-  base_max_vel_yaw: 0.4
 
 # The RealSenses (serials: `rs-enumerate-devices -s`).
 cameras:

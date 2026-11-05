@@ -21,16 +21,13 @@ OPENSAI_CONFIG="${OPENSAI_CONFIG:-$(cd "$(dirname "$0")" && pwd)/chefbot_fr3.xml
 BASE_DRIVER_DIR="${BASE_DRIVER_DIR:-$(cd "$(dirname "$0")/../drivers/base" && pwd)}"  # ChefBot's copy (its README.md)
 BASE_PYTHON="${BASE_PYTHON:-$HOME/miniforge3/envs/zitibot/bin/python}"  # has phoenix6, ruckig
 CHEFBOT_PYTHON="${CHEFBOT_PYTHON:-$HOME/chefbot_calib/env/bin/python}"  # numpy, redis, pyrealsense2, websockets, msgpack(-numpy)
-ONBOARD_CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.yaml"
-# The base driver's limits: onboard/config.yaml's base.driver_max_* (their one copy; MAX_VEL_XY etc. override for a run).
-read -r CFG_VXY CFG_VYAW CFG_AXY CFG_AYAW < <("$CHEFBOT_PYTHON" -c 'import sys, yaml
-b = yaml.safe_load(open(sys.argv[1]))["base"]
-print(b["driver_max_vel_xy"], b["driver_max_vel_yaw"], b["driver_max_accel_xy"], b["driver_max_accel_yaw"])' "$ONBOARD_CONFIG") || true
-[[ -n "${CFG_AYAW:-}" ]] || { echo "couldn't read the base driver's limits from $ONBOARD_CONFIG" >&2; exit 1; }
-MAX_VEL_XY="${MAX_VEL_XY:-$CFG_VXY}"
-MAX_VEL_YAW="${MAX_VEL_YAW:-$CFG_VYAW}"
-MAX_ACCEL_XY="${MAX_ACCEL_XY:-$CFG_AXY}"
-MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-$CFG_AYAW}"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+# The base driver runs at the robot's hard base cap: embodiments/tidybot_fr3/robot.yaml control.limits, read by
+# interface/limits.py (its one copy: the laptop's speed profiles, the onboard server and the gamepad are held to it too).
+read -r MAX_VEL_XY MAX_VEL_YAW MAX_ACCEL_XY MAX_ACCEL_YAW < <(PYTHONPATH="$REPO_ROOT" "$CHEFBOT_PYTHON" -c 'from chefbot.interface.limits import base_cap
+c = base_cap("tidybot_fr3")
+print(c["vel"][0], c["vel"][2], c["accel"][0], c["accel"][2])') || true
+[[ -n "${MAX_ACCEL_YAW:-}" ]] || { echo "couldn't read the base cap (embodiments/tidybot_fr3/robot.yaml control.limits)" >&2; exit 1; }
 READY_TIMEOUT_S=90
 SERVER_PORT="${SERVER_PORT:-8765}"  # keep equal to onboard/config.yaml server.port
 
@@ -75,7 +72,7 @@ cleanup() {
 		fi
 		pgrep -f "[s]ai_franka_robot_redis_driver" >/dev/null && echo "THE ARM DRIVER IS STILL RUNNING: stop it (E-stop, or Desk)" >&2 || echo "arm driver stopped" >&2
 	fi
-	pkill -TERM -f "[g]amepad_teleop.py" 2>/dev/null || true  # its Vehicle stops (its SIGTERM handler)
+	pkill -TERM -f "[d]rivers/base/teleop.py" 2>/dev/null || true  # its Vehicle stops (its SIGTERM handler)
 	for pid in "${PIDS[@]}"; do
 		pkill -TERM -P "$pid" 2>/dev/null || true
 		kill -TERM "$pid" 2>/dev/null || true
@@ -164,14 +161,14 @@ stop_base_driver() {  # out of the watched parts first (its exit is ours), then 
 	BASE_PID=""
 }
 
-gamepad_start() {  # the base to the gamepad (onboard/drivers/base/gamepad_teleop.py, its own speeds): the driver stops
+gamepad_start() {  # the base to the gamepad (onboard/drivers/base/teleop.py at the teleop speed profile): the driver stops
 	if [[ -n "$GAMEPAD_PID" ]]; then
 		echo "=== the gamepad already has the base (b gives it back) ==="
 		return
 	fi
 	echo "=== GAMEPAD: stopping the base driver..."
 	stop_base_driver
-	(cd "$BASE_DRIVER_DIR" && exec "$BASE_PYTHON" "$BASE_DRIVER_DIR/gamepad_teleop.py") 2>&1 | grep --line-buffered -v -i "pkg_resources\|import os\|^pygame \|hello from the pygame" &
+	(cd "$BASE_DRIVER_DIR" && PYTHONPATH="$REPO_ROOT" exec "$BASE_PYTHON" "$BASE_DRIVER_DIR/teleop.py") 2>&1 | grep --line-buffered -v -i "pkg_resources\|import os\|^pygame \|hello from the pygame" &
 	GAMEPAD_PID=$!
 	echo "=== GAMEPAD has the base: Start on the gamepad begins, hold a bumper to drive (left: base frame, right: world),"
 	echo "    left stick moves, right stick turns; b gives the base back to its driver. Laptop base targets wait meanwhile. ==="
@@ -179,12 +176,12 @@ gamepad_start() {  # the base to the gamepad (onboard/drivers/base/gamepad_teleo
 
 gamepad_stop() {  # the gamepad's Vehicle stops (its SIGTERM handler), then the driver takes the base again
 	[[ -n "$GAMEPAD_PID" ]] || { echo "=== the gamepad isn't running (g starts it) ==="; return; }
-	pkill -TERM -f "[g]amepad_teleop.py" 2>/dev/null || true
+	pkill -TERM -f "[d]rivers/base/teleop.py" 2>/dev/null || true
 	for _ in $(seq 1 30); do
-		pgrep -f "[g]amepad_teleop.py" >/dev/null || break
+		pgrep -f "[d]rivers/base/teleop.py" >/dev/null || break
 		sleep 0.1
 	done
-	pkill -KILL -f "[g]amepad_teleop.py" 2>/dev/null || true
+	pkill -KILL -f "[d]rivers/base/teleop.py" 2>/dev/null || true
 	wait "$GAMEPAD_PID" 2>/dev/null || true
 	GAMEPAD_PID=""
 	echo "=== gamepad stopped; the base driver: starting..."

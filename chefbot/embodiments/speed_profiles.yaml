@@ -4,8 +4,13 @@
 #   arm_lin       m/s                 how fast the flange may move toward its target
 #   arm_ang       rad/s               how fast it may turn
 #   joint         rad/s               how fast any one arm joint may move
-# Every profile is clipped to the robot's control.limits. (As in agentic-skills-exploration.)
+#   base_max_accel m/s^2, m/s^2, rad/s^2  optional: the robot's cap's otherwise
+# A profile over the robot's base cap (its robot.yaml control.limits) is refused, not clipped, wherever the base can
+# move (interface/limits.py). A run may take the arm's rates from one profile and the base's from another
+# (run_real --arm-speed / --base-speed; --speed both). (As in agentic-skills-exploration.)
 slow:   {base_max_vel: [0.08, 0.08, 0.15], arm_lin: 0.04, arm_ang: 0.25, joint: 0.15}   # first real runs
 medium: {base_max_vel: [0.15, 0.15, 0.3],  arm_lin: 0.1,  arm_ang: 0.5,  joint: 0.3}
 normal: {base_max_vel: [0.2, 0.2, 0.375],  arm_lin: 0.1,  arm_ang: 0.625, joint: 0.375}
-fast:   {base_max_vel: [0.5, 0.5, 1.0],    arm_lin: 0.4,  arm_ang: 2.0,  joint: 1.0}
+fast:   {base_max_vel: [0.5, 0.5, 1.0],    arm_lin: 0.4,  arm_ang: 2.0,  joint: 1.0}   # its base: over tidybot_fr3's cap
+# The gamepad's (onboard/bringup: launch.sh's g, gamepad.sh): the base's only, at the cap.
+teleop: {base_max_vel: [0.25, 0.25, 0.8], base_max_accel: [0.25, 0.25, 0.8]}
