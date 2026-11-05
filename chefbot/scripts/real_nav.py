@@ -572,9 +572,9 @@ def park(env: RealEnv, args) -> list[dict]:
         t0 = time.monotonic()
         r = go_planned(env, pose, grid, robot=robot, log_dir=log_dir, confirm=lambda _: None, approach_m=args.approach, via=via)
         for retry in range(2):  # a link stall the onboard server held the robot for: wait for the link, the same target again
-            if r.get("ok") or not any(k in str(r.get("reason")) for k in ("no word from the client", "lost the onboard server", "held the robot")):
+            if r.get("ok") or not any(k in str(r.get("reason")) for k in ("no word from the client", "lost the onboard server", "held the robot", "lost the live mocap pose")):
                 break
-            print(f"    held by the server (link stall): retrying the same target ({retry + 1}/2)")
+            print(f"    stopped by a link or mocap dropout: retrying the same target ({retry + 1}/2)")
             t_wait = time.monotonic()
             while not env.localization().live and time.monotonic() - t_wait < 10.0:
                 time.sleep(0.1)
