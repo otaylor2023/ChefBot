@@ -398,7 +398,7 @@ def counter_box(map_dir: Path, name: str | None = None) -> tuple:
     raise SystemExit(f"no box obstacle {name or ''} in {map_dir}/spec.yaml")
 
 
-def random_targets(box, n: int, seed: int, sides=None) -> list[tuple[float, float]]:
+def random_targets(box, n: int, seed: int, sides=None, x_range=None) -> list[tuple[float, float]]:
     """Targets drawn as the pick task draws them: a side, a spot along it >= 0.35 m from its ends, 0.10-0.16 m in.
     `sides`: only these (south / north / east / west), e.g. a counter against a wall reached from one side."""
     from chefbot.robot.nav.goal import PARK_END_MARGIN_M, TRAINED_INSET_M, counter_faces
@@ -407,12 +407,17 @@ def random_targets(box, n: int, seed: int, sides=None) -> list[tuple[float, floa
     faces = [f for f in counter_faces(*box[:3]) if not sides or f["name"] in sides]
     if not faces:
         raise SystemExit(f"no counter side among {sides}")
-    out = []
-    for _ in range(n):
+    out, tries = [], 0
+    while len(out) < n:  # `x_range` (world x min, max): only targets in this stretch, e.g. one section of a kitchen
+        tries += 1
+        if tries > 1000 * max(n, 1):
+            raise SystemExit(f"no targets on {sides or 'any side'} within x {x_range}")
         f = faces[int(rng.integers(len(faces)))]
         along = rng.uniform(-1, 1) * (f["half_along"] - PARK_END_MARGIN_M)
         inset = rng.uniform(*TRAINED_INSET_M)
         p = np.asarray(box[0], dtype=float) + f["t"] * along + f["n"] * (f["half_n"] - inset)
+        if x_range and not (x_range[0] <= p[0] <= x_range[1]):
+            continue
         out.append((round(float(p[0]), 3), round(float(p[1]), 3)))
     return out
 
@@ -455,7 +460,7 @@ def park(env: RealEnv, args) -> list[dict]:
     from chefbot.robot.nav.goal import park_report
 
     box = counter_box(args.map, args.counter)
-    targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed, args.sides)
+    targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed, args.sides, args.x_range)
     if not targets:
         raise SystemExit("no targets: --target X Y and/or --random N")
     from chefbot.scripts.real_map import load as load_map
@@ -566,6 +571,8 @@ def main() -> None:
     k.add_argument("--seed", type=int, default=0)
     k.add_argument("--sides", nargs="+", choices=("south", "north", "east", "west"), default=None,
                    help="draw --random targets on these counter sides only (a counter against a wall)")
+    k.add_argument("--x-range", nargs=2, type=float, default=None, metavar=("XMIN", "XMAX"),
+                   help="draw --random targets only within this world-x stretch (one section of a kitchen)")
     k.add_argument("--counter", default=None, help="the counter's obstacle name in the map spec (default: the first box)")
     k.add_argument("--plan-only", action="store_true", help="choose and print the stances; nothing moves")
     k.add_argument("--out", type=float, nargs="+", default=None,

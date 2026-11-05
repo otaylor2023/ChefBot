@@ -36,6 +36,11 @@ obstacles:
   # where the robot works.
   - name: nogo-west-of-island
     box: {center: [-1.180, -2.486], size: [2.699, 3.345], yaw_deg: -2.96}
+  # AVOID FOR NOW (Jack, 2026-11-05 13:50): the U's east aisle, between the island's east end and L leg 2 / the fridge.
+  # Tight (gripper ~5 cm from the fridge door when Jack drove it; cabinets at the L corner). Work stays in the
+  # island-stove section until this is taken on separately. Remove this obstacle to open it.
+  - name: avoid-for-now-fridge-aisle
+    box: {center: [2.966, -2.700], size: [1.156, 3.345], yaw_deg: -2.96}
   - name: Chef-botcounter-top           # Motive body ID 25: the test counter (HT-4..6), as in maps/src_counter
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
     height_m: 0.93
