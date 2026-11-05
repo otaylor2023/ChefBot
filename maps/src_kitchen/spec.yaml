@@ -1,0 +1,25 @@
+# The SRC kitchen in the Motive world frame (z up, metres), 2026-11-05. Counters from Motive rigid bodies' live markers
+# (positions are marker extents: real edges may reach a few cm past them). The kitchen is turned -2.96 deg from Motive's x.
+# Build: python -m chefbot.environments.real.build_map build maps/src_kitchen/spec.yaml
+resolution: 0.05
+# PROVISIONAL bounds: the floor the base may use. Not measured yet (Jack measures the walls next). ymin sits just behind
+# the corner counter's back edge (-4.95, assumed against a wall); xmax is the rough east wall from 2026-11-03 (3.92);
+# xmin, ymax as in maps/src_counter.
+bounds: [[-2.00, -4.95], [3.92, 4.32]]
+obstacles:
+  - name: kitchen_island_countertop     # Motive body ID 26: 4 corner markers, measured 2026-11-05 12:59
+    box: {center: [1.305, -2.087], size: [2.224, 0.961], yaw_deg: -2.96}
+    height_m: 0.91
+    fixture: island
+  - name: 1-corner-countertop           # Motive body ID 27: 15 markers (front edge, back edge, stove end), 2026-11-05 13:12
+    box: {center: [1.936, -4.638], size: [3.826, 0.632], yaw_deg: -2.96}
+    height_m: 0.83
+    fixture: stove_counter
+  - name: Chef-botcounter-top           # Motive body ID 25: the test counter (HT-4..6), as in maps/src_counter
+    box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
+    height_m: 0.93
+    fixture: counter
+stations:
+  - {obstacle: kitchen_island_countertop, prefix: island, standoff: 0.45, approach: 0.25}
+  - {obstacle: 1-corner-countertop, prefix: stove_counter, standoff: 0.45, approach: 0.25}
+  - {obstacle: Chef-botcounter-top, prefix: counter, standoff: 0.45, approach: 0.25}

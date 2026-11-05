@@ -1,0 +1,9 @@
+frame: world
+fixtures:
+  island:
+    location: [1.305, -2.087]
+  stove_counter:
+    location: [1.936, -4.638]
+  counter:
+    location: [1.49, 2.06]
+objects: {}
