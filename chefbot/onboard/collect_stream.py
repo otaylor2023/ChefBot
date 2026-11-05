@@ -3,7 +3,8 @@ RealSenses and saves the frames taken while the base moves (A to B; --all: every
 sampled alongside on the same clock. Self-contained: run as a
 file with the robot's camera env (pyrealsense2, cv2, redis, numpy); imports nothing from chefbot.
 
-    python collect_stream.py OUT_DIR [--seconds 0] [--all]     # SIGTERM / Ctrl-C stops it cleanly
+    python collect_stream.py OUT_DIR [--seconds 0] [--all] [--hz 3]   # SIGTERM / Ctrl-C stops it cleanly
+    (--hz: frames written per second while moving, 0 = all 15)
 
 OUT_DIR/
     <camera>/color/<n>.png, depth/<n>.png, ir1/ (ir2/) <n>.png   lossless (depth 16-bit raw units x depth_scale = m;
@@ -52,6 +53,8 @@ stop = threading.Event()
 # (planning, waiting, parked) is not. --all writes every frame.
 MOVE_MPS, MOVE_RADPS, MOTION_PAD_S = 0.02, 0.05, 0.5
 SAVE_ALL = False
+SAVE_HZ = 3.0  # frames written per second while moving (--hz; 0: every frame): consecutive 15 fps frames add little
+last_saved: dict = {}  # camera -> wall time of the last frame written
 last_motion = [0.0]  # wall time the base was last seen moving
 pending: dict = {}  # camera -> frames held for the pre-motion pad
 
@@ -175,7 +178,17 @@ def camera_loop(name: str, spec: dict, out: Path, writes: queue.Queue, stats: di
                     buf.pop(0)
                     st["skipped_still"] = st.get("skipped_still", 0) + 1
                 continue
-            for brow, bcolor, bdepth, birs in buf + [(row, color, depth, irs)]:
+            batch = buf + [(row, color, depth, irs)]
+            if SAVE_HZ > 0:  # thin to SAVE_HZ (the pre-motion pad too)
+                kept = []
+                for item in batch:
+                    if item[0]["wall"] - last_saved.get(name, 0.0) >= 1.0 / SAVE_HZ - 1e-3:
+                        kept.append(item)
+                        last_saved[name] = item[0]["wall"]
+                    else:
+                        st["thinned"] = st.get("thinned", 0) + 1
+                batch = kept
+            for brow, bcolor, bdepth, birs in batch:
                 brow["n"] = n
                 brow["ir"] = sorted(birs)
                 log.write(json.dumps(brow) + "\n")
@@ -232,8 +245,10 @@ def state_loop(out: Path, stats: dict, hz: float = 200.0) -> None:
 
 
 def main() -> None:
-    global SAVE_ALL
+    global SAVE_ALL, SAVE_HZ
     SAVE_ALL = "--all" in sys.argv
+    if "--hz" in sys.argv:
+        SAVE_HZ = float(sys.argv[sys.argv.index("--hz") + 1])
     out = Path(sys.argv[1]).expanduser()
     seconds = float(sys.argv[sys.argv.index("--seconds") + 1]) if "--seconds" in sys.argv else 0.0
     out.mkdir(parents=True, exist_ok=True)
