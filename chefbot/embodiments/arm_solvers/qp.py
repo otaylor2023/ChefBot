@@ -25,6 +25,7 @@ from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints, scale
 from chefbot.robot.arm.ik import TCP_SITE, ArmIK
 
 INERTIA_WEIGHT = 0.1  # the motion's cost, dq' M dq, against the pose error's
+MAX_LENGTHEN = 5.0  # at most this much longer than the QP's step (back to the progress the profile allows)
 ROT_WEIGHT = 0.3  # m per rad: a rotation error's weight against a position error's
 KEEP_ACTIVE = 0.10  # m: a point this near the body (past the margin) is constrained
 KEEP_GAIN = 0.3  # of the remaining clearance a point may close in one step
@@ -90,4 +91,17 @@ class QPSolver:
                                 solver=self.ik._solver)  # fmt: skip
         if dq is None:
             raise mink.exceptions.NoSolutionFound(self.ik._solver)
+        # The inertia weighting picks the direction, but as a cost it also shortens the step (the QP trades progress
+        # against moving inertia): lengthen it back to the progress k asks for along e, no further than the
+        # constraints allow, then to the profile's rates (scale). 2026-11-04: without this a move took ~25% longer
+        # than the old step, and a skill's step budget, set on the old one, ran out short of a hover.
+        got, want = float((J @ dq) @ e), float(k * (e @ e))
+        if got > 1e-12 and want > got:
+            s = min(want / got, MAX_LENGTHEN)
+            if G:
+                g, hh = np.vstack(G) @ dq, np.concatenate(h)
+                up = g > 1e-12
+                if up.any():
+                    s = min(s, float(np.min(hh[up] / g[up])))
+            dq = max(1.0, s) * dq
         return np.clip(q + scale(dq, Jp, Jr, dt, max_lin, max_ang, max_joint) * dq, self.lim[:, 0], self.lim[:, 1])
