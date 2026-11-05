@@ -199,3 +199,19 @@ def test_the_drivers_redis_keys_match_onboard_keys():
 
     assert (D.POSE, D.VEL, D.DESIRED, D.STOP) == (K.BASE_POSE, K.BASE_VELOCITY, K.BASE_DESIRED_POSE, K.BASE_STOP)
     assert (D.MAX_VEL_SCALE, D.CMD_SEQ, D.HEARTBEAT) == (K.BASE_MAX_VEL_SCALE, K.BASE_CMD_SEQ, K.BASE_HEARTBEAT)
+
+
+@pytest.mark.parametrize("current_deg, desired_deg, expect_deg", [
+    (172.7, -176.3, 183.7),    # HT-5a east_end: +11 deg across +-180, not -349
+    (-172.0, 175.0, -185.0),   # and the other way
+    (530.0, 0.0, 360.0),       # odometry yaw is continuous: nearly one and a half turns in already
+    (10.0, 30.0, 30.0),        # nothing to do away from the seam
+])
+def test_a_heading_target_takes_the_short_way(rig, current_deg, desired_deg, expect_deg):
+    loop, vehicle, redis, now = rig
+    vehicle.x = np.array([0.0, 0.0, np.radians(current_deg)])
+    command(redis, [0.0, 0.0, np.radians(desired_deg)])
+    loop.step()
+    kind, target = vehicle.commands[-1]
+    assert kind == "position" and np.degrees(target[2]) == pytest.approx(expect_deg)
+    assert abs(target[2] - vehicle.x[2]) <= np.pi + 1e-9

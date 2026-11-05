@@ -23,6 +23,9 @@ What differs, for safety:
   none), not the gentle motion limits (0.1 m/s^2): HT-4c
   measured 66 mm / 1.1 s to rest from 0.12 m/s with those; the worst case at 0.15 m/s was ~19 cm, now ~9 cm with the
   0.3 s timeout.
+- Headings take the short way. The Vehicle's odometry yaw is continuous and its trajectory (Ruckig) treats yaw as
+  a plain number, while the server sends a yaw wrapped to (-pi, pi]: near +-pi in the odometry frame the base turned
+  the long way, ~285 deg (HT-5a, east_end). Each goal's yaw is moved to the equivalent nearest the base's own.
 - The planar speed limit holds for the base's speed, not each axis: Vehicle's trajectory limits x and y
   separately, which let a diagonal go sqrt(2) faster (0.167 m/s measured in HT-3b against 0.125). Each tick the
   x / y limits are set along the direction to the goal, so their combination is at most --max-vel-xy.
@@ -54,6 +57,14 @@ def _parse(raw) -> np.ndarray | None:
         a = np.asarray(value, dtype=float)
         return a if np.all(np.isfinite(a)) else None
     return None
+
+
+def nearest_yaw(goal: np.ndarray, current_yaw: float) -> np.ndarray:
+    """`goal` with its yaw replaced by the equivalent angle nearest `current_yaw` (the short way round)."""
+    out = np.array(goal, dtype=float)
+    d = out[2] - current_yaw
+    out[2] = current_yaw + float(np.arctan2(np.sin(d), np.cos(d)))
+    return out
 
 
 class DriverLoop:
@@ -109,6 +120,7 @@ class DriverLoop:
                 self._brake()
                 self.mode = "idle"
             else:
+                goal = nearest_yaw(goal, float(np.asarray(self.v.x, dtype=float)[2]))
                 self._set_limits(braking=False)
                 self._limit_along(goal)
                 self.v.set_target_position(goal)
