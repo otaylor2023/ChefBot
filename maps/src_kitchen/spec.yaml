@@ -3,18 +3,29 @@
 # Build: python -m chefbot.environments.real.build_map build maps/src_kitchen/spec.yaml
 resolution: 0.05
 # PROVISIONAL bounds: the floor the base may use. Not measured yet (Jack measures the walls next). ymin sits just behind
-# the corner counter's back edge (-4.95, assumed against a wall); xmax is the rough east wall from 2026-11-03 (3.92);
+# the L counter's back edges (assumed against walls): ymin -4.95 behind leg 1, xmax 4.35 behind leg 2;
 # xmin, ymax as in maps/src_counter.
-bounds: [[-2.00, -4.95], [3.92, 4.32]]
+bounds: [[-2.00, -4.95], [4.35, 4.32]]
 obstacles:
   - name: kitchen_island_countertop     # Motive body ID 26: 4 corner markers, measured 2026-11-05 12:59
     box: {center: [1.305, -2.087], size: [2.224, 0.961], yaw_deg: -2.96}
     height_m: 0.91
     fixture: island
-  - name: 1-corner-countertop           # Motive body ID 27: 15 markers (front edge, back edge, stove end), 2026-11-05 13:12
+  # The L counter (Jack, 2026-11-05): leg 1 along the south with the stove (Motive body 27), leg 2 along the east joined
+  # to it at the corner (body 28, "2-corner-connected-1-and-fridge"), ending in the fridge. Leg 2's depth is assumed
+  # equal to leg 1's (0.632 m; its back edge has no markers).
+  - name: 1-corner-countertop           # leg 1, body 27: 15 markers (front edge, back edge, stove end), 13:12
     box: {center: [1.936, -4.638], size: [3.826, 0.632], yaw_deg: -2.96}
     height_m: 0.83
     fixture: stove_counter
+  - name: 2-corner-connected-1-and-fridge   # leg 2, body 28: front edge at kitchen-x 3.68, from the corner to the fridge
+    box: {center: [3.816, -3.556], size: [0.632, 2.987], yaw_deg: -2.96}
+    height_m: 0.84
+    fixture: side_counter
+  - name: fridge                        # leg 2's north end, body 28's markers at 1.78-1.79 m high
+    box: {center: [3.919, -1.570], size: [0.632, 0.990], yaw_deg: -2.96}
+    height_m: 1.80
+    fixture: fridge
   - name: Chef-botcounter-top           # Motive body ID 25: the test counter (HT-4..6), as in maps/src_counter
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
     height_m: 0.93
@@ -22,4 +33,5 @@ obstacles:
 stations:
   - {obstacle: kitchen_island_countertop, prefix: island, standoff: 0.45, approach: 0.25}
   - {obstacle: 1-corner-countertop, prefix: stove_counter, standoff: 0.45, approach: 0.25}
+  - {obstacle: 2-corner-connected-1-and-fridge, prefix: side_counter, standoff: 0.45, approach: 0.25}
   - {obstacle: Chef-botcounter-top, prefix: counter, standoff: 0.45, approach: 0.25}
