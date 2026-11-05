@@ -135,13 +135,12 @@ class SimRobot:
         from chefbot.interface.limits import base_cap
         from chefbot.onboard.server import build
 
-        real = yaml.safe_load((Path(__file__).resolve().parent / "config.yaml").read_text())  # the measured stop
+        real = yaml.safe_load((Path(__file__).resolve().parent / "config.yaml").read_text())
         cap = base_cap(real.get("embodiment", "tidybot_fr3"))["vel"]  # the robot's hard base cap: the driver runs at it
         config = {
             "server": {"host": "127.0.0.1", "port": 0, "state_hz": 50, "watchdog_s": 0.3, "camera_idle_s": 10},
             "base": {"marker_yaw_offset_deg": 0.0, "marker_xy": [0.0, 0.0], "mocap_stale_s": 0.25},
             "gripper": {"speed": 0.05, "force": 20.0},
-            "limits": dict(real["limits"]),
             "cameras": [],
         }  # fmt: skip
         speed = float(cap[0]) if speed is None else speed

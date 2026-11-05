@@ -8,24 +8,19 @@
 # Usage: chefbot/onboard/bringup/base.sh [--allow-arm]
 #   Refuses while the Franka arm driver runs (the server's halt also holds the arm, which then belongs to whoever
 #   started it), unless --allow-arm; and while anything else holds the base's CAN bus or publishes mocap.
-# Paths and limits from the environment, with these defaults:
+# Paths from the environment, with these defaults (the driver's limits: the robot's base cap, below):
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 BASE_PYTHON="${BASE_PYTHON:-$HOME/miniforge3/envs/zitibot/bin/python}"            # phoenix6, ruckig, redis
 CHEFBOT_PYTHON="${CHEFBOT_PYTHON:-$HOME/miniforge3/envs/chefbot-movement/bin/python}"
-ONBOARD_CONFIG="$REPO/chefbot/onboard/config.yaml"
-# The base driver's limits: onboard/config.yaml's base.driver_max_* (their one copy, as launch.sh reads them;
-# MAX_VEL_XY etc. override for a run).
-read -r CFG_VXY CFG_VYAW CFG_AXY CFG_AYAW < <("$CHEFBOT_PYTHON" -c 'import sys, yaml
-b = yaml.safe_load(open(sys.argv[1]))["base"]
-print(b["driver_max_vel_xy"], b["driver_max_vel_yaw"], b["driver_max_accel_xy"], b["driver_max_accel_yaw"])' "$ONBOARD_CONFIG") || true
-[[ -n "${CFG_AYAW:-}" ]] || { echo "couldn't read the base driver's limits from $ONBOARD_CONFIG" >&2; exit 1; }
-MAX_VEL_XY="${MAX_VEL_XY:-$CFG_VXY}"
-MAX_VEL_YAW="${MAX_VEL_YAW:-$CFG_VYAW}"
-MAX_ACCEL_XY="${MAX_ACCEL_XY:-$CFG_AXY}"
-MAX_ACCEL_YAW="${MAX_ACCEL_YAW:-$CFG_AYAW}"
+# The base driver runs at the robot's hard base cap: embodiments/tidybot_fr3/robot.yaml control.limits, read by
+# interface/limits.py (its one copy, as launch.sh reads it; the onboard server and the speed profiles are held to it too).
+read -r MAX_VEL_XY MAX_VEL_YAW MAX_ACCEL_XY MAX_ACCEL_YAW < <(PYTHONPATH="$REPO" "$CHEFBOT_PYTHON" -c 'from chefbot.interface.limits import base_cap
+c = base_cap("tidybot_fr3")
+print(c["vel"][0], c["vel"][2], c["accel"][0], c["accel"][2])') || true
+[[ -n "${MAX_ACCEL_YAW:-}" ]] || { echo "couldn't read the base cap (embodiments/tidybot_fr3/robot.yaml control.limits)" >&2; exit 1; }
 LOGS="${LOGS:-$REPO/runs/bringup_base/$(date +%Y%m%d_%H%M%S)}"
 
 ALLOW_ARM=false

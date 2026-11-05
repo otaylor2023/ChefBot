@@ -195,6 +195,35 @@ def summarize_move(samples: list[dict], start: Pose2D, goal: Pose2D) -> dict:
     return out
 
 
+def base_speeds(robot, profile: str | None, speed: float | None, yaw_speed: float | None) -> tuple[float, float, str]:
+    """The base's speeds for a run: the speed profile's (embodiments/speed_profiles.yaml, through Robot.speed, which
+    refuses a profile over the robot's hard cap), or lower ones from --speed / --yaw-speed. Asking for more than the
+    profile, or for nothing, is refused (SystemExit), not clipped."""
+    try:
+        prof = robot.speed(base=profile, use_arm=False, use_base=True)
+    except ValueError as exc:
+        raise SystemExit(f"refusing: {exc}") from None
+    vx, _, vyaw = prof.base_max_vel
+    for what, asked, allowed in (("--speed", speed, vx), ("--yaw-speed", yaw_speed, vyaw)):
+        if asked is not None and asked > allowed + 1e-9:
+            raise SystemExit(f"refusing: {what} {asked} is over speed profile {prof.name}'s {allowed} (pick a faster profile)")
+    speed = vx if speed is None else speed
+    yaw_speed = vyaw if yaw_speed is None else yaw_speed
+    if not (0 < speed and 0 < yaw_speed):
+        raise SystemExit("refusing: speeds must be positive")
+    return float(speed), float(yaw_speed), prof.name
+
+
+def check_server_cap(limits: dict, speed: float, yaw_speed: float) -> None:
+    """The robot computer reports its base cap in hello. A run's speed over it means the laptop and the robot disagree
+    on the cap (an old deploy): refused (ValueError), not clipped."""
+    for key, asked in (("base_max_vel_xy", speed), ("base_max_vel_yaw", yaw_speed)):
+        if key not in limits:
+            raise ValueError(f"the robot reports no {key} (an onboard server older than the base cap?)")
+        if asked > float(limits[key]) + 1e-9:
+            raise ValueError(f"{asked} is over the robot's reported {key} {limits[key]}: deploy the same commit on both sides")
+
+
 def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
        yaw_tol_deg: float = 3.0, corridor: float = 0.15, max_dist: float = 1.5, timeout_s: float | None = None,
        confirm=input, log_path: Path | None = None, rate_hz: float = 20.0, fence: Fence | None = None,
@@ -581,12 +610,6 @@ def park(env: RealEnv, args) -> list[dict]:
     from chefbot.robot.nav.speed import StopModel
 
     stop_model = StopModel.from_limits(env.server_limits)  # refuses when the robot reports no measured stop
-    ceiling = env.server_limits.get("base_max_vel_xy")
-    if ceiling is not None and args.speed > float(ceiling):
-        args.speed = float(ceiling)  # the driver's own ceiling (onboard/config.yaml)
-    ceiling_yaw = env.server_limits.get("base_max_vel_yaw")
-    if ceiling_yaw is not None and args.yaw_speed > float(ceiling_yaw):
-        args.yaw_speed = float(ceiling_yaw)
     accel = float(env.server_limits.get("base_max_accel_xy", 0.1))
     print(f"stop model: tau {stop_model.tau_s:.3f} s, brake {stop_model.brake_mps2:.2f} m/s^2 "
           f"({1000 * stop_model.distance(args.speed):.0f} mm from {args.speed:.3f} m/s); driver accel {accel} m/s^2")
@@ -665,9 +688,10 @@ def map_grids(env: RealEnv, args) -> tuple[float, dict]:
 
 def add_go_args(g) -> None:
     g.add_argument("--profile", default=None,
-                   help="speed profile (embodiments/speed_profiles.yaml; default: the robot's control.speed)")
-    g.add_argument("--speed", type=float, default=None, help="m/s, at most the profile's (default: the profile's)")
-    g.add_argument("--yaw-speed", type=float, default=None, help="rad/s, at most the profile's (default: the profile's)")
+                   help="speed profile (embodiments/speed_profiles.yaml; default: the robot's control.speed); "
+                        "one over the robot's base cap (robot.yaml control.limits) is refused")
+    g.add_argument("--speed", type=float, default=None, help="m/s, at most the profile's, more is refused (default: the profile's)")
+    g.add_argument("--yaw-speed", type=float, default=None, help="rad/s, at most the profile's, more is refused (default: the profile's)")
     g.add_argument("--tol", type=float, default=0.03, help="m")
     g.add_argument("--yaw-tol", type=float, default=3.0, help="deg")
     g.add_argument("--corridor", type=float, default=0.15, help="m off the straight line A-B before stopping")
@@ -728,15 +752,15 @@ def main() -> None:
     if args.cmd in ("go", "park"):
         from chefbot import embodiments
 
-        prof = embodiments.load("tidybot_fr3").speed(args.profile)
-        vx, _, vyaw = prof.base_max_vel
-        args.profile = prof.name
-        args.speed = vx if args.speed is None else min(args.speed, vx)
-        args.yaw_speed = vyaw if args.yaw_speed is None else min(args.yaw_speed, vyaw)
-        if not (0 < args.speed and 0 < args.yaw_speed):
-            raise SystemExit("refusing: speeds must be positive")
-        print(f"speed profile {prof.name}: {args.speed:.3f} m/s, {args.yaw_speed:.3f} rad/s (the driver clips to its ceiling)")
+        args.speed, args.yaw_speed, args.profile = base_speeds(embodiments.load("tidybot_fr3"), args.profile, args.speed, args.yaw_speed)
+        print(f"speed profile {args.profile}: {args.speed:.3f} m/s, {args.yaw_speed:.3f} rad/s")
     env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"])  # arm poses are never sent
+    if args.cmd in ("go", "park"):
+        try:
+            check_server_cap(env.server_limits, args.speed, args.yaw_speed)
+        except ValueError as exc:
+            env.close()
+            raise SystemExit(f"refusing: {exc}") from None
     t0 = time.monotonic()  # the server needs two mocap frames to call the pose live
     while not env.localization().live and time.monotonic() - t0 < 3.0:
         time.sleep(0.05)

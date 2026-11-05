@@ -189,7 +189,8 @@ def main() -> None:
     ap.add_argument("--brake-accel-yaw", type=float, default=0.8, help="rad/s^2 when braking")
     args = ap.parse_args()
     # Sanity bounds only (the `fast` speed profile's 0.5 m/s, 1.0 rad/s): the ceiling actually used is
-    # onboard/config.yaml's base.driver_max_*, raised a step at a time with the stop re-measured at each.
+    # the robot's base cap (embodiments/tidybot_fr3/robot.yaml control.limits, passed in by launch.sh / base.sh), raised
+    # a step at a time with the stop re-measured at each.
     if not (0 < args.max_vel_xy <= 0.5 and 0 < args.max_vel_yaw <= 1.0 and 0 < args.command_timeout <= 1.0):
         sys.exit("refusing: --max-vel-xy <= 0.5 m/s, --max-vel-yaw <= 1.0 rad/s, --command-timeout <= 1 s")
     if not (0.1 <= args.brake_accel_xy <= 1.0 and 0.3 <= args.brake_accel_yaw <= 2.0):

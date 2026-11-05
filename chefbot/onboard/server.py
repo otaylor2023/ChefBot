@@ -31,11 +31,11 @@ class OnboardServer:
         self.cameras = cameras
         self.state_hz = float(config["server"]["state_hz"])
         self.watchdog_s = float(config["server"]["watchdog_s"])
-        from chefbot.interface.limits import base_cap
+        from chefbot.interface.limits import base_cap, base_stop
 
-        cap = base_cap(config.get("embodiment", "tidybot_fr3"))  # told to the client: it checks its speeds against them
-        self.limits = dict(config.get("limits", {}))  # the base's measured stop
-        self.limits.update({"base_max_vel_xy": cap["vel"][0], "base_max_vel_yaw": cap["vel"][2]})
+        embodiment = config.get("embodiment", "tidybot_fr3")
+        cap = base_cap(embodiment)  # told to the client: it checks its speeds against them
+        self.limits = {"base_max_vel_xy": cap["vel"][0], "base_max_vel_yaw": cap["vel"][2], **base_stop(embodiment)}
         if cap["accel"] is not None:  # the client sizes its carrot by it (robot/nav/speed.py lookahead_for)
             self.limits["base_max_accel_xy"] = cap["accel"][0]
         self._server = serve(self._handle, config["server"]["host"], int(config["server"]["port"]), max_size=None)

@@ -491,3 +491,12 @@ robot would not remove it (mocap still stalls).
 Faster (Jack: 2–3x, "a real kitchen"): a speed-dependent carrot (or velocity commands), higher driver velocity and
 acceleration ceilings with stops re-measured at each step, speed limited by clearance near the counter from the measured
 stop envelope, no hold tail. Closer to the counter (Jack: "a bit too far"): see current-state for the trade-off.
+
+## Pending: stop test at the base cap (0.25 m/s)
+Since main fe2ed94 the base has one hard cap, `embodiments/tidybot_fr3/robot.yaml` `control.limits`: 0.25 m/s and
+0.8 rad/s, acceleration 0.25 m/s² and 0.8 rad/s² (`interface/limits.py`; `launch.sh` and `base.sh` start the driver at
+it). The 2026-11-04 0.3 m/s test ceiling was dropped and never run on hardware. The measured stop now sits next to the
+cap (`control.limits.base_stop_tau_s` 0.333 s, `base_stop_brake_mps2` 0.25), the HT-4d values. Braking at
+0.25 m/s² equals the cap's acceleration, but the stop from 0.25 m/s (predicted ~0.21 m) is **not measured**. Run the
+HT-4d stop test (SIGSTOP the server mid-move) at the cap, on the counter route, before any counter run faster than
+0.131 m/s.

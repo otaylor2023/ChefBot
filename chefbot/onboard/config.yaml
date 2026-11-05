@@ -31,17 +31,6 @@ gripper:
   speed: 0.05            # m/s
   force: 20.0            # N, when closing on an object
 
-# Told to the client in "hello" next to the base cap (the server adds it from interface/limits.py).
-limits:
-  # The base's measured stop, from the last fresh command to rest (the driver's timeout included), as
-  # d(v) = v * tau + v^2 / (2 * brake): the client never drives faster than it can stop in the free space ahead.
-  # HT-4d (2026-11-03): 78 mm from 0.131 m/s with the driver's 0.3 s timeout and 0.25 m/s^2 braking. Re-measure
-  # (SIGSTOP the server mid-move, docs/hardware-tests.md) whenever the driver's speed, braking or timeout change.
-  # The base cap (0.25 m/s, 0.25 m/s^2) brakes at the 0.25 measured here, but the stop from 0.25 m/s (predicted
-  # ~0.21 m) is not yet measured: run the stop test at the cap before any counter run.
-  base_stop_tau_s: 0.333
-  base_stop_brake_mps2: 0.25
-
 # The RealSenses (serials: `rs-enumerate-devices -s`).
 cameras:
   - {name: wrist, serial: "323622271565", width: 640, height: 480, fps: 15}   # D405
