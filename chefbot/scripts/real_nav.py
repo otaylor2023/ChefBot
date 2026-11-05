@@ -347,6 +347,18 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
     return result
 
 
+def escape_start(plan_grid, body_grid, start, max_m: float = 0.3):
+    """Where planning starts: `start` itself if it is clear with the margin, else the nearest cell that is (within
+    `max_m`) when the straight move there is clear for the body itself; None if neither."""
+    if plan_grid.is_free(start[0], start[1]):
+        return tuple(start)
+    cell = plan_grid.nearest_free_cell(start[0], start[1], max_m)
+    if cell is None:
+        return None
+    p = plan_grid.cell_to_world(cell)
+    return tuple(p) if body_grid.segment_free(tuple(start), tuple(p)) else None
+
+
 def subdivide(points, max_segment: float) -> list:
     """Split segments longer than `max_segment` into equal straight pieces (the same path, more waypoints)."""
     out = [points[0]]
@@ -377,10 +389,15 @@ def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, mar
     pre = Pose2D(goal.x - approach_m * math.cos(goal.yaw), goal.y - approach_m * math.sin(goal.yaw), goal.yaw)
     if approach_m > 0 and not body_grid.segment_free((pre.x, pre.y), (goal.x, goal.y)):
         return {"ok": False, "reason": "the straight approach to the goal is not clear", "moved": False}
+    begin = escape_start(plan_grid, body_grid, (start.x, start.y))
+    if begin is None:
+        return {"ok": False, "reason": "no path: the start is inside the margin with no clear way out", "moved": False}
     try:
-        points = AStarPlanner(plan_grid).plan_xy((start.x, start.y), (pre.x, pre.y))
+        points = AStarPlanner(plan_grid).plan_xy(begin, (pre.x, pre.y))
     except NoPath as exc:
         return {"ok": False, "reason": f"no path: {exc}", "moved": False}
+    if begin != (start.x, start.y):  # out of the margin first, straight (clear for the body)
+        points = [(start.x, start.y)] + points
     if approach_m > 0:
         poses = with_yaw(subdivide(points, max_segment), start.yaw, goal.yaw) + [goal]
         points = points + [(goal.x, goal.y)]
@@ -497,7 +514,11 @@ def choose_stance(env: RealEnv, box, target, grid, grids: dict, footprint: float
     if not clear:
         return None, f"no stance clear for the footprint ({len(cands)} by the rule, all blocked)"
     start = env.localization().mocap_pose
-    pick = select_standoff(AStarPlanner(plan_g), start, np.array([*target, 0.93]), [p for p, _ in clear], _ByRule())
+    begin = escape_start(plan_g, body_g, (start.x, start.y))
+    if begin is None:
+        return None, "the base is inside the margin with no clear way out"
+    pick = select_standoff(AStarPlanner(plan_g), Pose2D(begin[0], begin[1], start.yaw), np.array([*target, 0.93]),
+                           [p for p, _ in clear], _ByRule())  # fmt: skip
     if pick is None:
         return None, "no stance reachable by A* from here"
     return pick, next(i for p, i in clear if p is pick)
@@ -532,9 +553,9 @@ def park(env: RealEnv, args) -> list[dict]:
         pose, info = choose_stance(env, box, target, grid, grids, footprint, args.margin, args.out, args.approach)
         head = f"[{i + 1}/{len(targets)}] target ({target[0]:.3f}, {target[1]:.3f})"
         if pose is None:
-            print(f"{head}: {info}")
-            results.append({"target": target, "ok": False, "reason": info, "moved": False})
-            break
+            print(f"{head}: skipped, {info}")  # nothing moved: go on to the next target
+            results.append({"target": target, "ok": False, "reason": info, "moved": False, "skipped": True})
+            continue
         print(f"{head}: {info['side']} side, {info['inset_m']:.3f} m in, stance ({pose.x:.3f}, {pose.y:.3f}, "
               f"{math.degrees(pose.yaw):.1f} deg) {info['out_m']:.2f} m out" + ("" if info["trained"] else "  [inset outside 0.10-0.16]"))
         if args.plan_only:
