@@ -591,17 +591,20 @@ def test_real_nav_plans_around_an_obstacle_and_never_touches_it(sim, tmp_path):
     s = env.localization().mocap_pose  # (2, 1, 0.5): the simulated base's world pose at odometry zero
     grid, _ = build({"resolution": 0.05, "bounds": [[s.x - 2.1, s.y - 1.6], [s.x + 1.6, s.y + 1.6]],
                      "obstacles": [{"name": "box", "box": {"center": [s.x - 0.6, s.y], "size": [0.3, 0.3]}}]})  # fmt: skip
-    goal = Pose2D(s.x - 1.4, s.y, s.yaw)  # 0.25 m past the box's far edge grown by footprint + margin
-    result = go_planned(env, goal, grid, footprint=0.33, margin=0.10, confirm=lambda _: None, log_dir=tmp_path,
+    goal = Pose2D(s.x - 1.4, s.y, s.yaw)  # 0.65 m past the box's far edge
+    result = go_planned(env, goal, grid, margin=0.10, confirm=lambda _: None, log_dir=tmp_path,
                         speed=0.5, yaw_speed=1.0)  # fmt: skip
     assert result["ok"], result["reason"]
     assert len(result["path"]) > 2  # not the straight line through the box
     assert result["final_error_m"] < 0.03
-    body = grid.inflate(0.33)
+    from chefbot.interface.workspace import BODY
+    from chefbot.robot.nav.footprint import FootprintSpace
+
+    body = FootprintSpace(grid, BODY.footprint())  # the plate, turned with the base
     for leg in sorted(tmp_path.glob("leg*.jsonl")):
         for line in leg.read_text().splitlines():
-            x, y, _ = json.loads(line)["pose"]
-            assert body.is_free(x, y)  # the footprint never overlapped the box
+            x, y, yaw = json.loads(line)["pose"]
+            assert body.is_free(x, y, yaw)  # the footprint never overlapped the box
 
 
 def test_real_nav_refuses_a_goal_inside_an_obstacle(sim):

@@ -8,6 +8,7 @@ import pytest
 
 from chefbot.environments.real.env import RealEnv
 from chefbot.interface.types import Pose2D
+from chefbot.interface.workspace import Footprint
 from chefbot.onboard.sim import SimRobot
 from chefbot.scripts import real_trials as T
 from chefbot.scripts.real_map import box_polygon
@@ -16,37 +17,32 @@ FENCE = box_polygon((0.0, 0.0), (2.0, 2.0))
 BOX = box_polygon((0.6, 0.0), (0.2, 0.2))  # 0.5 .. 0.7 in x
 
 
-def test_the_arm_box_turns_with_the_base():
-    boxes = T.footprint_boxes((0.4, 0.3), [(0.2, 0.1, 0.4)])  # arm box centred 0.4 m ahead
-    facing_x = T.placed(boxes, (0.0, 0.0, 0.0))[1]
-    facing_y = T.placed(boxes, (0.0, 0.0, math.pi / 2))[1]
-    assert np.mean(facing_x, axis=0) == pytest.approx((0.4, 0.0))
-    assert np.mean(facing_y, axis=0) == pytest.approx((0.0, 0.4))
-    assert T.enclosing_radius(boxes) == pytest.approx(math.hypot(0.5, 0.05))
+ARMED = Footprint((-0.2, 0.2, -0.15, 0.15), np.array([[0.4, 0.0, 0.1]]))  # a 0.4 x 0.3 base, an arm disc 0.4 m ahead
+BASE_ONLY = Footprint((-0.2, 0.2, -0.15, 0.15), np.zeros((0, 3)))
+
+
+def test_the_footprint_turns_with_the_base():
+    assert T.outline(ARMED, (0.0, 0.0, 0.0))[-1] == pytest.approx((0.4, 0.0))
+    assert T.outline(ARMED, (0.0, 0.0, math.pi / 2))[-1] == pytest.approx((0.0, 0.4))
 
 
 def test_the_checker_catches_the_arm_reaching_an_obstacle_the_base_clears():
-    boxes = T.footprint_boxes((0.4, 0.3), [(0.2, 0.1, 0.4)])
-    base_only = T.footprint_boxes((0.4, 0.3))
-    pose_facing_box = (0.1, 0.0, 0.0)  # base front at 0.3, arm box front at 0.6: inside the box (0.5 .. 0.7)
-    assert T.check_poses([pose_facing_box], base_only, [BOX], FENCE)["footprint_hits"] == 0
-    assert T.check_poses([pose_facing_box], boxes, [BOX], FENCE)["footprint_hits"] == 1
+    pose_facing_box = (0.1, 0.0, 0.0)  # base front at 0.3, arm disc 0.4 .. 0.6: into the box (0.5 .. 0.7)
+    assert T.check_poses([pose_facing_box], BASE_ONLY, [BOX], FENCE)["footprint_hits"] == 0
+    assert T.check_poses([pose_facing_box], ARMED, [BOX], FENCE)["footprint_hits"] == 1
     turned_away = (0.1, 0.0, math.pi)  # same place, arm pointing the other way
-    assert T.check_poses([turned_away], boxes, [BOX], FENCE)["footprint_hits"] == 0
+    out = T.check_poses([turned_away], ARMED, [BOX], FENCE)
+    assert out["footprint_hits"] == 0 and out["min_clearance_m"] == pytest.approx(0.5 - 0.3, abs=0.006)
 
 
 def test_the_checker_catches_leaving_the_fence():
-    out = T.check_poses([(0.0, 0.0, 0.0), (1.1, 0.0, 0.0)], T.footprint_boxes((0.1, 0.1)), [], FENCE)
+    out = T.check_poses([(0.0, 0.0, 0.0), (1.1, 0.0, 0.0)], T.scaled(BASE_ONLY, 0.25), [], FENCE)
     assert out["outside_fence"] == 1 and out["footprint_hits"] == 0
 
 
-def test_convex_overlap():
-    a = box_polygon((0, 0), (1, 1))
-    assert T.convex_overlap(a, box_polygon((0.6, 0), (0.4, 0.4)))  # 0.4 .. 0.8 against -0.5 .. 0.5
-    assert not T.convex_overlap(a, box_polygon((0.9, 0), (0.4, 0.4)))  # 0.7 .. 1.1: apart
-    assert T.convex_overlap(a, box_polygon((0.6, 0.6), (0.4, 0.4), 45))  # its corner (x + y = 0.92) pokes past (0.5, 0.5)
-    assert not T.convex_overlap(a, box_polygon((0.75, 0.75), (0.4, 0.4), 45))  # x + y = 1.22: apart
-    assert not T.convex_overlap(a, box_polygon((1.2, 1.2), (0.4, 0.4), 45))  # corner to corner, apart
+def test_the_checker_catches_an_obstacle_inside_the_footprint():
+    small = box_polygon((0.0, 0.0), (0.05, 0.05))  # wholly under the plate: no corner of the plate inside it
+    assert T.check_poses([(0.0, 0.0, 0.3)], BASE_ONLY, [small], FENCE)["footprint_hits"] == 1
 
 
 def test_a_short_session_goes_around_obstacles_without_violations(tmp_path):
@@ -59,7 +55,7 @@ def test_a_short_session_goes_around_obstacles_without_violations(tmp_path):
             while not env.localization().live and time.monotonic() - t0 < 5:
                 time.sleep(0.02)
             res = T.run_session(env, half=1.0, trials=6, seed=3, obstacles=2, box=0.3,
-                                boxes=T.footprint_boxes((0.56, 0.50), [(0.3, 0.2, 0.4)]), margin=0.1, min_move=0.1,
+                                footprint=Footprint((-0.28, 0.28, -0.24, 0.24), np.array([[0.4, 0.0, 0.1]])), margin=0.1, min_move=0.1,
                                 max_turn_deg=90, speed=0.5, yaw_speed=1.0, out=tmp_path, confirm=lambda _: None,
                                 stop_on_violation=False, detour=1.0)  # fmt: skip
         finally:
@@ -124,8 +120,11 @@ def test_smooth_following_goes_around_an_obstacle_in_one_motion(tmp_path):
     rows = [json.loads(l) for l in (tmp_path / "leg00.jsonl").read_text().splitlines()]
     drive = [x for x in rows if x["phase"] == "drive"]
     assert all("carrot" in x for x in drive) and max(x["off_line"] for x in drive) < 0.15
-    body = grid.inflate(0.33)
-    assert all(body.is_free(x["pose"][0], x["pose"][1]) for x in rows)
+    from chefbot.interface.workspace import BODY
+    from chefbot.robot.nav.footprint import FootprintSpace
+
+    body = FootprintSpace(grid, BODY.footprint())  # the plate, turned with the base
+    assert all(body.is_free(*x["pose"]) for x in rows)
 
 
 def test_a_station_is_reached_square_after_a_straight_approach(tmp_path):

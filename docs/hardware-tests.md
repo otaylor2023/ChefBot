@@ -500,3 +500,20 @@ cap (`control.limits.base_stop_tau_s` 0.333 s, `base_stop_brake_mps2` 0.25), the
 0.25 m/s² equals the cap's acceleration, but the stop from 0.25 m/s (predicted ~0.21 m) is **not measured**. Run the
 HT-4d stop test (SIGSTOP the server mid-move) at the cap, on the counter route, before any counter run faster than
 0.131 m/s.
+
+## Footprint change after HT-5b (sim only so far)
+Navigation's footprint is now the robot's measured body (`embodiments/tidybot_fr3/robot.yaml` `body:`,
+`interface/workspace.py` `Body.footprint`, replacing `robot/kinematics/arm_outline.py` and the 0.33 m circle). It is
+the plate's outline (0.56 × 0.48 m about the base centre, corners 0.369 m out), turned with the base, plus the arm from
+its joints. The arm now sits ~18 cm ahead of the base centre, as on the plate: HT-5a's locked pose reaches **0.72 m**
+ahead, against the 0.548 m the old module gave, which put the arm at the base centre. The base centre is ASSUMED to be
+the plate's centre (not measured against the arm). Planning grows the map by the outline at the heading the base
+will have along the path (`robot/nav/footprint.py`), so a stance square to the counter fits at 0.45 m with the 0.09
+margin (the plate's front is 0.28 m from the centre).
+
+The HT-4/HT-5 clearances above were computed against the 0.33 m circle, so at the plate's corners they are up to
+~4 cm smaller (0.369 − 0.33).
+
+Sim (`onboard/sim.py`, start 0.285 0.276 179.6): `real_nav park --random 8 --seed 1 --map maps/src_counter --margin
+0.09 --approach 0`: 8/8 reached, ≤ 9 mm, 0.45 m out, square. None of 4,031 logged poses put the plate (at its logged
+heading) on an obstacle cell. With HT-5a's arm pose all 8 stances are still clear and plannable. Not yet run on the robot.

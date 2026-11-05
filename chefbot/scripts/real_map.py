@@ -1,7 +1,7 @@
 """A map of the real kitchen, in the mocap (Motive) world frame, from a short hand-written description.
 
     python -m chefbot.scripts.real_map build maps/src_kitchen/spec.yaml      # -> grid.npy, grid.yaml, places.yaml beside it
-    python -m chefbot.scripts.real_map show maps/src_kitchen [--footprint 0.33 --margin 0.10] [--from X Y --to X Y]
+    python -m chefbot.scripts.real_map show maps/src_kitchen [--yaw 90 --margin 0.10] [--from X Y --to X Y]
     python -m chefbot.scripts.real_map body probe.log Chef-botcounter-top      # an obstacle from a tracked rigid body
 
 `body` reads a log of bringup/mocap.sh run without --quiet (it prints Motive's rigid-body descriptions and every
@@ -26,7 +26,7 @@ The spec (all in metres, world frame, as real_pose / real_nav print poses):
 
 The output is the repo's map format (robot/nav OccupancyGrid: grid.npy + grid.yaml, row along +y, col along +x),
 so robot/nav's A* plans on it unchanged. Obstacles are the furniture itself; the planner grows them by the robot's
-footprint (real_nav: --footprint and --margin). Measure corners with a tape from a mocap-tracked point, or later
+footprint, the plate's outline turned with the base and the arm (real_nav: robot_footprints) and --margin. Measure corners with a tape from a mocap-tracked point, or later
 with a tracked wand; a few cm is fine, the margin covers it.
 """
 
@@ -208,7 +208,7 @@ def main() -> None:
     o.add_argument("name")
     s = sub.add_parser("show")
     s.add_argument("map_dir", type=Path)
-    s.add_argument("--footprint", type=float, default=0.33)
+    s.add_argument("--yaw", type=float, default=0.0, help="deg: the base's heading (its footprint, the plate, turns with it)")
     s.add_argument("--margin", type=float, default=0.10)
     s.add_argument("--from", dest="start", type=float, nargs=2)
     s.add_argument("--to", dest="goal", type=float, nargs=2)
@@ -234,7 +234,10 @@ def main() -> None:
         print(f"{grid.shape[0]} x {grid.shape[1]} cells at {grid.resolution} m, {free:.0f}% free; {len(places)} places -> {out}")
         return
     grid, places = load(args.map_dir)
-    inflated = grid.inflate(args.footprint + args.margin)
+    from chefbot.interface.workspace import load_body
+    from chefbot.robot.nav.footprint import FootprintSpace
+
+    inflated = FootprintSpace(grid, load_body().footprint(), args.margin).at(math.radians(args.yaw))
     path, marks = None, {name: (p["x"], p["y"]) for name, p in places.items()}
     if args.start and args.goal:
         try:
@@ -244,7 +247,8 @@ def main() -> None:
             print(f"no path: {exc}")
         marks |= {"S": tuple(args.start), "G": tuple(args.goal)}
     print(render(grid, inflated, path, marks))
-    print(f"'#' obstacle, '+' within {args.footprint + args.margin:.2f} m (footprint + margin) of one, '*' path; +y up")
+    print(f"'#' obstacle, '+' where the base centre at {args.yaw:.0f} deg would put its plate within {args.margin:.2f} m of one, "
+          "'*' path; +y up")
 
 
 if __name__ == "__main__":

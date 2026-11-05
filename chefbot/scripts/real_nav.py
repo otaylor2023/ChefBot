@@ -9,14 +9,15 @@
     python -m chefbot.scripts.real_nav go stove --map maps/src_kitchen     # A* around the map's obstacles
     python -m chefbot.scripts.real_nav arm                                 # the arm's outline over the floor, now
 
-With --map (scripts/real_map.py), the target may also be one of the map's places, and the base goes there by A* on
-the map grown by --footprint + --margin, one straight segment at a time (each a `go` as below, stopping at each
-corner), and stops if its footprint ever overlaps an obstacle. --footprint 0.33 m: the base reaches at most ~10 in
-(0.254 m) beyond the mocap body, whose origin is 0.072 m ahead of the base centre; --margin 0.10 m on top, for the
-arm at the front and for the map's measuring error. The footprint is a circle, so the margin protects the front too.
+With --map (scripts/real_map.py), the target may also be one of the map's places, and the base goes there by A*,
+keeping its footprint --margin (0.10 m, for the map's measuring error) clear of the map's obstacles at the heading it
+will have at each point of the path, and stops if its footprint ever reaches one. The footprint is the robot's
+measured body (embodiments/tidybot_fr3/robot.yaml `body:`, interface/workspace.py Body.footprint): the plate's
+outline (0.56 x 0.48 m about the base centre; corners 0.37 m out), turned with the base (robot/nav/footprint.py).
 
-With the arm driver running (or its last joint readings in Redis), --arm auto (the default) grows the footprint to
-cover the arm too: robot/kinematics/arm_outline.py projects the arm's links onto the floor from its joint angles.
+With the arm driver running (or its last joint readings in Redis), --arm auto (the default) adds the arm, from its
+joint angles (interface/workspace.py arm_points, 18 cm ahead of the base centre on its plate); against a map's low
+obstacles only the arm's points low enough to hit them count.
 And every `go` stops if the arm moves more than 0.05 rad on any joint while the base drives.
 
 Points are base poses in the mocap world (x, y in m, yaw in deg), in runs/real_nav/points.json.
@@ -93,49 +94,43 @@ def relative_point(origin: dict, forward: float, left: float, turn_deg: float) -
 ARM_MOVED_RAD = 0.05  # a joint moving more than this while the base drives stops it
 
 
-def low_footprint(raw: dict, low_height: float, base_radius: float = 0.33, link_radius: float = 0.08,
-                  clearance: float = 0.05) -> float:  # fmt: skip
-    """The footprint against LOW obstacles (counter tops): the base, plus only the arm's points lower than
-    low_height + clearance (higher parts pass over). Unknown arm: the full arm counts."""
-    q = raw.get("arm_q")
-    if q is None or len(q) != 7:
-        return arm_footprint(raw, base_radius, link_radius)["radius"]
-    from chefbot.robot.kinematics.arm_outline import arm_points
-
-    pts = arm_points(q)
-    # Thickness about each point: the links' link_radius; the flange and hand narrower; the fingertips thin.
-    radii = [link_radius] * (len(pts) - 2) + [0.06, 0.03]
-    under = [(p, r) for p, r in zip(pts, radii) if p[2] - r < low_height + clearance]
-    return max([base_radius] + [math.hypot(p[0], p[1]) + r for p, r in under])
+LOW_CLEARANCE_M = 0.05  # an arm point passes over a low obstacle only with its underside this much above its top
 
 
-def layered_grids(tall, low, low_height: float, raw: dict, base_radius: float = 0.33, margin: float = 0.10):
-    """Plan and body grids: tall obstacles grown by the full footprint (arm included), low ones by low_footprint."""
-    from chefbot.robot.nav.grid import OccupancyGrid
+def robot_footprints(raw: dict, arm: str = "auto", low_height: float | None = None):
+    """The robot's footprint from its measured body (embodiments/tidybot_fr3/robot.yaml `body:`, interface/workspace.py):
+    the plate's outline, plus the arm from its joints (with --arm auto and readings to go on). Returns (full, low, info):
+    `low` (with low_height) counts only the arm's points low enough to hit an obstacle of that height."""
+    from chefbot.interface.workspace import load_body
 
-    full = arm_footprint(raw, base_radius)["radius"]
-    lowfp = low_footprint(raw, low_height, base_radius)
-    def both(extra):
-        t, l = tall.inflate(full + extra), low.inflate(lowfp + extra)
-        return OccupancyGrid(t.occupied | l.occupied, tall.resolution, tall.origin)
-    return both(margin), both(0.0), {"full_m": full, "low_m": lowfp, "low_height_m": low_height}
+    body = load_body()
+    q = raw.get("arm_q") if arm == "auto" else None
+    known = q is not None and len(q) == 7
+    full = body.footprint(q if known else None)
+    low = body.footprint(q if known else None, below=low_height + LOW_CLEARANCE_M) if low_height is not None else None
+    if arm != "auto":
+        note = "arm off (--arm off): the plate only"
+    elif not known:
+        note = "arm pose unknown (no joint readings): the plate only"
+    else:
+        note = "arm from live joints" if raw.get("arm_live") else "arm from the last joint readings in Redis (driver not running)"
+    info = full.summary() | {"note": note, "arm_live": bool(raw.get("arm_live"))}
+    if low is not None:
+        info |= {"low_height_m": low_height, "low_radius_m": round(low.radius, 4)}
+    return full, low, info
 
 
-def arm_footprint(raw: dict, base_radius: float = 0.33, link_radius: float = 0.08) -> dict:
-    """The footprint circle (base centre) covering the base and, if its joints are known, the arm seen from above."""
-    q = raw.get("arm_q")
-    out = {"base_radius": base_radius, "radius": base_radius, "arm": None, "arm_live": bool(raw.get("arm_live"))}
-    if q is None or len(q) != 7:
-        out["note"] = "arm pose unknown (no joint readings): base footprint only"
-        return out
-    from chefbot.robot.kinematics.arm_outline import arm_box, reach_ahead
+def nav_space(grid, raw: dict, arm: str = "auto", layers=None):
+    """Where the base's centre may be at each heading (robot/nav/footprint.py), the body itself (no margin). With a
+    layered map (tall, low, low_height): walls by the full footprint, low obstacles by the low one."""
+    from chefbot.robot.nav.footprint import FootprintSpace
 
-    box = arm_box(q, link_radius=link_radius)
-    (cx, cy), (L, W) = box["center"], box["size"]
-    corners = [math.hypot(cx + sx * L / 2, cy + sy * W / 2) for sx in (-1, 1) for sy in (-1, 1)]
-    out.update(arm=box, reach_ahead_m=reach_ahead(q, link_radius=link_radius), radius=max(base_radius, max(corners)))
-    out["note"] = "arm from live joints" if out["arm_live"] else "arm from the last joint readings in Redis (driver not running)"
-    return out
+    if layers is not None:
+        tall, low_grid, low_height = layers
+        full, low, info = robot_footprints(raw, arm, low_height)
+        return FootprintSpace.layered([(tall, full), (low_grid, low)]), info
+    full, _, info = robot_footprints(raw, arm)
+    return FootprintSpace(grid, full), info
 
 
 class Fence:
@@ -316,7 +311,8 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
             target, extra = goal, {}
             v_cap = speed
             p_now = loc.mocap_pose
-            if stop_model is not None and keep_free is not None:
+            kf = keep_free.at(p_now.yaw) if hasattr(keep_free, "at") else keep_free  # a FootprintSpace: at this heading
+            if stop_model is not None and kf is not None:
                 from chefbot.robot.nav.speed import free_distance
 
                 bv = raw.get("base_velocity")
@@ -326,12 +322,12 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
 
                     look = lookahead_for(min(speed, last_cap), accel, 0.1)
                     target = follow.target_at(p_now, look)
-                    while look > 0.12 and not keep_free.segment_free((p_now.x, p_now.y), (target.x, target.y)):
+                    while look > 0.12 and not kf.segment_free((p_now.x, p_now.y), (target.x, target.y)):
                         look = max(0.12, look * 0.7)  # no corner cut into an obstacle
                         target = follow.target_at(p_now, look)
                     extra["lookahead"] = look
                 way = way or (target.x - p_now.x, target.y - p_now.y)
-                free = free_distance(keep_free, (p_now.x, p_now.y), way)
+                free = free_distance(kf, (p_now.x, p_now.y), way)
                 v_cap = min(speed, stop_model.speed_for(free - stop_buffer_m))
                 last_cap = v_cap
                 extra.update(free_m=free, v_cap=v_cap)
@@ -347,7 +343,7 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
             if fence is not None and not fence.contains(p.x, p.y, 0.05):
                 result["reason"] = "left the fence"
                 break
-            if keep_free is not None and not keep_free.is_free(p.x, p.y):
+            if kf is not None and not kf.is_free(p.x, p.y):
                 result["reason"] = "the base's footprint reached an obstacle on the map"
                 break
             if arm_q0 is not None and raw.get("arm_q") is not None:
@@ -431,41 +427,87 @@ def subdivide(points, max_segment: float) -> list:
     return out
 
 
-def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, margin: float = 0.10, confirm=input,
-               log_dir: Path | None = None, plan_grid=None, body_grid=None, max_segment: float = 1.0,
-               smooth: bool = True, approach_m: float = 0.0, lookahead: float = 0.12, **go_args) -> dict:  # fmt: skip
-    """A* from where the base is to `goal` on `grid` (the furniture itself) grown by footprint + margin, then each
-    segment with go(). The base centre must stay where its footprint clears the furniture (grid grown by footprint)."""
+def headings(start: Pose2D, points, goal_yaw: float) -> list[Pose2D]:
+    """The poses the base drives through: out of the margin first (if points[0] is not the start) at its own heading,
+    then turning to goal_yaw in proportion to the way gone along `points`."""
+    from chefbot.robot.nav.astar import with_yaw
+
+    poses = with_yaw(list(points), start.yaw, goal_yaw)
+    if tuple(points[0]) != (start.x, start.y):
+        poses = [start] + poses
+    return poses
+
+
+def plan_at_headings(plan, space, start: Pose2D, begin, pre: Pose2D, goal_yaw: float, repairs: int = 200):
+    """A* from `begin` to `pre` whose path is clear for the footprint at the heading the base will have at each point
+    (turning from start.yaw to goal_yaw in proportion to the way gone): with `plan`'s margin from `begin` on, and for
+    the body itself from `start` (out of the margin first, if begin is not start). A* starts on the grid blocked only
+    where every heading of the turn is; where the path then meets a cell not clear at its heading, that cell is blocked
+    and A* runs again. (points, None) or (None, reason)."""
+    from chefbot.robot.nav.astar import AStarPlanner, NoPath, with_yaw
+    from chefbot.robot.nav.grid import OccupancyGrid
+
+    g = plan.blocked_for_all(plan.sweep(start.yaw, goal_yaw))
+    occ = g.occupied.copy()
+    escaped = tuple(begin) != (start.x, start.y)
+    keep = {g.world_to_cell(*begin), g.world_to_cell(pre.x, pre.y)}
+    for _ in range(repairs):
+        try:
+            found = AStarPlanner(OccupancyGrid(occ, g.resolution, g.origin)).plan_xy(tuple(begin), (pre.x, pre.y))
+        except NoPath as exc:
+            return None, f"no path: {exc}"
+        poses = [(p.x, p.y, p.yaw) for p in headings(start, found, goal_yaw)]
+        bad = plan.first_blocked(poses[1:] if escaped else poses) or space.first_blocked(poses)
+        if bad is None:
+            return found, None
+        r0, c0 = g.world_to_cell(bad[0], bad[1])
+        # The cell, or (a point on a cell's edge falls in either) the free cells around it; never the start's or goal's.
+        near = [(r0, c0)] if g.in_bounds((r0, c0)) and not occ[r0, c0] else [
+            (r, c) for r in (r0 - 1, r0, r0 + 1) for c in (c0 - 1, c0, c0 + 1) if g.in_bounds((r, c)) and not occ[r, c]]
+        near = [cell for cell in near if cell not in keep]
+        if not near:
+            break  # no progress (the turn itself, at the start or the goal, is the problem)
+        for cell in near:
+            occ[cell] = True
+    return None, "no path: none clear for the footprint at the headings along it"
+
+
+def go_planned(env: RealEnv, goal: Pose2D, grid, *, space=None, margin: float = 0.10, confirm=input,
+               log_dir: Path | None = None, max_segment: float = 1.0, smooth: bool = True, approach_m: float = 0.0,
+               lookahead: float = 0.12, **go_args) -> dict:  # fmt: skip
+    """A* from where the base is to `goal`, then the path with go(). `space` (robot/nav/footprint.py FootprintSpace,
+    default: `grid` (the furniture itself) and the plate's outline) says where the base's centre may be at each heading
+    for its footprint: the path keeps `margin` more at the headings the base will have along it (it turns from its
+    heading to the goal's in proportion to the way gone), and the base stops if its footprint ever reaches an obstacle."""
     from chefbot.robot.nav.astar import AStarPlanner, NoPath, path_length, with_yaw
 
     loc = env.localization()
     if not loc.live:
         return {"ok": False, "reason": "no live mocap pose", "moved": False}
     start = loc.mocap_pose
-    # Callers with a centre-only limit (a fence) pass their own grids; by default everything on `grid` is furniture.
-    plan_grid = plan_grid if plan_grid is not None else grid.inflate(footprint + margin)
-    body_grid = body_grid if body_grid is not None else grid.inflate(footprint)
-    if not body_grid.is_free(start.x, start.y):
+    if space is None:
+        space = nav_space(grid, {}, arm="off")[0]
+    plan = space.with_margin(margin)
+    body_grid = space  # go() checks it at the base's heading each tick
+    if not space.is_free(start.x, start.y, start.yaw):
         return {"ok": False, "reason": "the base is touching an obstacle on the map where it stands", "moved": False}
     # A square finish: A* to a point `approach_m` straight back from the goal along its heading, turning to the goal's
     # heading on the way, then straight in at that heading (for a station facing a counter: along its normal).
     pre = Pose2D(goal.x - approach_m * math.cos(goal.yaw), goal.y - approach_m * math.sin(goal.yaw), goal.yaw)
-    if approach_m > 0 and not body_grid.segment_free((pre.x, pre.y), (goal.x, goal.y)):
+    if approach_m > 0 and not space.at(goal.yaw).segment_free((pre.x, pre.y), (goal.x, goal.y)):
         return {"ok": False, "reason": "the straight approach to the goal is not clear", "moved": False}
-    begin = escape_start(plan_grid, body_grid, (start.x, start.y))
+    begin = escape_start(plan.at(start.yaw), space.at(start.yaw), (start.x, start.y))
     if begin is None:
         return {"ok": False, "reason": "no path: the start is inside the margin with no clear way out", "moved": False}
-    try:
-        points = AStarPlanner(plan_grid).plan_xy(begin, (pre.x, pre.y))
-    except NoPath as exc:
-        return {"ok": False, "reason": f"no path: {exc}", "moved": False}
+    points, why = plan_at_headings(plan, space, start, begin, pre, goal.yaw)
+    if points is None:
+        return {"ok": False, "reason": why, "moved": False}
+    poses = headings(start, subdivide(points, max_segment), goal.yaw)  # as plan_at_headings checked them
     if begin != (start.x, start.y):  # out of the margin first, straight (clear for the body)
         points = [(start.x, start.y)] + points
     if approach_m > 0:
-        poses = with_yaw(subdivide(points, max_segment), start.yaw, goal.yaw) + [goal]
+        poses = poses + [goal]
         points = points + [(goal.x, goal.y)]
-    else:
-        poses = with_yaw(subdivide(points, max_segment), start.yaw, goal.yaw)
     if smooth:
         from chefbot.robot.config import RobotConfig
         from chefbot.robot.nav.base_controller import BaseController
@@ -558,30 +600,32 @@ class _ByRule:
         return True
 
 
-def choose_stance(env: RealEnv, box, target, grid, grids: dict, footprint: float, margin: float, out_m, approach: float):
-    """The stance for `target` by the start rule that is clear for the whole footprint (arm included) and cheapest to
-    reach by A* from where the base is: (pose, info) or (None, reason)."""
+def choose_stance(env: RealEnv, box, target, space, margin: float, out_m, approach: float):
+    """The stance for `target` by the start rule that is clear for the whole footprint (arm included) at the stance's
+    own heading, and cheapest to reach by A* from where the base is: (pose, info) or (None, reason)."""
     from chefbot.robot.nav.astar import AStarPlanner
     from chefbot.robot.nav.goal import counter_park_candidates, select_standoff
 
     cands = counter_park_candidates(*box[:3], target, out_m=tuple(out_m or (0.45, 0.48)))
     if not cands:
         return None, "the target is not 0-0.25 m in from a side and >= 0.35 m from its ends: no stance by the rule"
-    plan_g = grids.get("plan_grid") or grid.inflate(footprint + margin)
-    body_g = grids.get("body_grid") or grid.inflate(footprint)
+    plan = space.with_margin(margin)
     clear = []
     for pose, info in cands:
         pre = (pose.x - approach * math.cos(pose.yaw), pose.y - approach * math.sin(pose.yaw))
-        if plan_g.is_free(pose.x, pose.y) and plan_g.is_free(*pre) and body_g.segment_free(pre, (pose.x, pose.y)):
+        at = plan.at(pose.yaw)
+        if at.is_free(pose.x, pose.y) and at.is_free(*pre) and space.at(pose.yaw).segment_free(pre, (pose.x, pose.y)):
             clear.append((pose, info))
     if not clear:
         return None, f"no stance clear for the footprint ({len(cands)} by the rule, all blocked)"
     start = env.localization().mocap_pose
-    begin = escape_start(plan_g, body_g, (start.x, start.y))
+    begin = escape_start(plan.at(start.yaw), space.at(start.yaw), (start.x, start.y))
     if begin is None:
         return None, "the base is inside the margin with no clear way out"
-    pick = select_standoff(AStarPlanner(plan_g), Pose2D(begin[0], begin[1], start.yaw), np.array([*target, 0.93]),
-                           [p for p, _ in clear], _ByRule())  # fmt: skip
+    # Ranked by A* where some heading of each turn is clear (go_planned then checks the path at its headings).
+    yaws = [y for p, _ in clear for y in plan.sweep(start.yaw, p.yaw)]
+    pick = select_standoff(AStarPlanner(plan.blocked_for_all(yaws)), Pose2D(begin[0], begin[1], start.yaw),
+                           np.array([*target, 0.93]), [p for p, _ in clear], _ByRule())  # fmt: skip
     if pick is None:
         return None, "no stance reachable by A* from here"
     return pick, next(i for p, i in clear if p is pick)
@@ -606,7 +650,7 @@ def park(env: RealEnv, args) -> list[dict]:
     from chefbot.scripts.real_map import load as load_map
 
     grid, _ = load_map(args.map)
-    footprint, grids = map_grids(env, args)
+    space = map_space(env, args, grid)
     from chefbot.robot.nav.speed import StopModel
 
     stop_model = StopModel.from_limits(env.server_limits)  # refuses when the robot reports no measured stop
@@ -619,7 +663,7 @@ def park(env: RealEnv, args) -> list[dict]:
                                                       for k, v in vars(args).items()}}, indent=2))  # fmt: skip
     results = []
     for i, target in enumerate(targets):
-        pose, info = choose_stance(env, box, target, grid, grids, footprint, args.margin, args.out, args.approach)
+        pose, info = choose_stance(env, box, target, space, args.margin, args.out, args.approach)
         head = f"[{i + 1}/{len(targets)}] target ({target[0]:.3f}, {target[1]:.3f})"
         if pose is None:
             print(f"{head}: skipped, {info}")  # nothing moved: go on to the next target
@@ -632,8 +676,9 @@ def park(env: RealEnv, args) -> list[dict]:
             continue
         start = env.localization().mocap_pose
         log_dir = session / f"{i:02d}_{info['side']}"
+        log_dir.mkdir(parents=True, exist_ok=True)  # go_planned may refuse before it makes it
         t0 = time.monotonic()
-        r = go_planned(env, pose, grid, footprint=footprint, **grids, margin=args.margin, log_dir=log_dir,
+        r = go_planned(env, pose, grid, space=space, margin=args.margin, log_dir=log_dir,
                        confirm=lambda _: None, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
                        yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist, smooth=args.smooth,
                        approach_m=args.approach, stop_model=stop_model, accel=accel, settle_s=0.2, still_mps=0.01,
@@ -667,23 +712,18 @@ def park(env: RealEnv, args) -> list[dict]:
     return results
 
 
-def map_grids(env: RealEnv, args) -> tuple[float, dict]:
-    """The footprint and the planning / body grids for --map (the arm's footprint from its joints with --arm auto)."""
-    footprint = args.footprint
-    grids = {}
-    if args.arm == "auto":
-        fp = arm_footprint(env.raw_state(), base_radius=args.footprint)
-        footprint = fp["radius"]
-        print(f"footprint {footprint:.3f} m ({fp['note']}" + (f"; arm reaches {fp['reach_ahead_m']:.2f} m ahead)" if fp["arm"] else ")"))
-        from chefbot.scripts.real_map import load_layers
+def map_space(env: RealEnv, args, grid):
+    """Where the base's centre may be at each heading on --map, for the robot's footprint (robot_footprints: the
+    plate, and the arm from its joints with --arm auto)."""
+    from chefbot.scripts.real_map import load_layers
 
-        layers = load_layers(args.map)
-        if layers is not None:
-            plan_g, body_g, info = layered_grids(*layers, env.raw_state(), base_radius=args.footprint, margin=args.margin)
-            grids = {"plan_grid": plan_g, "body_grid": body_g}
-            print(f"  against walls {info['full_m']:.3f} m; against low obstacles (<= {info['low_height_m']:.2f} m) "
-                  f"{info['low_m']:.3f} m: the arm passes over them")  # fmt: skip
-    return footprint, grids
+    layers = load_layers(args.map)
+    space, info = nav_space(grid, env.raw_state(), args.arm, layers)
+    print(f"footprint: plate {info['plate']['x']} x {info['plate']['y']} m about the base centre, reaches "
+          f"{info['radius_m']:.3f} m ({info['note']}; {info['reach_ahead_m']:.2f} m ahead)"
+          + (f"; against low obstacles (<= {info['low_height_m']:.2f} m) {info['low_radius_m']:.3f} m: the arm passes over them"
+             if layers is not None else ""))  # fmt: skip
+    return space
 
 
 def add_go_args(g) -> None:
@@ -698,7 +738,6 @@ def add_go_args(g) -> None:
     g.add_argument("--max-dist", type=float, default=1.5, help="m: refuse targets further away")
     g.add_argument("--timeout", type=float, default=None, help="s (default from the distance and speed)")
     g.add_argument("--map", type=Path, default=None, help="a map from scripts/real_map.py: plan around its obstacles")
-    g.add_argument("--footprint", type=float, default=0.33, help="m, base centre to its farthest point (with --map)")
     g.add_argument("--margin", type=float, default=0.10, help="m added to the footprint for planning (with --map)")
     g.add_argument("--arm", choices=("auto", "off"), default="auto", help="grow the footprint to cover the arm (with --map)")
     g.add_argument("--segments", dest="smooth", action="store_false",
@@ -769,8 +808,7 @@ def main() -> None:
             mark(env, args.name)
             return
         if args.cmd == "arm":
-            fp = arm_footprint(env.raw_state())
-            print(json.dumps(fp, indent=2))
+            print(json.dumps(robot_footprints(env.raw_state())[2], indent=2))
             return
         if args.cmd == "park":
             if args.map is None:
@@ -794,8 +832,8 @@ def main() -> None:
         if grid is not None:
             log_dir = REPO / "runs" / "real_nav" / stamp
             log_dir.mkdir(parents=True, exist_ok=True)
-            footprint, grids = map_grids(env, args)
-            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, footprint=footprint, **grids,
+            space = map_space(env, args, grid)
+            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, space=space,
                                 margin=args.margin, log_dir=log_dir, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
                                 yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist, smooth=args.smooth,
                                 approach_m=float(p.get("approach_m", 0.0)))  # fmt: skip
