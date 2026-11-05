@@ -6,7 +6,8 @@ file with the robot's camera env (pyrealsense2, cv2, redis, numpy); imports noth
     python collect_stream.py OUT_DIR [--seconds 0] [--all]     # SIGTERM / Ctrl-C stops it cleanly
 
 OUT_DIR/
-    <camera>/color/<n>.png, <camera>/depth/<n>.png    every frame, lossless (depth 16-bit raw units x depth_scale = m)
+    <camera>/color/<n>.png, depth/<n>.png, ir1/ (ir2/) <n>.png   lossless (depth 16-bit raw units x depth_scale = m;
+                              infrared 8-bit, the stereo pair at the depth stream's resolution)
     <camera>/frames.jsonl     per frame: n, hardware frame number, timestamp (ms, host clock: global time on),
                               wall time received, blur score (variance of the Laplacian, 320 px wide), depth valid fraction
     <camera>/meta.json        device, USB link, stream profiles, intrinsics + distortion, depth->color extrinsics,
@@ -33,8 +34,8 @@ import numpy as np
 import pyrealsense2 as rs
 
 CAMERAS = {
-    "pole": {"serial": "049122252230", "color": (1280, 800), "depth": (1280, 720), "fps": 15},
-    "wrist": {"serial": "323622271565", "color": (640, 480), "depth": (640, 480), "fps": 15},  # USB 2.1 link (2026-11-05)
+    "pole": {"serial": "049122252230", "color": (1280, 800), "depth": (1280, 720), "fps": 15, "ir": [1, 2]},
+    "wrist": {"serial": "323622271565", "color": (640, 480), "depth": (640, 480), "fps": 15, "ir": [1]},  # USB 2.1 link (2026-11-05)
 }
 STATE_KEYS = ["chefbot-tidy::pos", "chefbot-tidy::ori", "chefbot-tidy::tracking_valid", "Chef-botcounter-top::pos",
               "Chef-botcounter-top::ori", "Chef-botcounter-top::tracking_valid", "hb1::current_pose", "hb1::current_vel",
@@ -76,10 +77,14 @@ def _options(dev) -> dict:
 def camera_loop(name: str, spec: dict, out: Path, writes: queue.Queue, stats: dict) -> None:
     (out / name / "color").mkdir(parents=True, exist_ok=True)
     (out / name / "depth").mkdir(parents=True, exist_ok=True)
+    for i in spec.get("ir", []):
+        (out / name / f"ir{i}").mkdir(parents=True, exist_ok=True)
     pipe, cfg = rs.pipeline(), rs.config()
     cfg.enable_device(spec["serial"])
     cfg.enable_stream(rs.stream.color, *spec["color"], rs.format.bgr8, spec["fps"])
     cfg.enable_stream(rs.stream.depth, *spec["depth"], rs.format.z16, spec["fps"])
+    for i in spec.get("ir", []):  # infrared: the stereo pair's own images, at the depth stream's resolution
+        cfg.enable_stream(rs.stream.infrared, i, *spec["depth"], rs.format.y8, spec["fps"])
     try:
         prof = pipe.start(cfg)
     except Exception as exc:
@@ -99,6 +104,10 @@ def camera_loop(name: str, spec: dict, out: Path, writes: queue.Queue, stats: di
     meta = {"camera": name, "serial": spec["serial"], "usb": dev.get_info(rs.camera_info.usb_type_descriptor),
             "firmware": dev.get_info(rs.camera_info.firmware_version), "fps": spec["fps"],
             "color": _intr(cs), "depth": _intr(ds), "depth_scale_m": dev.first_depth_sensor().get_depth_scale(),
+            "ir": {f"ir{i}": _intr(prof.get_stream(rs.stream.infrared, i)) for i in spec.get("ir", [])},
+            "ir_from_depth": {f"ir{i}": {"rotation_colmajor": list(ds.get_extrinsics_to(prof.get_stream(rs.stream.infrared, i)).rotation),
+                                         "translation_m": list(ds.get_extrinsics_to(prof.get_stream(rs.stream.infrared, i)).translation)}
+                              for i in spec.get("ir", [])},
             "depth_to_color": {"rotation_colmajor": list(ds.get_extrinsics_to(cs).rotation),
                                "translation_m": list(ds.get_extrinsics_to(cs).translation)},
             "options": _options(dev), "started_wall": time.time()}  # fmt: skip
@@ -136,6 +145,11 @@ def camera_loop(name: str, spec: dict, out: Path, writes: queue.Queue, stats: di
                 continue
             color = np.asanyarray(c.get_data()).copy()
             depth = np.asanyarray(d.get_data()).copy()
+            irs = {}
+            for i in spec.get("ir", []):
+                f = fs.get_infrared_frame(i)
+                if f:
+                    irs[i] = np.asanyarray(f.get_data()).copy()
             small = cv2.cvtColor(cv2.resize(color, (320, int(320 * color.shape[0] / color.shape[1]))), cv2.COLOR_BGR2GRAY)
             hw = c.get_frame_number()
             if st["last_hw"] is not None and hw > st["last_hw"] + 1:
@@ -152,16 +166,19 @@ def camera_loop(name: str, spec: dict, out: Path, writes: queue.Queue, stats: di
             moving = SAVE_ALL or now - last_motion[0] <= MOTION_PAD_S
             buf = pending.setdefault(name, [])
             if not moving:  # hold the last MOTION_PAD_S of frames, in case motion starts
-                buf.append((row, color, depth))
+                buf.append((row, color, depth, irs))
                 while buf and now - buf[0][0]["wall"] > MOTION_PAD_S:
                     buf.pop(0)
                     st["skipped_still"] = st.get("skipped_still", 0) + 1
                 continue
-            for brow, bcolor, bdepth in buf + [(row, color, depth)]:
+            for brow, bcolor, bdepth, birs in buf + [(row, color, depth, irs)]:
                 brow["n"] = n
+                brow["ir"] = sorted(birs)
                 log.write(json.dumps(brow) + "\n")
                 writes.put((out / name / "color" / f"{n:06d}.png", bcolor))
                 writes.put((out / name / "depth" / f"{n:06d}.png", bdepth))
+                for i, img in birs.items():
+                    writes.put((out / name / f"ir{i}" / f"{n:06d}.png", img))
                 n += 1
             buf.clear()
             st["frames"] = n
@@ -220,7 +237,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     stats: dict = {"started_wall": time.time()}
     writes: queue.Queue = queue.Queue(maxsize=600)  # ~20 s of both cameras; a full queue slows capture, never drops silently
-    writers = [threading.Thread(target=writer, args=(writes, stats), daemon=True) for _ in range(6)]
+    writers = [threading.Thread(target=writer, args=(writes, stats), daemon=True) for _ in range(8)]
     for w in writers:
         w.start()
     threads = [threading.Thread(target=state_loop, args=(out, stats), daemon=True)]
