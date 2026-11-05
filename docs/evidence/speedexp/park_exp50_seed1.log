@@ -1,0 +1,20 @@
+speed profile exp50: 0.500 m/s, 0.800 rad/s
+Park for 8 target(s), one after another, by A* on maps/src_counter. Floor clear and e-stop in hand? Enter to drive, Ctrl-C to cancel: footprint: plate [-0.2795, 0.2795] x [-0.241, 0.241] m about the base centre (arm from the last joint readings in Redis (driver not running)); reach 0.69 m, 0.68 m ahead
+stop model: tau 0.333 s, brake 0.25 m/s^2 (666 mm from 0.500 m/s); driver accel 0.25 m/s^2
+[1/8] target (0.469, 1.943): west side, 0.109 m in, stance (-0.090, 1.943, 0.0 deg) 0.45 m out
+    reached in 10.8 s, 0.1 mm, +0.00 deg; turned +1 (asked +1); out 0.450 m, target -0 mm off centre, -0.00 deg off square
+[2/8] target (0.790, 2.421): north side, 0.119 m in, stance (0.790, 2.990, -90.0 deg) 0.45 m out
+    reached in 7.7 s, 0.0 mm, -0.03 deg; turned -90 (asked -90); out 0.450 m, target -0 mm off centre, +0.03 deg off square
+[3/8] target (2.001, 1.705): south side, 0.125 m in, stance (2.001, 1.130, 90.0 deg) 0.45 m out
+    reached in 17.7 s, 1.0 mm, -0.17 deg; turned +180 (asked +180); out 0.449 m, target +0 mm off centre, +0.17 deg off square
+[4/8] target (0.462, 2.047): west side, 0.102 m in, stance (-0.090, 2.047, 0.0 deg) 0.45 m out
+    reached in 11.5 s, 0.1 mm, -0.03 deg; turned -90 (asked -90); out 0.450 m, target +0 mm off centre, +0.03 deg off square
+[5/8] target (1.550, 1.700): south side, 0.120 m in, stance (1.550, 1.130, 90.0 deg) 0.45 m out
+    reached in 10.9 s, 1.5 mm, -0.19 deg; turned +90 (asked +90); out 0.449 m, target +1 mm off centre, +0.19 deg off square
+[6/8] target (1.940, 1.698): south side, 0.118 m in, stance (1.940, 1.130, 90.0 deg) 0.45 m out
+    reached in 4.0 s, 0.8 mm, +0.07 deg; turned -0 (asked -0); out 0.451 m, target -0 mm off centre, -0.07 deg off square
+[7/8] target (2.496, 1.965): east side, 0.124 m in, stance (3.070, 1.965, -180.0 deg) 0.45 m out
+    reached in 9.5 s, 0.5 mm, +0.02 deg; turned +90 (asked +90); out 0.450 m, target -0 mm off centre, -0.02 deg off square
+[8/8] target (0.476, 2.137): west side, 0.116 m in, stance (-0.090, 2.137, 0.0 deg) 0.45 m out
+    reached in 17.7 s, 1.8 mm, +0.39 deg; turned +180 (asked +180); out 0.451 m, target -2 mm off centre, -0.39 deg off square
+session: /Users/jack/Documents/Stanford/cs329z-engineering-ai-agents/FINAL_PROJECT/Claude_Code/mac_chefbot-movement/runs/real_park/20261105_114403
