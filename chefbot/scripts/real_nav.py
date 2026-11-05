@@ -443,6 +443,174 @@ def go_planned(env: RealEnv, goal: Pose2D, grid, *, footprint: float = 0.33, mar
             "path_m": path_length(points)}  # fmt: skip
 
 
+def counter_box(map_dir: Path, name: str | None = None) -> tuple:
+    """(centre, size, yaw rad, name) of a box obstacle in the map's spec (the first one unless named)."""
+    import yaml
+
+    spec = yaml.safe_load((Path(map_dir) / "spec.yaml").read_text())
+    for o in spec.get("obstacles") or []:
+        if "box" in o and (name is None or o["name"] == name):
+            b = o["box"]
+            return tuple(b["center"]), tuple(b["size"]), math.radians(b.get("yaw_deg", 0.0)), o["name"]
+    raise SystemExit(f"no box obstacle {name or ''} in {map_dir}/spec.yaml")
+
+
+def random_targets(box, n: int, seed: int) -> list[tuple[float, float]]:
+    """Targets drawn as the pick task draws them: a side, a spot along it >= 0.35 m from its ends, 0.10-0.16 m in."""
+    from chefbot.robot.nav.goal import PARK_END_MARGIN_M, TRAINED_INSET_M, counter_faces
+
+    rng = np.random.default_rng(seed)
+    faces = counter_faces(*box[:3])
+    out = []
+    for _ in range(n):
+        f = faces[int(rng.integers(len(faces)))]
+        along = rng.uniform(-1, 1) * (f["half_along"] - PARK_END_MARGIN_M)
+        inset = rng.uniform(*TRAINED_INSET_M)
+        p = np.asarray(box[0], dtype=float) + f["t"] * along + f["n"] * (f["half_n"] - inset)
+        out.append((round(float(p[0]), 3), round(float(p[1]), 3)))
+    return out
+
+
+class _ByRule:
+    """Reachability for stances built by the start rule: the pick skills were trained from exactly these."""
+
+    def is_reachable(self, base_pose, target_world) -> bool:
+        return True
+
+
+def choose_stance(env: RealEnv, box, target, grid, grids: dict, footprint: float, margin: float, out_m, approach: float):
+    """The stance for `target` by the start rule that is clear for the whole footprint (arm included) and cheapest to
+    reach by A* from where the base is: (pose, info) or (None, reason)."""
+    from chefbot.robot.nav.astar import AStarPlanner
+    from chefbot.robot.nav.goal import PARK_OUT_M, counter_park_candidates, select_standoff
+
+    cands = counter_park_candidates(*box[:3], target, out_m=tuple(out_m or PARK_OUT_M))
+    if not cands:
+        return None, "the target is not 0-0.25 m in from a side and >= 0.35 m from its ends: no stance by the rule"
+    plan_g = grids.get("plan_grid") or grid.inflate(footprint + margin)
+    body_g = grids.get("body_grid") or grid.inflate(footprint)
+    clear = []
+    for pose, info in cands:
+        pre = (pose.x - approach * math.cos(pose.yaw), pose.y - approach * math.sin(pose.yaw))
+        if plan_g.is_free(pose.x, pose.y) and plan_g.is_free(*pre) and body_g.segment_free(pre, (pose.x, pose.y)):
+            clear.append((pose, info))
+    if not clear:
+        return None, f"no stance clear for the footprint ({len(cands)} by the rule, all blocked)"
+    start = env.localization().mocap_pose
+    pick = select_standoff(AStarPlanner(plan_g), start, np.array([*target, 0.93]), [p for p, _ in clear], _ByRule())
+    if pick is None:
+        return None, "no stance reachable by A* from here"
+    return pick, next(i for p, i in clear if p is pick)
+
+
+def turn_taken_deg(log_dir: Path) -> float:
+    """The signed rotation the base actually made over a move's logs (unwrapped mocap yaw)."""
+    yaws = [json.loads(line)["pose"][2] for f in sorted(Path(log_dir).glob("leg*.jsonl")) for line in f.open()]
+    return float(np.degrees(np.unwrap(yaws)[-1] - yaws[0])) if yaws else 0.0
+
+
+def park(env: RealEnv, args) -> list[dict]:
+    """Each target in turn: choose the stance, drive there (one smooth path, or the stations' straight-in), report
+    where the base ended against the start rule. Stops the session at the first move that does not end `reached`,
+    and on a rotation more than 15 deg beyond the short way."""
+    from chefbot.robot.nav.goal import park_report
+
+    box = counter_box(args.map, args.counter)
+    targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed)
+    if not targets:
+        raise SystemExit("no targets: --target X Y and/or --random N")
+    from chefbot.scripts.real_map import load as load_map
+
+    grid, _ = load_map(args.map)
+    footprint, grids = map_grids(env, args)
+    session = REPO / "runs" / "real_park" / f"{datetime.now():%Y%m%d_%H%M%S}"
+    session.mkdir(parents=True, exist_ok=True)
+    (session / "session.json").write_text(json.dumps({"targets": targets, "args": {k: (str(v) if isinstance(v, Path) else v)
+                                                      for k, v in vars(args).items()}}, indent=2))  # fmt: skip
+    results = []
+    for i, target in enumerate(targets):
+        pose, info = choose_stance(env, box, target, grid, grids, footprint, args.margin, args.out, args.approach)
+        head = f"[{i + 1}/{len(targets)}] target ({target[0]:.3f}, {target[1]:.3f})"
+        if pose is None:
+            print(f"{head}: {info}")
+            results.append({"target": target, "ok": False, "reason": info, "moved": False})
+            break
+        print(f"{head}: {info['side']} side, {info['inset_m']:.3f} m in, stance ({pose.x:.3f}, {pose.y:.3f}, "
+              f"{math.degrees(pose.yaw):.1f} deg) {info['out_m']:.2f} m out" + ("" if info["trained"] else "  [inset outside 0.10-0.16]"))
+        if args.plan_only:
+            results.append({"target": target, "stance": [pose.x, pose.y, pose.yaw], **info, "ok": True, "reason": "planned"})
+            continue
+        start = env.localization().mocap_pose
+        log_dir = session / f"{i:02d}_{info['side']}"
+        t0 = time.monotonic()
+        r = go_planned(env, pose, grid, footprint=footprint, **grids, margin=args.margin, log_dir=log_dir,
+                       confirm=lambda _: None, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
+                       yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist, smooth=args.smooth,
+                       approach_m=args.approach)  # fmt: skip
+        elapsed = time.monotonic() - t0
+        end = env.localization().mocap_pose
+        asked = math.degrees(wrap(pose.yaw - start.yaw))
+        took = turn_taken_deg(log_dir)
+        row = {"target": target, "stance": [pose.x, pose.y, pose.yaw], **info, "ok": bool(r.get("ok")), "reason": r["reason"],
+               "seconds": elapsed, "path_m": r.get("path_m"), "final_error_m": r.get("final_error_m"),
+               "final_yaw_error_deg": r.get("final_yaw_error_deg"), "turn_asked_deg": asked, "turn_taken_deg": took,
+               "stops": [leg["reason"] for leg in r.get("legs", [])]}  # fmt: skip
+        if end is not None:
+            row["rule"] = park_report(*box[:3], info["side"], end, target)
+        (log_dir / "park.json").write_text(json.dumps(row | {"result": r}, indent=2, default=str))
+        results.append(row)
+        rule = row.get("rule", {})
+        nan = float("nan")
+        err_m, err_deg = r.get("final_error_m"), r.get("final_yaw_error_deg")
+        print(f"    {r['reason']} in {elapsed:.1f} s, {1000 * (nan if err_m is None else err_m):.1f} mm, "
+              f"{nan if err_deg is None else err_deg:+.2f} deg; turned {took:+.0f} (asked {asked:+.0f}); "
+              f"out {rule.get('out_m', float('nan')):.3f} m, target {rule.get('target_lateral_m', float('nan')) * 1000:+.0f} mm "
+              f"off centre, {rule.get('yaw_off_square_deg', float('nan')):+.2f} deg off square")  # fmt: skip
+        if abs(took) > abs(asked) + 15.0:
+            print(f"    STOP: the base turned {took:+.0f} deg for {asked:+.0f}: not the short way")
+            break
+        if not r.get("ok"):
+            break
+    (session / "results.json").write_text(json.dumps(results, indent=2, default=str))
+    print(f"session: {session}")
+    return results
+
+
+def map_grids(env: RealEnv, args) -> tuple[float, dict]:
+    """The footprint and the planning / body grids for --map (the arm's footprint from its joints with --arm auto)."""
+    footprint = args.footprint
+    grids = {}
+    if args.arm == "auto":
+        fp = arm_footprint(env.raw_state(), base_radius=args.footprint)
+        footprint = fp["radius"]
+        print(f"footprint {footprint:.3f} m ({fp['note']}" + (f"; arm reaches {fp['reach_ahead_m']:.2f} m ahead)" if fp["arm"] else ")"))
+        from chefbot.scripts.real_map import load_layers
+
+        layers = load_layers(args.map)
+        if layers is not None:
+            plan_g, body_g, info = layered_grids(*layers, env.raw_state(), base_radius=args.footprint, margin=args.margin)
+            grids = {"plan_grid": plan_g, "body_grid": body_g}
+            print(f"  against walls {info['full_m']:.3f} m; against low obstacles (<= {info['low_height_m']:.2f} m) "
+                  f"{info['low_m']:.3f} m: the arm passes over them")  # fmt: skip
+    return footprint, grids
+
+
+def add_go_args(g) -> None:
+    g.add_argument("--speed", type=float, default=0.1, help="m/s (the driver caps it at its own limit)")
+    g.add_argument("--yaw-speed", type=float, default=0.3, help="rad/s")
+    g.add_argument("--tol", type=float, default=0.03, help="m")
+    g.add_argument("--yaw-tol", type=float, default=3.0, help="deg")
+    g.add_argument("--corridor", type=float, default=0.15, help="m off the straight line A-B before stopping")
+    g.add_argument("--max-dist", type=float, default=1.5, help="m: refuse targets further away")
+    g.add_argument("--timeout", type=float, default=None, help="s (default from the distance and speed)")
+    g.add_argument("--map", type=Path, default=None, help="a map from scripts/real_map.py: plan around its obstacles")
+    g.add_argument("--footprint", type=float, default=0.33, help="m, base centre to its farthest point (with --map)")
+    g.add_argument("--margin", type=float, default=0.10, help="m added to the footprint for planning (with --map)")
+    g.add_argument("--arm", choices=("auto", "off"), default="auto", help="grow the footprint to cover the arm (with --map)")
+    g.add_argument("--segments", dest="smooth", action="store_false",
+                   help="stop at each corner of the A* path (default: follow it smoothly)")  # fmt: skip
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default=None)
@@ -458,19 +626,18 @@ def main() -> None:
     q.add_argument("--turn", type=float, default=0.0, help="deg, counter-clockwise")
     g = sub.add_parser("go")
     g.add_argument("name")
-    g.add_argument("--speed", type=float, default=0.1, help="m/s (the driver caps it at its own limit)")
-    g.add_argument("--yaw-speed", type=float, default=0.3, help="rad/s")
-    g.add_argument("--tol", type=float, default=0.03, help="m")
-    g.add_argument("--yaw-tol", type=float, default=3.0, help="deg")
-    g.add_argument("--corridor", type=float, default=0.15, help="m off the straight line A-B before stopping")
-    g.add_argument("--max-dist", type=float, default=1.5, help="m: refuse targets further away")
-    g.add_argument("--timeout", type=float, default=None, help="s (default from the distance and speed)")
-    g.add_argument("--map", type=Path, default=None, help="a map from scripts/real_map.py: plan around its obstacles")
-    g.add_argument("--footprint", type=float, default=0.33, help="m, base centre to its farthest point (with --map)")
-    g.add_argument("--margin", type=float, default=0.10, help="m added to the footprint for planning (with --map)")
-    g.add_argument("--arm", choices=("auto", "off"), default="auto", help="grow the footprint to cover the arm (with --map)")
-    g.add_argument("--segments", dest="smooth", action="store_false",
-                   help="stop at each corner of the A* path (default: follow it smoothly)")  # fmt: skip
+    add_go_args(g)
+    k = sub.add_parser("park", help="park for counter work targets by the pick task's start rule (--map needed)")
+    k.add_argument("--target", type=float, nargs=2, action="append", metavar=("X", "Y"), help="a target on the counter (world)")
+    k.add_argument("--random", type=int, default=0, help="this many targets drawn by the start rule, one after another")
+    k.add_argument("--seed", type=int, default=0)
+    k.add_argument("--counter", default=None, help="the counter's obstacle name in the map spec (default: the first box)")
+    k.add_argument("--plan-only", action="store_true", help="choose and print the stances; nothing moves")
+    k.add_argument("--out", type=float, nargs="+", default=None,
+                   help="m, base centre out from the edge (default: the start rule's 0.56, 0.53, 0.59)")
+    k.add_argument("--approach", type=float, default=0.0,
+                   help="m straight in at the end (0: one smooth path straight to the stance; 0.25: the stations' way)")
+    add_go_args(k)
     sub.add_parser("arm")
     args = ap.parse_args()
 
@@ -488,7 +655,7 @@ def main() -> None:
         for name, p in load_points().items():
             print(f"{name:10} x {p['x']:.4f}  y {p['y']:.4f}  yaw {p['yaw_deg']:7.2f}  ({p['marked']})")
         return
-    if args.cmd == "go" and not (0 < args.speed <= 0.2 and 0 < args.yaw_speed <= 0.5):
+    if args.cmd in ("go", "park") and not (0 < args.speed <= 0.2 and 0 < args.yaw_speed <= 0.5):
         raise SystemExit("refusing: --speed <= 0.2 m/s and --yaw-speed <= 0.5 rad/s for now")
     env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"])  # arm poses are never sent
     t0 = time.monotonic()  # the server needs two mocap frames to call the pose live
@@ -501,6 +668,14 @@ def main() -> None:
         if args.cmd == "arm":
             fp = arm_footprint(env.raw_state())
             print(json.dumps(fp, indent=2))
+            return
+        if args.cmd == "park":
+            if args.map is None:
+                raise SystemExit("park needs --map")
+            if not args.plan_only:
+                input(f"Park for {len(args.target or []) + args.random} target(s), one after another, by A* on {args.map}. "
+                      "Floor clear and e-stop in hand? Enter to drive, Ctrl-C to cancel: ")  # fmt: skip
+            park(env, args)
             return
         points = load_points()
         grid = None
@@ -516,20 +691,7 @@ def main() -> None:
         if grid is not None:
             log_dir = REPO / "runs" / "real_nav" / stamp
             log_dir.mkdir(parents=True, exist_ok=True)
-            footprint = args.footprint
-            grids = {}
-            if args.arm == "auto":
-                fp = arm_footprint(env.raw_state(), base_radius=args.footprint)
-                footprint = fp["radius"]
-                print(f"footprint {footprint:.3f} m ({fp['note']}" + (f"; arm reaches {fp['reach_ahead_m']:.2f} m ahead)" if fp["arm"] else ")"))
-                from chefbot.scripts.real_map import load_layers
-
-                layers = load_layers(args.map)
-                if layers is not None:
-                    plan_g, body_g, info = layered_grids(*layers, env.raw_state(), base_radius=args.footprint, margin=args.margin)
-                    grids = {"plan_grid": plan_g, "body_grid": body_g}
-                    print(f"  against walls {info['full_m']:.3f} m; against low obstacles (<= {info['low_height_m']:.2f} m) "
-                          f"{info['low_m']:.3f} m: the arm passes over them")  # fmt: skip
+            footprint, grids = map_grids(env, args)
             result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, footprint=footprint, **grids,
                                 margin=args.margin, log_dir=log_dir, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
                                 yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist, smooth=args.smooth,
