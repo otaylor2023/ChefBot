@@ -128,10 +128,10 @@ class SimRobot:
 
         config = {
             "server": {"host": "127.0.0.1", "port": 0, "state_hz": 50, "watchdog_s": 0.3, "camera_idle_s": 10},
-            "base": {"driver_max_vel_xy": 0.125, "driver_max_vel_yaw": 0.4, "marker_yaw_offset_deg": 0.0,
+            "base": {"driver_max_vel_xy": 0.125, "driver_max_vel_yaw": 0.4, "driver_max_accel_xy": 0.1, "marker_yaw_offset_deg": 0.0,
                      "marker_xy": [0.0, 0.0], "mocap_stale_s": 0.25},
             "gripper": {"speed": 0.05, "force": 20.0},
-            "limits": {"base_max_vel_xy": 0.125, "base_max_vel_yaw": 0.4},
+            "limits": {"base_max_vel_xy": 0.125, "base_max_vel_yaw": 0.4, "base_stop_tau_s": 0.333, "base_stop_brake_mps2": 0.25},
             "cameras": [],
         }  # fmt: skip
         self.redis = FakeRedis({K.MOCAP_VALID: "1"})

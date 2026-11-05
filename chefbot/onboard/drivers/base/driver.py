@@ -188,10 +188,12 @@ def main() -> None:
     ap.add_argument("--brake-accel-xy", type=float, default=0.25, help="m/s^2 when braking (no fresh command, stop)")
     ap.add_argument("--brake-accel-yaw", type=float, default=0.8, help="rad/s^2 when braking")
     args = ap.parse_args()
-    if not (0 < args.max_vel_xy <= 0.25 and 0 < args.max_vel_yaw <= 0.8 and 0 < args.command_timeout <= 1.0):
-        sys.exit("refusing: --max-vel-xy <= 0.25 m/s, --max-vel-yaw <= 0.8 rad/s, --command-timeout <= 1 s")
-    if not (0.1 <= args.brake_accel_xy <= 0.5 and 0.3 <= args.brake_accel_yaw <= 1.6):
-        sys.exit("refusing: --brake-accel-xy in [0.1, 0.5] m/s^2, --brake-accel-yaw in [0.3, 1.6] rad/s^2")
+    # Sanity bounds only (the `fast` speed profile's 0.5 m/s, 1.0 rad/s): the ceiling actually used is
+    # onboard/config.yaml's base.driver_max_*, raised a step at a time with the stop re-measured at each.
+    if not (0 < args.max_vel_xy <= 0.5 and 0 < args.max_vel_yaw <= 1.0 and 0 < args.command_timeout <= 1.0):
+        sys.exit("refusing: --max-vel-xy <= 0.5 m/s, --max-vel-yaw <= 1.0 rad/s, --command-timeout <= 1 s")
+    if not (0.1 <= args.brake_accel_xy <= 1.0 and 0.3 <= args.brake_accel_yaw <= 2.0):
+        sys.exit("refusing: --brake-accel-xy in [0.1, 1.0] m/s^2, --brake-accel-yaw in [0.3, 2.0] rad/s^2")
 
     import signal
 

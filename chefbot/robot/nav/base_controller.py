@@ -80,6 +80,13 @@ class BaseController:
         carrot = self._point_at(s)
         return Pose2D(float(carrot[0]), float(carrot[1]), self._yaw_at(s))
 
+    def target_at(self, pose: Pose2D, lookahead: float) -> Pose2D:
+        """`target` with its own lookahead (a faster base needs its carrot further ahead)."""
+        self._project(pose.xy)
+        s = self._progress + lookahead
+        carrot = self._point_at(s)
+        return Pose2D(float(carrot[0]), float(carrot[1]), self._yaw_at(s))
+
     def step(self, pose: Pose2D, dt: float) -> tuple[float, float, float]:
         """World-frame (vx, vy, vyaw) for this tick."""
         cfg = self._cfg

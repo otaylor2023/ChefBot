@@ -33,8 +33,11 @@ class OnboardServer:
         self.watchdog_s = float(config["server"]["watchdog_s"])
         from chefbot.interface.limits import base_cap
 
-        cap = base_cap(config.get("embodiment", "tidybot_fr3"))["vel"]  # told to the client: it checks its speeds against them
-        self.limits = {"base_max_vel_xy": cap[0], "base_max_vel_yaw": cap[2]}
+        cap = base_cap(config.get("embodiment", "tidybot_fr3"))  # told to the client: it checks its speeds against them
+        self.limits = dict(config.get("limits", {}))  # the base's measured stop
+        self.limits.update({"base_max_vel_xy": cap["vel"][0], "base_max_vel_yaw": cap["vel"][2]})
+        if cap["accel"] is not None:  # the client sizes its carrot by it (robot/nav/speed.py lookahead_for)
+            self.limits["base_max_accel_xy"] = cap["accel"][0]
         self._server = serve(self._handle, config["server"]["host"], int(config["server"]["port"]), max_size=None)
         self._thread: threading.Thread | None = None
         self._client_lock = threading.Lock()
