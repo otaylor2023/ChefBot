@@ -5,6 +5,49 @@ images, what each object is and roughly where it sits (which counter, x/y within
 objects move, so the base can drive to "spatula 1". Precision isn't the point: at the stance the arm re-finds the
 object with the wrist camera. Read [kitchen-runbook.md](kitchen-runbook.md) for running the robot.
 
+## Read first: the gaps between this and a working "go to tomato" (checked 2026-11-05)
+Driving to a point beside a counter is solved and proven (`real_nav park --target X Y --counter C`, 200+ kitchen
+trips). The image → world → stance chain is not. In order of how badly each would fail:
+
+1. **Base frame mismatch, ~18 cm along the heading (silent).** The pole calibration's `T` is in the arm base's x/y
+   (`config/robot_tidybot_fr3.yaml` `arm_mount: xyz [0, 0, 0.335]` = arm directly above "the base"). Our robot pose
+   (mocap, `Localizer.base_from_mocap`) is the base's turning centre, which `interface/workspace.py` `Body.base_xy`
+   puts ~18 cm **behind** the arm (itself ASSUMED, not measured). Chaining them as-is shifts every object ~18 cm along
+   the robot's heading, plus the +0.105 m height offset. **Fix offline, no arm needed:** the counters' Motive markers are
+   bright dots in the pole's IR images (`ir1/`, `ir2/`) at known world positions (`motive_descriptions_*.log` give
+   the bodies' marker offsets; the live positions are in `mocap_markers_push_20261105.log` and in this doc's
+   predecessors: island corners (0.17, −2.51), (0.22, −1.55), (2.43, −1.67), (2.39, −2.62), z 0.91). Find them in a
+   few frames, solve the camera's world pose (PnP), and compare with `planar(base) @ T`: the difference is the
+   arm-base ↔ turning-centre offset (and any calibration error). Validate the whole chain here before anything else.
+2. **Many object positions have no stance.** `robot/nav/goal.py` `counter_park_candidates` only parks for targets
+   ≤ `max_inset` 0.25 m in from a counter edge and ≥ 0.35 m (`PARK_END_MARGIN_M`) from its ends: the pick skill's
+   trained start (inset 0.10–0.16, `TRAINED_INSET_M`). The island is 0.96 m deep, so an object in its middle gets no
+   stance. Decide with Jack and the teammate: allow deeper targets (outside the pick's training), or approach from the
+   nearer side and let the arm reach.
+3. **No vision model ready to run.** batcomputer has no vision env (AMD GPU: needs ROCm PyTorch + transformers for
+   `runtime/vision_server.py`); Gemini (`runtime/models.py`) needs an API key; the Mac (M1, MPS) can run OWLv2 slowly.
+   Nobody has run a detector on these images: whether "tomato" / "spatula" are found from the pole at 1–2 m, partly
+   behind the locked arm, is the first thing to measure on a few frames.
+4. **No glue yet:** no memory-map file format, no builder, no `go to <name>` that looks an entry up, picks its counter
+   and side (which `spec.yaml` box contains its x/y) and calls `park`. Small, but missing.
+
+Smaller:
+- The repo's `environments/real/config.yaml` still has the 11-03 pole `T`: anything live (`RealEnv.camera_pose`) is ~12° off.
+- The wrist camera's pose uses the same 0.335 m mount (0.105 m low) and the arm's last joint readings (arm locked).
+- The pickup can't be tested: the arm stays locked until its setup is reviewed (it sagged once). "Success" for the
+  base: the object is in front of the parked base within the arm's reach, and in the wrist camera's view at READY.
+- Needed from Jack: **the list of objects** on the counters (detector queries and the answer key) and **what moved in
+  pass 3** (`MOVES.txt`).
+
+### Shortest path to "go to tomato"
+1. Offline: verify the camera chain against the Motive markers in the IR images (fixes gap 1; update the
+   arm-base offset where it belongs, with the teammate).
+2. Offline: one detector working on batcomputer (or the Mac); score it on ~20 frames per layout against Jack's list.
+3. Offline: memory-map JSON + builder from a pass + `go to <name>` (a `real_nav` subcommand or a small script), with
+   the deep-target rule from gap 2.
+4. Robot, ~15 min: one recorded pass, build the map, `go to` three named objects; for each, check in the pole and
+   wrist images that the object sits in front of the parked base.
+
 ## Where everything is
 | what | where |
 |---|---|
@@ -35,7 +78,9 @@ object with the wrist camera. Read [kitchen-runbook.md](kitchen-runbook.md) for 
    `onboard/config.yaml`): `yaw = yaw_of(ori) − 3.14°`; `base_xy = pos_xy − R(yaw)·(0.072, −0.002)`.
 3. **Camera in the base:** `T` = the NEW `cameras.pole.T` (OpenCV axes: x right, y down, z forward). Its z is relative
    to the sim's arm mount (0.335 m); the real plate is 0.44 m up, so add **+0.105 m** to camera heights (the config's
-   comment). The old (11-03) `T` in the repo is wrong for these passes by ~12° (mostly roll): ~10 cm at 1.5 m.
+   comment). Its x/y are the **arm base's**, not the turning centre our pose uses: ~18 cm apart along the heading
+   (gap 1 above; measure it before trusting any position). The old (11-03) `T` in the repo is wrong for these passes
+   by ~12° (mostly roll): ~10 cm at 1.5 m.
 4. **Depth to 3D:** depth PNG × `depth_scale_m` → metres in the **depth** camera; deproject with the depth intrinsics,
    move to the color camera with `depth_to_color` (pole color is 1280x800, depth 1280x720: they are not aligned).
 5. **World:** `p_world = planar(base x, y, yaw) @ T_pole @ p_color_cam`.
