@@ -99,11 +99,29 @@ def camera_loop(name: str, spec: dict, out: Path, writes: queue.Queue, stats: di
     n, st = 0, {"ok": True, "frames": 0, "dropped_hw": 0, "last_hw": None}
     stats[name] = st
     print(json.dumps({"camera": name, "streaming": True, "usb": meta["usb"]}), flush=True)
+    events = (out / name / "events.jsonl").open("a")
+    st["restarts"] = 0
     try:
         while not stop.is_set():
             try:
                 fs = pipe.wait_for_frames(2000)
-            except RuntimeError:
+            except RuntimeError as exc:  # no frame in 2 s: the stream stalled (a USB error); restart it, and say so
+                ev = {"wall": time.time(), "event": "stall", "error": str(exc), "frames_so_far": n}
+                try:
+                    pipe.stop()
+                except Exception:
+                    pass
+                time.sleep(1.0)
+                try:
+                    pipe.start(cfg)
+                    ev["restarted"] = True
+                    st["restarts"] += 1
+                except Exception as exc2:
+                    ev["restarted"] = False
+                    ev["restart_error"] = str(exc2)
+                events.write(json.dumps(ev) + "\n")
+                events.flush()
+                print(json.dumps({"camera": name, **ev}), flush=True)
                 continue
             c, d = fs.get_color_frame(), fs.get_depth_frame()
             if not c or not d:
@@ -129,7 +147,11 @@ def camera_loop(name: str, spec: dict, out: Path, writes: queue.Queue, stats: di
             st["frames"] = n
     finally:
         log.close()
-        pipe.stop()
+        events.close()
+        try:
+            pipe.stop()
+        except Exception:
+            pass
 
 
 def writer(writes: queue.Queue, stats: dict) -> None:
