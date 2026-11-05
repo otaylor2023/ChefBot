@@ -58,9 +58,20 @@ class FootprintSpace:
         return cls.layered([(grid.only_top(t), footprint_below(t)) for t in tops], margin, step_deg, centre_limit)
 
     def with_margin(self, margin: float) -> "FootprintSpace":
-        space = FootprintSpace(self.grid, None, margin, 360.0 / self.n, self.layers, self.centre_limit)
-        space.heading_zones = self.heading_zones
-        return space
+        """The same space grown by `margin` (kept, so its slices are made once, not on every plan)."""
+        cache = self.__dict__.setdefault("_with_margin", {})
+        key = (float(margin), id(self.heading_zones))
+        if key not in cache:
+            space = FootprintSpace(self.grid, None, margin, 360.0 / self.n, self.layers, self.centre_limit)
+            space.heading_zones = self.heading_zones
+            cache[key] = space
+        return cache[key]
+
+    def without_heading_zones(self) -> "FootprintSpace":
+        """The same space with no heading zones (kept)."""
+        if "_no_zones" not in self.__dict__:
+            self._no_zones = FootprintSpace(self.grid, None, self.margin, 360.0 / self.n, self.layers, self.centre_limit)
+        return self._no_zones
 
     def _heading_allowed(self, centre: float, allowed) -> bool:
         return any(abs(wrap_angle(centre - yaw)) + self.half <= tol for yaw, tol in allowed)

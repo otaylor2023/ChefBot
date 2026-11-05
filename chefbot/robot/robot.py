@@ -305,7 +305,16 @@ class Robot(RobotAPI):
         begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
         if begin is None:
             return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
-        points, why = plan_at_headings(plan, body, pose, begin, pre, goal.yaw, style=self._style())
+        points, why = None, None
+        last = getattr(self, "_last_plan", None)
+        if last is not None and approach_m == 0:  # choose_stance just planned this: reuse it if the base hasn't moved
+            (sx, sy, syaw), (gx, gy, gyaw), lbegin, lpoints = last
+            if math.hypot(pose.x - sx, pose.y - sy) < 0.02 and abs(wrap_angle(pose.yaw - syaw)) < math.radians(1) \
+                    and math.hypot(goal.x - gx, goal.y - gy) < 1e-6 and abs(wrap_angle(goal.yaw - gyaw)) < 1e-6:
+                points = lpoints
+        self._last_plan = None
+        if points is None:
+            points, why = plan_at_headings(plan, body, pose, begin, pre, goal.yaw, style=self._style())
         if points is None:
             blocking = self._doors_in_the_way(lambda planner: _has_path(planner, pose, goal))
             return self._result(MotionStatus.NO_PATH, why + blocking)
@@ -475,7 +484,9 @@ class Robot(RobotAPI):
         ranked = sorted((costs[cell], i) for i, c in enumerate(clear) if (cell := planner.grid.world_to_cell(c.x, c.y)) in costs)
         for _, i in ranked:
             c = clear[i]
-            if plan_at_headings(plan, body, pose, begin, c, c.yaw, style=self._style())[0] is not None:
+            found = plan_at_headings(plan, body, pose, begin, c, c.yaw, style=self._style())[0]
+            if found is not None:
+                self._last_plan = ((pose.x, pose.y, pose.yaw), (c.x, c.y, c.yaw), begin, found)
                 return c, ""
         return None, "no stance reachable from here"
 

@@ -172,7 +172,7 @@ def plan_at_headings(plan, space, start: Pose2D, begin, pre: Pose2D, goal_yaw: f
     best, why = None, None
     for search in ("sweep", "ends"):  # the whole turn's union (clean paths), or just its ends (when that closes aisles)
         for turn in turns:
-            found, w = _plan_at_headings(plan, space, start, begin, pre, goal_yaw, repairs, style, turn, search)
+            found, w = _plan_at_headings(plan, space, start, begin, pre, goal_yaw, min(repairs, 60), style, turn, search)
             why = why or w
             if found is not None and (best is None or _length(found) < _length(best)):
                 best = found
@@ -196,9 +196,7 @@ def _plan_at_headings(plan, space, start: Pose2D, begin, pre: Pose2D, goal_yaw: 
     if style is not None and style.turn_in_room and getattr(plan, "heading_zones", None):
         # The search grid leaves the heading zones out (a zone blocks every heading but a few, so the whole turn's
         # union would close it); the poses are still checked against them below, the turn placed where there is room.
-        from chefbot.robot.nav.footprint import FootprintSpace
-
-        sweep_space = FootprintSpace(plan.grid, None, plan.margin, 360.0 / plan.n, plan.layers, plan.centre_limit)
+        sweep_space = plan.without_heading_zones()
     if search == "ends":
         # The turn happens where there is room (headings, below), so the search grid holds only the start's and the
         # goal's headings; every pose's own heading is checked against the full space below (and repaired).
