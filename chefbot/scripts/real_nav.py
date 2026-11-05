@@ -273,7 +273,10 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
                 result["reason"] = f"the server held the robot: {env.halted}"
                 break
             if len(env.errors) > errors_seen:
-                result["reason"] = f"server error: {env.errors[-1]}"
+                err = str(env.errors[-1])
+                # The server refuses a target the moment its mocap goes stale, which can be before this loop sees it.
+                result["reason"] = (f"lost the live mocap pose (the server refused the target: {err})" if "NotLocalized" in err
+                                    else f"server error: {err}")  # fmt: skip
                 break
             if not loc.state_current:
                 result["reason"] = f"no state from the onboard server for {loc.state_age_s:.2f} s (server or link down)"
