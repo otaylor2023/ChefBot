@@ -18,7 +18,7 @@ models:
     runs: vision_models
   sam2:
     runs: vision_models
-assumes: the object on a surface in the wrist camera's view from where the arm starts (run_real --home puts it at the ready pose), its neighbors apart from it
+assumes: the object on a surface in the wrist camera's view from where the arm starts (run_real --home: the home pose, looking forward and down), its neighbors apart from it
 privileged: false
 provenance:
   ported_from: pick_up/chefbot_v30 (robocasa_pick lab, panda_franka in sim; val 83%)
