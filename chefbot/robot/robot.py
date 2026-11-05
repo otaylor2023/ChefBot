@@ -432,7 +432,14 @@ class Robot(RobotAPI):
 
     def _build_space(self) -> FootprintSpace:
         grid = self._grid_with(list(self._extra_obstacles.values()))
-        return FootprintSpace.by_height(grid, self._footprint_below)
+        space = FootprintSpace.by_height(grid, self._footprint_below)
+        space.heading_zones = list(getattr(self, "heading_zones", []))
+        return space
+
+    def set_heading_zones(self, zones) -> None:
+        """Where the base may only face some ways: [(cells grid, [(yaw rad, tolerance rad), ...])] (FootprintSpace)."""
+        self.heading_zones = list(zones)
+        self._space = self._build_space()
 
     # -- Arm skills (run on the motion thread) --------------------------------
 

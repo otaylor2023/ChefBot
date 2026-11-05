@@ -461,6 +461,16 @@ def park(env: RealEnv, args) -> list[dict]:
 
     box = counter_box(args.map, args.counter)
     targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed, args.sides, args.x_range)
+    boxes = [box] * len(targets)
+    if args.alternate:  # back and forth between two counters: A, B, A, B ... (B's targets from its own side(s))
+        box_b = counter_box(args.map, args.alternate[0])
+        tb = random_targets(box_b, args.random, args.seed + 1000, args.alternate[1:], args.x_range)
+        ta = targets[len(targets) - args.random:]
+        mixed, mixed_boxes = [tuple(t) for t in args.target or []], [box] * len(args.target or [])
+        for a, b in zip(ta, tb):
+            mixed += [a, b]
+            mixed_boxes += [box, box_b]
+        targets, boxes = mixed, mixed_boxes
     if not targets:
         raise SystemExit("no targets: --target X Y and/or --random N")
     from chefbot.scripts.real_map import load as load_map
@@ -479,6 +489,7 @@ def park(env: RealEnv, args) -> list[dict]:
                                                       for k, v in vars(args).items()}}, indent=2))  # fmt: skip
     results = []
     for i, target in enumerate(targets):
+        box = boxes[i]
         pose, info = choose_stance(robot, box, target, args.out, args.approach)
         head = f"[{i + 1}/{len(targets)}] target ({target[0]:.3f}, {target[1]:.3f})"
         if pose is None:
@@ -524,13 +535,43 @@ def park(env: RealEnv, args) -> list[dict]:
     return results
 
 
+def heading_zones(map_dir: Path, grid) -> list:
+    """The map's heading zones (map_dir/heading_zones.yaml, optional): [(cells grid, [(yaw rad, tolerance rad)])],
+    the cells the base centre's positions inside each zone's box on `grid`."""
+    import yaml
+
+    from chefbot.robot.nav.grid import OccupancyGrid
+
+    path = Path(map_dir) / "heading_zones.yaml"
+    if not path.exists():
+        return []
+    out = []
+    h, w = grid.shape
+    ys, xs = np.mgrid[0:h, 0:w]
+    ox, oy = grid.origin[0], grid.origin[1]
+    wx, wy = ox + (xs + 0.5) * grid.resolution, oy + (ys + 0.5) * grid.resolution
+    for z in yaml.safe_load(path.read_text()).get("zones") or []:
+        (cx, cy), (sx, sy), t = z["box"]["center"], z["box"]["size"], math.radians(z["box"].get("yaw_deg", 0.0))
+        a = (wx - cx) * math.cos(t) + (wy - cy) * math.sin(t)
+        b = -(wx - cx) * math.sin(t) + (wy - cy) * math.cos(t)
+        cells = OccupancyGrid((np.abs(a) <= sx / 2) & (np.abs(b) <= sy / 2), grid.resolution, grid.origin)
+        tol = math.radians(float(z.get("tolerance_deg", 20.0)))
+        out.append((cells, [(math.radians(float(y)), tol) for y in z["allowed_yaw_deg"]]))
+        print(f"heading zone {z.get('name', '?')}: facing {z['allowed_yaw_deg']} deg (+-{z.get('tolerance_deg', 20.0)}) only")
+    return out
+
+
 def map_robot(env: RealEnv, args, grid, **kw):
-    """make_robot for --map, with the run's speeds and tolerances, and its footprint said."""
+    """make_robot for --map, with the run's speeds and tolerances, its footprint said, and the map's heading zones."""
     _, info = robot_footprints(env.raw_state(), args.arm)
     print(f"footprint: plate {info['plate']['x']} x {info['plate']['y']} m about the base centre ({info['note']}); "
           f"reach {info['radius_m']:.2f} m, {info['reach_ahead_m']:.2f} m ahead")  # fmt: skip
-    return make_robot(env, grid, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol, yaw_tol_deg=args.yaw_tol,
-                      corridor=args.corridor, margin=args.margin, arm=args.arm, timeout_s=args.timeout, **kw)  # fmt: skip
+    robot = make_robot(env, grid, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol, yaw_tol_deg=args.yaw_tol,
+                       corridor=args.corridor, margin=args.margin, arm=args.arm, timeout_s=args.timeout, **kw)  # fmt: skip
+    zones = heading_zones(args.map, grid) if getattr(args, "map", None) else []
+    if zones:
+        robot.set_heading_zones(zones)
+    return robot
 
 
 def add_go_args(g) -> None:
@@ -571,6 +612,8 @@ def main() -> None:
     k.add_argument("--seed", type=int, default=0)
     k.add_argument("--sides", nargs="+", choices=("south", "north", "east", "west"), default=None,
                    help="draw --random targets on these counter sides only (a counter against a wall)")
+    k.add_argument("--alternate", nargs="+", default=None, metavar=("COUNTER", "SIDE"),
+                   help="alternate --random targets with as many on this second counter (its name, then its side(s))")
     k.add_argument("--x-range", nargs=2, type=float, default=None, metavar=("XMIN", "XMAX"),
                    help="draw --random targets only within this world-x stretch (one section of a kitchen)")
     k.add_argument("--counter", default=None, help="the counter's obstacle name in the map spec (default: the first box)")

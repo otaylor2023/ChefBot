@@ -32,15 +32,11 @@ obstacles:
     fixture: far_counter
   # NO-GO (Jack, 2026-11-05): the floor west of the island, "underneath" the U of aisles when drawn with +x up. From
   # the map's west edge to the island's west end, across the U's width (leg 1's front to the fridge's north end). Tall:
-  # the planner never puts any part of the base in it. The U itself (the island's north, east and south aisles) is
+  # (now floor level: the plate stays out, the arm may cross in). The U itself (the island's north, east and south aisles) is
   # where the robot works.
   - name: nogo-west-of-island
-    box: {center: [-1.180, -2.486], size: [2.699, 3.345], yaw_deg: -2.96}
-  # AVOID FOR NOW (Jack, 2026-11-05 13:50): the U's east aisle, between the island's east end and L leg 2 / the fridge.
-  # Tight (gripper ~5 cm from the fridge door when Jack drove it; cabinets at the L corner). Work stays in the
-  # island-stove section until this is taken on separately. Remove this obstacle to open it.
-  - name: avoid-for-now-fridge-aisle
-    box: {center: [2.966, -2.700], size: [1.156, 3.345], yaw_deg: -2.96}
+    box: {center: [-1.383, -2.475], size: [2.293, 3.345], yaw_deg: -2.96}  # east edge 16 in (0.406 m) west of the island's end (Jack 14:20)
+    height_m: 0.05   # floor level (Jack 14:15): the base's plate may not enter, the arm may reach over it
   - name: Chef-botcounter-top           # Motive body ID 25: the test counter (HT-4..6), as in maps/src_counter
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
     height_m: 0.93
