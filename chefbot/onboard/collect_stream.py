@@ -37,9 +37,13 @@ CAMERAS = {
     "pole": {"serial": "049122252230", "color": (1280, 800), "depth": (1280, 720), "fps": 15, "ir": [1, 2]},
     "wrist": {"serial": "323622271565", "color": (640, 480), "depth": (640, 480), "fps": 15, "ir": [1]},  # USB 2.1 link (2026-11-05)
 }
-STATE_KEYS = ["chefbot-tidy::pos", "chefbot-tidy::ori", "chefbot-tidy::tracking_valid", "Chef-botcounter-top::pos",
-              "Chef-botcounter-top::ori", "Chef-botcounter-top::tracking_valid", "hb1::current_pose", "hb1::current_vel",
-              "hb1::cmd_seq", "hb1::desired_pose", "hb1::heartbeat", "opensai::sensors::FrankaRobot::joint_positions"]  # fmt: skip
+BODIES = ["chefbot-tidy", "Chef-botcounter-top", "kitchen_island_countertop", "1-corner-countertop",
+          "2-corner-connected-1-and-fridge", "far-counter"]  # every Motive body we map with (2026-11-05)
+STATE_KEYS = [f"{b}::{k}" for b in BODIES for k in ("pos", "ori", "tracking_valid")] + [
+    "hb1::current_pose", "hb1::current_vel", "hb1::cmd_seq", "hb1::desired_pose", "hb1::desired_vel", "hb1::heartbeat",
+    "hb1::max_vel_scale", "hb1::stop",
+    "opensai::sensors::FrankaRobot::joint_positions", "opensai::sensors::FrankaRobot::joint_velocities",
+    "opensai::sensors::FrankaRobot::joint_torques"]  # fmt: skip
 PNG = [cv2.IMWRITE_PNG_COMPRESSION, 1]  # fast; still lossless
 
 stop = threading.Event()
