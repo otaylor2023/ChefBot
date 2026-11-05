@@ -15,23 +15,25 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from chefbot.agent.loop.perception import Perception
+from chefbot.agent.harnesses.plan_loop.perception import Perception
 from chefbot.agent.plan.model import ACTIVE, DONE, FAILED, PAUSED, PAUSING, PENDING, SKIPPED, WAITING
 from chefbot.agent.plan.store import PlanStore
 from chefbot.agent.world.kitchen import SEEN, YOU
 from chefbot.agent.world.map import label_of
 from chefbot.interface.types import MotionStatus, ToolResult
 
-SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system.md"
+# The agent's prompts folder (agent.yaml `prompts:`); with none given, the default agent's.
+PROMPTS_DIR = Path(__file__).resolve().parents[3] / "agents" / "kitchen_planner" / "prompts"
 # Extra sections, included when the registry offers their tools.
 PROMPT_SECTIONS = {"stir": "handheld.md", "pour": "handheld.md", "squeeze": "trigger_tools.md"}
 
 
-def system_prompt(tool_names: set[str]) -> str:
-    """The system prompt for a run: the base plus a section for each kind of tool offered."""
-    text = SYSTEM_PROMPT_PATH.read_text()
+def system_prompt(tool_names: set[str], prompts_dir: Path | None = None) -> str:
+    """The system prompt for a run: the base (system.md) plus a section for each kind of tool offered."""
+    prompts_dir = Path(prompts_dir or PROMPTS_DIR)
+    text = (prompts_dir / "system.md").read_text()
     for name in dict.fromkeys(f for tool, f in PROMPT_SECTIONS.items() if tool in tool_names):
-        text += (SYSTEM_PROMPT_PATH.parent / name).read_text()
+        text += (prompts_dir / name).read_text()
     return text
 REPROMPT = "Respond with exactly one tool call."
 

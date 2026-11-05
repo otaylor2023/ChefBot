@@ -2,6 +2,9 @@
 
     python -m chefbot.scripts.run_agent --task chefbot/jobs/fried_egg.yaml
     python -m chefbot.scripts.run_agent --task chefbot/jobs/breakfast.yaml --seed 3 --model anthropic/claude-opus-5.5
+    python -m chefbot.scripts.run_agent --task chefbot/jobs/fried_egg.yaml --agent kitchen_planner
+
+`--agent` picks the agent (chefbot/agents/<name>: its harness, prompts and settings); kitchen_planner by default.
 
 `--env symbolic` (default) runs in the symbolic kitchen: no simulator, same
 agent, tools and run log. Writes runs/<date>_<task>_s<seed>/ with report.html,
@@ -16,11 +19,11 @@ import json
 import sys
 from pathlib import Path
 
+from chefbot import agents
 from chefbot.agent.check.checker import StateChecker
-from chefbot.agent.config import AgentConfig, LoopConfig
+from chefbot.agent.config import LoopConfig
 from chefbot.agent.logging.run_log import git_commit
 from chefbot.agent.loop.llm import OpenRouterClient
-from chefbot.agent.loop.runner import AgentRunner, AgentSession
 from chefbot.agent.plan.model import Plan
 from chefbot.agent.tools.plan_tools import terminal_operator
 from chefbot.agent.world.map import WorldMap
@@ -47,10 +50,13 @@ def run(
     env: str = "symbolic",
     video: bool = False,
     video_speed: int = 2,
+    agent: str = agents.DEFAULT,
 ) -> dict:
     from chefbot.scripts.envs import ENVS
 
-    config = config or LoopConfig.load()
+    agent_def = agents.load(agent)
+    harness = agent_def.harness
+    config = config or agent_def.loop_config()
     world = ENVS[env](task_path, seed, noise)
     # A long task can raise its own run limits: `limits: {max_turns: 250}` in the task file.
     limits = {k: v for k, v in (world.task.get("limits") or {}).items() if hasattr(config, k)}
@@ -66,14 +72,15 @@ def run(
         OpenRouterClient(config.judge_model, provider=config.provider), config.judge_model, config.judge_temperature
     )
     tools = world.task.get("tools") or {}  # a task can withhold tools: {exclude: [...], only: [...]}
-    session = AgentSession.build(
+    session = harness.AgentSession.build(
         plan, world.robot, world.detector, world.world_map, world.clock, run_dir, judge, world.observer,
-        config, AgentConfig.load(), operator=operator,
+        config, agent_def.settings, operator=operator,
         tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
+        prompts_dir=agent_def.prompts_dir,
     )  # fmt: skip
     session.bus.add_safety(world.safety)
     session.log.start(
-        task=world.name, task_file=str(task_path), seed=seed,
+        task=world.name, task_file=str(task_path), seed=seed, agent={"name": agent_def.name, "harness": agent_def.harness_name},
         reference_plan=plan.to_dict(), models={"agent": config.model, "judge": config.judge_model},
         tools=[s["function"]["name"] for s in session.registry.schemas],
         config=config.__dict__, git_commit=git_commit(REPO), **world.info,
@@ -92,7 +99,7 @@ def run(
         recorder.caption = (f"{world.name}: {plan.goal}", "")
         recorder.hold(2.0)
 
-    def before_turn(s: AgentSession) -> None:
+    def before_turn(s) -> None:
         nonlocal logged
         world.on_plan({step.id: step.status for step in s.store.live.steps})
         for t, what in world.applied[logged:]:
@@ -104,12 +111,12 @@ def run(
     def call_text(tool: str, args: dict) -> str:
         return f"{tool}({', '.join(f'{k}={json.dumps(v)}' for k, v in args.items())})"
 
-    def before_action(s: AgentSession, tool: str, args: dict, reasoning) -> None:
+    def before_action(s, tool: str, args: dict, reasoning) -> None:
         if recorder is not None:
             step = s.store.active()
             recorder.caption = (f"> {call_text(tool, args)}", (f"[{step.id}] " if step else "") + _short(reasoning or "", 120))
 
-    def after_action(s: AgentSession, tool: str, args: dict, result, reasoning) -> None:
+    def after_action(s, tool: str, args: dict, result, reasoning) -> None:
         world.on_tool(tool)
         mark = "ok " if result.success else f"ERR {result.error}"
         if recorder is not None:
@@ -123,7 +130,7 @@ def run(
             print(f"         {_short(reasoning)}", flush=True)
         print(f"{s.turn:>4} {s.clock.now():>6.0f}s  {call_text(tool, args):<48} {mark}  {_short(result.message, 70)}", flush=True)
 
-    runner = AgentRunner(session, llm, on_limit=world.on_limit, before_turn=before_turn, after_action=after_action,
+    runner = harness.AgentRunner(session, llm, on_limit=world.on_limit, before_turn=before_turn, after_action=after_action,
                          before_action=before_action)  # fmt: skip
     try:
         outcome = runner.run()
@@ -159,6 +166,7 @@ def run(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the ChefBot agent on a task.")
     parser.add_argument("--task", type=Path, required=True)
+    parser.add_argument("--agent", choices=agents.names(), default=agents.DEFAULT, help="the agent (chefbot/agents/<name>)")
     parser.add_argument("--env", choices=["symbolic", "robocasa"], default="symbolic")
     parser.add_argument("--video", action="store_true", help="record the run (robocasa): runs/<run>/video.mp4")
     parser.add_argument("--seed", type=int, default=0)
@@ -173,11 +181,11 @@ def main() -> int:
     parser.add_argument("--operator", choices=["terminal", "continue", "abort"], default="terminal",
                         help="answer to request_replan (non-interactive runs: continue or abort)")  # fmt: skip
     args = parser.parse_args()
-    config = LoopConfig.load(model=args.model, judge_model=args.judge_model, max_turns=args.max_turns,
-                             max_llm_cost_usd=args.max_llm_cost_usd)  # fmt: skip
+    config = agents.load(args.agent).loop_config(model=args.model, judge_model=args.judge_model, max_turns=args.max_turns,
+                                                 max_llm_cost_usd=args.max_llm_cost_usd)  # fmt: skip
     operator = terminal_operator if args.operator == "terminal" else (lambda reason, a=args.operator: a)
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
-                 env=args.env, video=args.video)  # fmt: skip
+                 env=args.env, video=args.video, agent=args.agent)  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
     return 0 if result["success"] else 1

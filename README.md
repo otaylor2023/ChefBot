@@ -225,8 +225,13 @@ burners, spoons (lower_into, stir, lift_out) and pouring, not trigger tools
 utensils and pans have an adaptive handle: they lock in the closed gripper (as
 a form-fit or magnetic handle would) instead of pivoting in a two-finger pinch. A run
 can withhold more: `tools: {exclude: [...], only: [...]}` in a task file, or
-`tools_exclude` / `tools_only` in `agent.yaml`. The system prompt gets a
-section for each kind of tool offered (`agent/loop/prompts/`).
+`tools_exclude` / `tools_only` in the agent's `agent.yaml`. The system prompt gets a
+section for each kind of tool offered (the agent's `prompts/`).
+
+**Agents** are definitions, one folder each in `chefbot/agents/`: `agent.yaml` names
+the harness the agent runs in (`agent/harnesses/`: `plan_loop` is the loop above), the
+robot APIs it runs with, its prompts, its tools' `settings:` and its `loop:` settings.
+Today's agent is `kitchen_planner`, the default; `run_agent --agent <name>` picks another.
 
 **Handheld tools** go through one `RobotAPI` call, `use_tool(action, target,
 seconds)`: `lower_into` a container, `lift_out`, `squeeze` / `release` the

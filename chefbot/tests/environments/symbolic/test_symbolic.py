@@ -7,7 +7,7 @@ import pytest
 
 from chefbot.agent.config import AgentConfig, LoopConfig
 from chefbot.agent.logging.run_log import read_timeline
-from chefbot.agent.loop.runner import AgentRunner, AgentSession
+from chefbot.agent.harnesses.plan_loop.runner import AgentRunner, AgentSession
 from chefbot.agent.plan.model import Plan
 from chefbot.agent.world.map import WorldMap
 from chefbot.environments.symbolic.scenario import Scenario

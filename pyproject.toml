@@ -32,7 +32,7 @@ include = ["chefbot*"]
 [tool.setuptools.package-data]
 chefbot = ["config/**/*.yaml", "robot/kinematics/assets/**/*", "environments/robocasa/assets/**/*",
            "environments/real/config.yaml", "environments/symbolic/**/*.yaml", "onboard/config.yaml", "onboard/bringup/*",
-           "embodiments/**/*.yaml", "embodiments/**/*.md", "jobs/*.yaml", "setups/**/*.yaml", "suites/**/*.yaml",
+           "agents/**/*.yaml", "agents/**/*.md", "embodiments/**/*.yaml", "embodiments/**/*.md", "jobs/*.yaml", "setups/**/*.yaml", "suites/**/*.yaml",
            "labs/**/*", "generators/**/*"]
 
 [tool.pytest.ini_options]

@@ -9,8 +9,8 @@ from chefbot.agent.check.checker import CheckResult, parse_verdict
 from chefbot.agent.config import LoopConfig
 from chefbot.agent.logging.run_log import read_timeline
 from chefbot.agent.loop.llm import LLMResponse, ToolCall
-from chefbot.agent.loop.perception import CLEARED, FRESH, STALE, FreshnessConfig, Perception
-from chefbot.agent.loop.runner import AgentRunner, AgentSession
+from chefbot.agent.harnesses.plan_loop.perception import CLEARED, FRESH, STALE, FreshnessConfig, Perception
+from chefbot.agent.harnesses.plan_loop.runner import AgentRunner, AgentSession
 from chefbot.agent.plan.model import Plan
 from chefbot.interface.clock import ManualClock
 from chefbot.interface.observer import Observation, Observer

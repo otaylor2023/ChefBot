@@ -1,6 +1,6 @@
 """Tools follow the robot's capabilities and the run's limits; the prompt follows the tools."""
 
-from chefbot.agent.loop.context import system_prompt
+from chefbot.agent.harnesses.plan_loop.context import system_prompt
 from chefbot.agent.tools.registry import ToolRegistry
 from chefbot.agent.world.map import WorldMap
 from chefbot.interface.robot_api import ALL_CAPABILITIES, ARTICULATE, BASE, GRASP

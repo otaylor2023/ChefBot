@@ -1,0 +1,91 @@
+"""Agents: one folder per agent (agent.yaml, prompts/), loaded by name. An agent names the harness it runs in
+(agent/harnesses), the robot APIs it runs with, its prompts, its tools' settings and its loop's settings.
+
+    agent = agents.load("kitchen_planner")
+    agent.harness.AgentSession.build(..., agent_config=agent.settings, prompts_dir=agent.prompts_dir)
+    agent.loop_config(model="...")      # LoopConfig, with run-time overrides
+
+Today's cooking agent is kitchen_planner (DEFAULT), the only one so far.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from types import ModuleType
+
+import yaml
+
+from chefbot.agent import harnesses
+from chefbot.agent.config import AgentConfig, LoopConfig
+
+ROOT = Path(__file__).resolve().parent
+DEFAULT = "kitchen_planner"
+INTERFACES = ("robot-api-v1", "chefbot-v1")  # robot-api-v1: interface/robot_api.py; chefbot-v1: interface/skill_api.py
+KEYS = {"name", "harness", "interfaces", "prompts", "settings", "loop"}
+
+
+def names() -> list[str]:
+    return sorted(p.parent.name for p in ROOT.glob("*/agent.yaml"))
+
+
+def load(name: str) -> "Agent":
+    """An agent by name (a folder here), or by path to its folder."""
+    d = Path(name) if Path(name).is_absolute() else ROOT / name
+    if not (d / "agent.yaml").exists():
+        raise ValueError(f"no agent {name!r}; agents: {', '.join(names())}")
+    agent = Agent(d.name, d, yaml.safe_load((d / "agent.yaml").read_text()) or {})
+    agent.validate()
+    return agent
+
+
+@dataclass
+class Agent:
+    name: str
+    dir: Path
+    manifest: dict = field(repr=False)
+
+    @property
+    def path(self) -> Path:
+        return self.dir / "agent.yaml"
+
+    @property
+    def harness_name(self) -> str:
+        return self.manifest["harness"]
+
+    @property
+    def harness(self) -> ModuleType:
+        return harnesses.get(self.harness_name)
+
+    @property
+    def interfaces(self) -> tuple[str, ...]:
+        return tuple(self.manifest["interfaces"])
+
+    @property
+    def prompts_dir(self) -> Path:
+        return self.dir / self.manifest.get("prompts", "prompts")
+
+    @property
+    def settings(self) -> AgentConfig:
+        return AgentConfig.load(self.path)
+
+    def loop_config(self, **overrides) -> LoopConfig:
+        return LoopConfig.load(self.path, **overrides)
+
+    def validate(self) -> None:
+        m, problems = self.manifest, []
+        unknown = set(m) - KEYS
+        if unknown:
+            problems.append(f"unknown keys {sorted(unknown)}")
+        if m.get("name") != self.name:
+            problems.append(f"name {m.get('name')!r} is not its folder's, {self.name!r}")
+        if m.get("harness") not in harnesses.HARNESSES:
+            problems.append(f"no harness {m.get('harness')!r} (harnesses: {', '.join(harnesses.names())})")
+        interfaces = m.get("interfaces") or []
+        if not interfaces or set(interfaces) - set(INTERFACES):
+            problems.append(f"interfaces must be some of {list(INTERFACES)}, not {interfaces!r}")
+        if not (self.prompts_dir / "system.md").exists():
+            problems.append(f"no system.md in {self.prompts_dir}")
+        if problems:
+            raise ValueError(f"agent {self.name}: " + "; ".join(problems))
+        self.settings, self.loop_config()  # their own checks: unknown keys, time_mode

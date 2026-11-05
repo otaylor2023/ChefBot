@@ -47,7 +47,7 @@ def violations(layer: str, forbidden: tuple[str, ...], allow_under: str | tuple[
 
 
 def test_layers_exist():
-    for layer in ("agent", "robot", "interface", "environments", "onboard", "embodiments", "runtime", "tasks", "setups", "suites"):
+    for layer in ("agent", "agents", "robot", "interface", "environments", "onboard", "embodiments", "runtime", "tasks", "setups", "suites"):
         assert modules_under(layer), layer
 
 
@@ -73,6 +73,11 @@ def test_agent_knows_only_the_interface():
     assert violations("agent", ("chefbot.robot",)) == []
 
 
+def test_agent_definitions_know_only_the_agent_layer():
+    # chefbot/agents: data and its loader, on the agent layer's config and harnesses.
+    assert violations("agents", SIM_AND_HARDWARE + ("chefbot.robot", "chefbot.runtime", "chefbot.embodiments")) == []
+
+
 def test_interface_depends_on_no_other_layer():
     assert violations("interface", ("chefbot.agent", "chefbot.robot")) == []
 
@@ -82,19 +87,22 @@ def test_robot_does_not_import_the_agent():
 
 
 def test_ground_truth_never_reaches_the_agents_context():
-    # AGENT_SPEC §2: Observer output goes to the StateChecker and the run log only.
-    for name in ("agent/loop/context.py", "agent/loop/perception.py"):
+    # AGENT_SPEC §2: Observer output goes to the StateChecker and the run log only. In every harness.
+    names = sorted(p.relative_to(PACKAGE).as_posix() for p in (PACKAGE / "agent/harnesses").glob("*/*.py")
+                   if p.name in ("context.py", "perception.py"))  # fmt: skip
+    assert "agent/harnesses/plan_loop/context.py" in names and "agent/harnesses/plan_loop/perception.py" in names
+    for name in names:
         imported = imports_of(PACKAGE / name)
         assert not any(m.startswith(("chefbot.agent.check", "chefbot.interface.observer")) for m in imported), name
 
 
-def test_only_the_loop_and_the_checker_talk_to_an_llm():
+def test_only_the_loop_harnesses_and_the_checker_talk_to_an_llm():
     users = sorted(
         path.relative_to(PACKAGE).as_posix()
         for path in modules_under("agent")
         if any(m == "chefbot.agent.loop.llm" or m.startswith("chefbot.agent.loop.llm.") for m in imports_of(path))
     )
-    assert all(u.startswith(("agent/loop/", "agent/check/")) for u in users), users
+    assert all(u.startswith(("agent/loop/", "agent/harnesses/", "agent/check/")) for u in users), users
 
 
 def test_grasping_depends_only_on_the_interface():
