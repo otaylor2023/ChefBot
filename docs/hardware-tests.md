@@ -532,8 +532,10 @@ Every move below is `Robot(RealEnv).go_to_pose` (real_nav is a thin caller now),
 HT-4/HT-5 used (`maps/src_counter`). Jack on the e-stop; the laptop side as in HT-5b.
 
 ### HT-6a: stop distance at the cap (0.25 m/s): owed before any counter run faster than 0.131 m/s
-- Setup: `base.sh`; `real_nav go close_near --map maps/src_counter --speed 0.25` from `west_end` (a straight leg of
-  >= 1 m along the counter's near side).
+- Setup: `base.sh`; `real_nav go hug_c --map maps/src_counter --margin 0.09 --profile teleop` from `hug_a` (1.9 m
+  straight along the counter's near side). Not `--speed 0.25`: that is over the default profile (`normal`, 0.2) and
+  is refused; `teleop` is the base-only profile at the cap.
+- **PASSED 2026-11-05, see "HT-6a observed" below.**
 - Mid-leg, at cruise, freeze the server on the robot: `kill -STOP <onboard server pid>`; `kill -CONT` (or Ctrl-C
   base.sh) after 3 s. This is the HT-4d method: the driver brakes on its 0.3 s command timeout.
 - Measure, from the robot-side log (calibration/base.py record, as HT-4c/4d): speed at the last fresh command, the
@@ -568,3 +570,50 @@ HT-4/HT-5 used (`maps/src_counter`). Jack on the e-stop; the laptop side as in H
   and record x, y. Put the obstacles in the spec (walls with no `height_m`; tables with their top), then
   `python -m chefbot.environments.real.build_map build maps/src_counter/spec.yaml`, and check
   `python -m chefbot.scripts.real_map show maps/src_counter --yaw 90`. Commit the spec and the rebuilt files.
+
+---
+
+## HT-6a observed + HT-6e: teleop-speed counter parks (2026-11-05, robot 80f7ad0)
+
+**Setup.** Robot `~/chefbot_movement` = 80f7ad0 (git archive, 571 files sha256 == git; previous tree kept as
+`~/chefbot_movement_da85382`). `base.sh` with `CHEFBOT_PYTHON=~/chefbot_calib/env/bin/python`: driver at the cap
+0.25 m/s, 0.8 rad/s, accel 0.25. Arm off, joints locked (footprint from the last joint readings in Redis, reach
+0.69 m). Laptop = 80f7ad0, tunnel -L 8765. Jack on the e-stop. Mocap live 99%, age median 20 ms.
+`~/ChefBot` (teammate's copy, older: no base.sh / limits.py / base_target_odom) untouched.
+
+**Start-up refusal (no motion).** At (0.21, 0.19, −18.5°) `go hug_a` refused "base is in collision on the map": the
+plate's corner at that heading reached y ≈ −0.13, past the provisional ymin −0.05 (open floor, not a wall: HT-6d).
+Moved out with `real_nav point --left 0.4` (no map, slow), then `go hug_a` (slow): 2.7 mm, 0.02°.
+
+### HT-6a: stop from cruise at the cap — PASSED
+- `hug_a` → `hug_c`, `--profile teleop`. A robot-side watcher polled `chefbot-tidy::pos` and sent `kill -STOP` to
+  the onboard server at x > 1.15 (fired at x 1.154), `kill -CONT` 3 s later. Recorder:
+  `calibration.base record` at 100 Hz (`docs/evidence/ht6a/stop_025.jsonl.gz`).
+- Cruise by driver odometry 0.20–0.24 m/s (median ~0.225). At the freeze 0.225 m/s.
+- **At rest 0.177 m and ~1.2 s after the freeze.** Stop model (tau 0.333, brake 0.25) at 0.225 m/s: 0.176 m. Matches;
+  at 0.25 m/s it predicts 0.208 m. `robot.yaml` values unchanged.
+- Laptop: `real_nav` reported "the robot's state is 0.54 s old: lost the onboard server?" and ended the move.
+- Mocap-differenced speeds are bursty (Redis receives frames in clumps; 0.1 s windows read 0.0–0.4 m/s at a steady
+  0.225 by odometry), so `peak_speed_mps` 0.37 in the laptop summary is not a real overshoot. Use odometry.
+
+### HT-6e: park for random counter targets at the cap (`--profile teleop`) — PASSED 16/16
+`real_nav park --random 8 --seed {1,2} --map maps/src_counter --margin 0.09 --approach 0 --profile teleop`
+(`docs/evidence/ht6a/park_metrics.txt`).
+
+| | HT-5b direct (11-04, 0.094 m/s cap) | seed 1 | seed 2 |
+|---|---|---|---|
+| parks | 8/8 | **8/8** | **8/8** |
+| driving time | 253 s | **114.4 s** | **111.8 s** |
+| like-for-like targets 2–6 | 158.9 s | **66.6 s (−58%)** | — |
+| mean speed per park (incl. turns) | ~0.07 m/s | 0.10–0.20 | 0.16–0.20 |
+| final error | ≤ 8.3 mm, ≤ 1.30° | ≤ 1.8 mm, ≤ 0.18° | ≤ 1.2 mm, ≤ 0.10° |
+| out from the edge | 0.526–0.558 m | 0.448–0.451 m | 0.450–0.451 m |
+| plate rectangle → counter, min | 61 mm | 92 mm | 99 mm |
+| base centre → wall, min | 0.75 m | 0.78 m | 0.81 m |
+| intermediate stops / holds | 0 | 0 | 0 |
+| max deviation from path | — | 55 mm | 54 mm |
+
+Every turn the short way (asked = taken). No link stalls today (robot on SRC; laptop link through the tunnel).
+
+**Limitations.** Arm locked (not the READY pose). Map bounds still provisional (HT-6d). One session, one floor state.
+HT-6b (mocap loss mid-move) not yet run: needs the body unticked in Motive.
