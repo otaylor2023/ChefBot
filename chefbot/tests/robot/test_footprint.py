@@ -100,24 +100,77 @@ def test_a_centre_limit_is_not_grown():
 def test_real_nav_footprint_is_the_plate_without_arm_readings():
     from chefbot.scripts.real_nav import robot_footprints
 
-    full, low, info = robot_footprints({}, low_height=0.93)
-    assert full.radius == pytest.approx(BODY.footprint().radius) and "plate only" in info["note"]
-    full, _, info = robot_footprints({"arm_q": LOCKED, "arm_live": True})
-    assert full.reach(0.0) > 0.65 and info["arm_live"]
-    full, _, info = robot_footprints({"arm_q": LOCKED}, arm="off")
-    assert len(full.discs) == 0
+    below, info = robot_footprints({})
+    assert below().radius == pytest.approx(BODY.footprint().radius) and "plate only" in info["note"]
+    below, info = robot_footprints({"arm_q": LOCKED, "arm_live": True})
+    assert below().reach(0.0) > 0.65 and info["arm_live"]
+    assert below(0.93).radius == pytest.approx(BODY.footprint().radius)  # over a counter top: the plate only
+    below, _ = robot_footprints({"arm_q": LOCKED}, arm="off")
+    assert len(below().discs) == 0
 
 
-def test_layered_maps_park_close_to_a_counter_the_arm_passes_over_but_not_to_a_wall():
-    from chefbot.scripts.real_map import build_layers
+def test_maps_with_heights_park_close_to_a_counter_the_arm_passes_over_but_not_to_a_wall():
+    from chefbot.scripts.real_map import build
     from chefbot.scripts.real_nav import nav_space
 
     spec = {"resolution": 0.05, "bounds": [[0, 0], [4, 3]],
             "obstacles": [{"name": "counter", "box": {"center": [2.0, 1.5], "size": [1.0, 0.6]}, "height_m": 0.93}]}  # fmt: skip
-    tall, low, h, _ = build_layers(spec)
-    space, info = nav_space(None, {"arm_q": LOCKED}, layers=(tall, low, h))
+    grid, _ = build(spec)
+    assert grid.tops() == [0.93, math.inf]
+    space, info = nav_space(grid, {"arm_q": LOCKED})
     plan = space.with_margin(0.09)
     facing_counter = math.pi / 2  # from its south side, 0.45 m out, as the parking rule puts it
     assert plan.is_free(2.0, 1.5 - 0.3 - 0.45, facing_counter)
     assert not plan.is_free(0.45, 1.5, math.pi)  # facing the west wall from 0.45 m: the arm (0.7 m ahead) would hit it
-    assert info["low_radius_m"] < info["radius_m"]
+    assert info["by_top"]["0.93 m"] < info["by_top"]["wall"]
+
+
+# -- the map format (maps/README.md) ---------------------------------------------------------
+
+
+def test_every_map_folder_has_the_standard_files():
+    from pathlib import Path
+
+    import yaml
+
+    maps = Path(__file__).resolve().parents[3] / "maps"
+    folders = [d for d in maps.iterdir() if d.is_dir()]
+    assert folders
+    for d in folders:
+        for f in ("grid.npy", "grid.yaml", "heights.npy", "semantic_map.yaml"):
+            assert (d / f).exists(), f"{d.name}: no {f}"
+        grid = OccupancyGrid.load(d / "grid.npy")
+        assert grid.heights.shape == grid.occupied.shape and (grid.heights[grid.occupied] > 0).all(), d.name
+        sem = yaml.safe_load((d / "semantic_map.yaml").read_text())
+        assert sem["frame"] == "world" and "fixtures" in sem and "objects" in sem, d.name
+        assert not list(d.glob("grid_low*")) and not list(d.glob("grid_tall*")), d.name
+
+
+def test_heights_round_trip_and_a_map_without_them_is_all_walls(tmp_path):
+    occ = np.zeros((4, 5), dtype=bool)
+    occ[1, 2] = occ[2, 3] = True
+    g = OccupancyGrid(occ, 0.1, (0.0, 0.0), np.where(occ, 0.9, 0.0))
+    g.heights[2, 3] = np.inf
+    g.save(tmp_path / "grid.npy")
+    back = OccupancyGrid.load(tmp_path / "grid.npy")
+    assert back.tops() == [0.9, math.inf] and back.only_top(0.9).occupied.sum() == 1
+    (tmp_path / "heights.npy").unlink()
+    assert OccupancyGrid.load(tmp_path / "grid.npy").tops() == [math.inf]
+
+
+def test_the_real_builder_writes_heights_and_a_semantic_map(tmp_path):
+    import yaml
+
+    from chefbot.environments.real.build_map import build_map
+
+    spec = {"resolution": 0.05, "bounds": [[0, 0], [3, 2]],
+            "obstacles": [{"name": "c", "box": {"center": [1.5, 1.0], "size": [1.0, 0.5]}, "height_m": 0.9, "fixture": "counter"},
+                          {"name": "post", "box": {"center": [0.5, 0.5], "size": [0.1, 0.1]}}],
+            "places": {"p": {"x": 0.3, "y": 1.5, "yaw_deg": 0}}}  # fmt: skip
+    build_map(spec, tmp_path)
+    g = OccupancyGrid.load(tmp_path / "grid.npy")
+    assert g.heights[g.world_to_cell(1.5, 1.0)] == 0.9 and math.isinf(g.heights[g.world_to_cell(0.5, 0.5)])
+    assert math.isinf(g.heights[0, 0])  # outside the bounds: a wall
+    sem = yaml.safe_load((tmp_path / "semantic_map.yaml").read_text())
+    assert sem["fixtures"]["counter"]["location"] == [1.5, 1.0] and sem["objects"] == {}
+    assert yaml.safe_load((tmp_path / "places.yaml").read_text())["p"]["x"] == 0.3

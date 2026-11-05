@@ -9,7 +9,7 @@
     python -m chefbot.scripts.real_nav go stove --map maps/src_kitchen     # A* around the map's obstacles
     python -m chefbot.scripts.real_nav arm                                 # the arm's outline over the floor, now
 
-With --map (scripts/real_map.py), the target may also be one of the map's places, and the base goes there by A*,
+With --map (a map folder, maps/README.md), the target may also be one of the map's places, and the base goes there by A*,
 keeping its footprint --margin (0.10 m, for the map's measuring error) clear of the map's obstacles at the heading it
 will have at each point of the path, and stops if its footprint ever reaches one. The footprint is the robot's
 measured body (embodiments/tidybot_fr3/robot.yaml `body:`, interface/workspace.py Body.footprint): the plate's
@@ -97,40 +97,39 @@ ARM_MOVED_RAD = 0.05  # a joint moving more than this while the base drives stop
 LOW_CLEARANCE_M = 0.05  # an arm point passes over a low obstacle only with its underside this much above its top
 
 
-def robot_footprints(raw: dict, arm: str = "auto", low_height: float | None = None):
-    """The robot's footprint from its measured body (embodiments/tidybot_fr3/robot.yaml `body:`, interface/workspace.py):
-    the plate's outline, plus the arm from its joints (with --arm auto and readings to go on). Returns (full, low, info):
-    `low` (with low_height) counts only the arm's points low enough to hit an obstacle of that height."""
+def robot_footprints(raw: dict, arm: str = "auto"):
+    """The robot's footprint from its measured body (embodiments/tidybot_fr3/robot.yaml `body:`, interface/workspace.py),
+    as a function of an obstacle's top: the plate's outline, plus the arm's points (from its joints, with --arm auto and
+    readings to go on) whose underside is lower than the top + LOW_CLEARANCE_M (all of them for inf, a wall). Returns
+    (footprint_below, info)."""
     from chefbot.interface.workspace import load_body
 
     body = load_body()
     q = raw.get("arm_q") if arm == "auto" else None
     known = q is not None and len(q) == 7
-    full = body.footprint(q if known else None)
-    low = body.footprint(q if known else None, below=low_height + LOW_CLEARANCE_M) if low_height is not None else None
+    q = q if known else None
+
+    def footprint_below(top: float = math.inf):
+        return body.footprint(q, below=None if math.isinf(top) else top + LOW_CLEARANCE_M)
+
     if arm != "auto":
         note = "arm off (--arm off): the plate only"
     elif not known:
         note = "arm pose unknown (no joint readings): the plate only"
     else:
         note = "arm from live joints" if raw.get("arm_live") else "arm from the last joint readings in Redis (driver not running)"
-    info = full.summary() | {"note": note, "arm_live": bool(raw.get("arm_live"))}
-    if low is not None:
-        info |= {"low_height_m": low_height, "low_radius_m": round(low.radius, 4)}
-    return full, low, info
+    return footprint_below, footprint_below().summary() | {"note": note, "arm_live": bool(raw.get("arm_live"))}
 
 
-def nav_space(grid, raw: dict, arm: str = "auto", layers=None):
-    """Where the base's centre may be at each heading (robot/nav/footprint.py), the body itself (no margin). With a
-    layered map (tall, low, low_height): walls by the full footprint, low obstacles by the low one."""
+def nav_space(grid, raw: dict, arm: str = "auto"):
+    """Where the base's centre may be at each heading on `grid` (robot/nav/footprint.py), the body itself (no margin):
+    each obstacle grown by the footprint of what the robot has lower than its top (the map's heights)."""
     from chefbot.robot.nav.footprint import FootprintSpace
 
-    if layers is not None:
-        tall, low_grid, low_height = layers
-        full, low, info = robot_footprints(raw, arm, low_height)
-        return FootprintSpace.layered([(tall, full), (low_grid, low)]), info
-    full, _, info = robot_footprints(raw, arm)
-    return FootprintSpace(grid, full), info
+    footprint_below, info = robot_footprints(raw, arm)
+    space = FootprintSpace.by_height(grid, footprint_below)
+    info["by_top"] = {("wall" if math.isinf(t) else f"{t:.2f} m"): round(footprint_below(t).radius, 3) for t in grid.tops()}
+    return space, info
 
 
 class Fence:
@@ -715,14 +714,9 @@ def park(env: RealEnv, args) -> list[dict]:
 def map_space(env: RealEnv, args, grid):
     """Where the base's centre may be at each heading on --map, for the robot's footprint (robot_footprints: the
     plate, and the arm from its joints with --arm auto)."""
-    from chefbot.scripts.real_map import load_layers
-
-    layers = load_layers(args.map)
-    space, info = nav_space(grid, env.raw_state(), args.arm, layers)
-    print(f"footprint: plate {info['plate']['x']} x {info['plate']['y']} m about the base centre, reaches "
-          f"{info['radius_m']:.3f} m ({info['note']}; {info['reach_ahead_m']:.2f} m ahead)"
-          + (f"; against low obstacles (<= {info['low_height_m']:.2f} m) {info['low_radius_m']:.3f} m: the arm passes over them"
-             if layers is not None else ""))  # fmt: skip
+    space, info = nav_space(grid, env.raw_state(), args.arm)
+    print(f"footprint: plate {info['plate']['x']} x {info['plate']['y']} m about the base centre ({info['note']}); "
+          f"reach by obstacle top: {info['by_top']}")  # fmt: skip
     return space
 
 
@@ -737,7 +731,7 @@ def add_go_args(g) -> None:
     g.add_argument("--corridor", type=float, default=0.15, help="m off the straight line A-B before stopping")
     g.add_argument("--max-dist", type=float, default=1.5, help="m: refuse targets further away")
     g.add_argument("--timeout", type=float, default=None, help="s (default from the distance and speed)")
-    g.add_argument("--map", type=Path, default=None, help="a map from scripts/real_map.py: plan around its obstacles")
+    g.add_argument("--map", type=Path, default=None, help="a map folder (maps/README.md): plan around its obstacles")
     g.add_argument("--margin", type=float, default=0.10, help="m added to the footprint for planning (with --map)")
     g.add_argument("--arm", choices=("auto", "off"), default="auto", help="grow the footprint to cover the arm (with --map)")
     g.add_argument("--segments", dest="smooth", action="store_false",

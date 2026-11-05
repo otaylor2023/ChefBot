@@ -33,7 +33,8 @@ from chefbot.environments.real.env import CONFIG, RealEnv, load_config
 from chefbot.interface.types import Pose2D
 from chefbot.interface.workspace import Footprint
 from chefbot.robot.nav.grid import OccupancyGrid
-from chefbot.scripts.real_map import box_polygon, inside, render
+from chefbot.environments.real.build_map import box_polygon, inside
+from chefbot.scripts.real_map import render
 from chefbot.scripts.real_nav import go_planned
 
 REPO = Path(__file__).resolve().parents[2]

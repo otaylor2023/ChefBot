@@ -2,6 +2,7 @@
 
 Writes, into one folder per layout/style:
   grid.npy + grid.yaml   occupancy grid for the robot layer
+  heights.npy            each occupied cell's top (m; inf off the floor) (maps/README.md)
   semantic_map.yaml      fixtures / objects with rough locations for the agent
 
     python -m chefbot.environments.robocasa.build_map --layout 1 --style 1
@@ -21,7 +22,7 @@ from chefbot.environments.robocasa.config import RoboCasaConfig
 from chefbot.environments.robocasa.detector import FixtureBox, named_fixtures, numbered, scene_objects
 from chefbot.environments.robocasa.env import RoboCasaEnv
 
-GRID_FILE, GRID_META_FILE, SEMANTIC_MAP_FILE = "grid.npy", "grid.yaml", "semantic_map.yaml"
+GRID_FILE, GRID_META_FILE, SEMANTIC_MAP_FILE, HEIGHTS_FILE = "grid.npy", "grid.yaml", "semantic_map.yaml", "heights.npy"
 # How far in front of a fixture there must be open floor for a facing to count.
 _FACING_CLEARANCE = 0.6
 
@@ -43,6 +44,13 @@ def build_grid(env: RoboCasaEnv) -> tuple[np.ndarray, dict]:
     Returns (occupied[row=y, col=x], metadata). Cells that are not over the
     floor are occupied.
     """
+    occupied, _, meta = build_grid_and_heights(env)
+    return occupied, meta
+
+
+def build_grid_and_heights(env: RoboCasaEnv) -> tuple[np.ndarray, np.ndarray, dict]:
+    """build_grid, and each occupied cell's top: the highest collision geometry over it in the band (anything
+    reaching the band's top, and cells off the floor: inf)."""
     cfg, model = env.config, env.model
     resolution = cfg.grid_resolution
     z_min, z_max = cfg.grid_height_band
@@ -57,7 +65,7 @@ def build_grid(env: RoboCasaEnv) -> tuple[np.ndarray, dict]:
             else:
                 in_band = points[(points[:, 2] >= z_min) & (points[:, 2] <= z_max)]
                 if len(in_band):
-                    obstacles.append(in_band[:, :2])
+                    obstacles.append(in_band)
     if not floor:
         raise RuntimeError("scene has no floor geoms to bound the map")
     floor_xy = np.concatenate(floor)
@@ -73,10 +81,20 @@ def build_grid(env: RoboCasaEnv) -> tuple[np.ndarray, dict]:
 
     occupied = np.ones((rows, cols), dtype=bool)
     occupied[cells(floor_xy)] = False
+    heights = np.where(occupied, np.inf, 0.0)
     if obstacles:
-        occupied[cells(np.concatenate(obstacles))] = True
+        pts = np.concatenate(obstacles)
+        keep_rows, keep_cols = cells(pts[:, :2])
+        inb = ((np.floor((pts[:, 0] - origin[0]) / resolution) >= 0) & (np.floor((pts[:, 0] - origin[0]) / resolution) < cols)
+               & (np.floor((pts[:, 1] - origin[1]) / resolution) >= 0) & (np.floor((pts[:, 1] - origin[1]) / resolution) < rows))  # fmt: skip
+        tops = np.where(pts[inb, 2] >= z_max - resolution, np.inf, pts[inb, 2])  # up to the band's top: a wall
+        was_free = ~occupied
+        occupied[keep_rows, keep_cols] = True
+        top = np.zeros((rows, cols))
+        np.maximum.at(top, (keep_rows, keep_cols), tops)
+        heights = np.where(was_free & occupied, top, heights)
     meta = {"resolution": resolution, "origin": [float(origin[0]), float(origin[1])], "frame": "world"}
-    return occupied, meta
+    return occupied, heights, meta
 
 
 def _is_free(occupied: np.ndarray, meta: dict, x: float, y: float) -> bool:
@@ -144,8 +162,9 @@ def build_map(env: RoboCasaEnv, out_dir: str | Path | None = None) -> Path:
     """Write grid.npy, grid.yaml and semantic_map.yaml; returns the folder."""
     out_dir = Path(out_dir) if out_dir else env.config.map_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-    occupied, meta = build_grid(env)
+    occupied, heights, meta = build_grid_and_heights(env)
     np.save(out_dir / GRID_FILE, occupied)
+    np.save(out_dir / HEIGHTS_FILE, heights)
     (out_dir / GRID_META_FILE).write_text(yaml.safe_dump(meta))
     semantic = build_semantic_map(env, occupied, meta)
     (out_dir / SEMANTIC_MAP_FILE).write_text(yaml.safe_dump(semantic, sort_keys=False, default_flow_style=None))
@@ -155,7 +174,7 @@ def build_map(env: RoboCasaEnv, out_dir: str | Path | None = None) -> Path:
 def ensure_map(env: RoboCasaEnv, out_dir: str | Path | None = None) -> Path:
     """The scene's map folder, built first if any file is missing."""
     out_dir = Path(out_dir) if out_dir else env.config.map_dir
-    if all((out_dir / f).exists() for f in (GRID_FILE, GRID_META_FILE, SEMANTIC_MAP_FILE)):
+    if all((out_dir / f).exists() for f in (GRID_FILE, GRID_META_FILE, SEMANTIC_MAP_FILE, HEIGHTS_FILE)):
         return out_dir
     return build_map(env, out_dir)
 

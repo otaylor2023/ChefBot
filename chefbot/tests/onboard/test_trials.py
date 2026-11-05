@@ -11,7 +11,7 @@ from chefbot.interface.types import Pose2D
 from chefbot.interface.workspace import Footprint
 from chefbot.onboard.sim import SimRobot
 from chefbot.scripts import real_trials as T
-from chefbot.scripts.real_map import box_polygon
+from chefbot.environments.real.build_map import box_polygon
 
 FENCE = box_polygon((0.0, 0.0), (2.0, 2.0))
 BOX = box_polygon((0.6, 0.0), (0.2, 0.2))  # 0.5 .. 0.7 in x
@@ -75,7 +75,7 @@ def test_long_segments_are_split_into_steps_go_accepts():
 
 
 def test_stations_are_square_to_the_sides_even_of_a_rotated_counter():
-    from chefbot.scripts.real_map import stations
+    from chefbot.environments.real.build_map import stations
 
     spec = {"obstacles": [{"name": "c", "box": {"center": [1.0, 2.0], "size": [2.0, 1.0], "yaw_deg": 30.0}}],
             "stations": [{"obstacle": "c", "prefix": "c", "standoff": 0.4, "approach": 0.25}]}  # fmt: skip

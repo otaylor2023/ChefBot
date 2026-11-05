@@ -14,7 +14,8 @@ bounds: [[-2.00, -0.05], [3.92, 4.32]]   # xmin: the open west end (Jack); the b
 obstacles:
   - name: Chef-botcounter-top
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
-    height_m: 0.93   # its top (the corner markers' centres): a low obstacle, the arm may pass over it
+    height_m: 0.93   # its top (the corner markers' centres): the arm may pass over it, the plate may not
+    fixture: counter # on the semantic map (the agent's name for it)
 stations:
   # Square to the counter's sides, from its box: base centre 0.45 m out from each edge's middle (the closer lap's distance,
   # HT-4c), facing it, the last 0.25 m straight in along the edge's normal.

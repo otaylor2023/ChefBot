@@ -10,8 +10,10 @@ slice is conservative for every heading in its band. Slices are made when first 
     space.blocked_for_all(yaws)         # free where it may be at some heading in the list (for A*; check the path after)
     space.path_clear(poses)             # every pose (x, y, yaw), and the way between them, clear at its own heading
 
-Layers: obstacles of different heights may need different footprints (a low counter: the plate only, the arm passes
-over it). FootprintSpace.layered([(grid, footprint), ...]) grows each by its own and blocks where any blocks.
+Heights: obstacles of different heights need different footprints (a counter top: the plate, and only the arm's points
+low enough to hit it; the arm passes over it). FootprintSpace.by_height(grid, footprint_below) groups the map's obstacles
+by their top (OccupancyGrid.heights) and grows each group by footprint_below(top) (inf: walls, the whole footprint).
+FootprintSpace.layered([(grid, footprint), ...]) is the general form: each grown by its own, blocked where any blocks.
 """
 
 from __future__ import annotations
@@ -42,6 +44,14 @@ class FootprintSpace:
         share resolution, origin and shape."""
         layers = list(layers)
         return cls(layers[0][0], layers[0][1], margin, step_deg, layers, centre_limit)
+
+    @classmethod
+    def by_height(cls, grid: OccupancyGrid, footprint_below, margin: float = 0.0, step_deg: float = 2.0,
+                  centre_limit=None) -> "FootprintSpace":  # fmt: skip
+        """`grid`'s obstacles grouped by their top, each group grown by footprint_below(top): the footprint of what
+        the robot has lower than that (top inf: all of it)."""
+        tops = grid.tops() or [math.inf]
+        return cls.layered([(grid.only_top(t), footprint_below(t)) for t in tops], margin, step_deg, centre_limit)
 
     def with_margin(self, margin: float) -> "FootprintSpace":
         return FootprintSpace(self.grid, None, margin, 360.0 / self.n, self.layers, self.centre_limit)
