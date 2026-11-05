@@ -1,0 +1,80 @@
+close_east:
+  x: 3.07
+  y: 2.06
+  yaw_deg: 180.0
+close_far:
+  x: 1.49
+  y: 2.99
+  yaw_deg: -90.0
+close_near:
+  x: 1.49
+  y: 1.13
+  yaw_deg: 90.0
+close_west:
+  x: -0.09
+  y: 2.06
+  yaw_deg: 0.0
+counter_east:
+  approach_m: 0.25
+  x: 3.07
+  y: 2.06
+  yaw_deg: -180.0
+counter_north:
+  approach_m: 0.25
+  x: 1.49
+  y: 2.99
+  yaw_deg: -90.0
+counter_south:
+  approach_m: 0.25
+  x: 1.49
+  y: 1.1300000000000001
+  yaw_deg: 90.0
+counter_west:
+  approach_m: 0.25
+  x: -0.08999999999999986
+  y: 2.06
+  yaw_deg: -0.0
+east_end:
+  x: 3.1
+  y: 2.06
+  yaw_deg: 180.0
+far_side:
+  x: 1.49
+  y: 3.05
+  yaw_deg: -90.0
+hug_a:
+  x: 0.5
+  y: 0.86
+  yaw_deg: 0.0
+hug_b:
+  x: 1.49
+  y: 0.86
+  yaw_deg: 0.0
+hug_c:
+  x: 2.4
+  y: 0.86
+  yaw_deg: 0.0
+lap_east:
+  x: 3.27
+  y: 2.06
+  yaw_deg: 180.0
+lap_far:
+  x: 1.49
+  y: 3.19
+  yaw_deg: -90.0
+lap_near:
+  x: 1.49
+  y: 0.93
+  yaw_deg: 90.0
+lap_west:
+  x: -0.29
+  y: 2.06
+  yaw_deg: 0.0
+near_side:
+  x: 1.49
+  y: 1.0
+  yaw_deg: 90.0
+west_end:
+  x: -0.25
+  y: 2.06
+  yaw_deg: 0.0
