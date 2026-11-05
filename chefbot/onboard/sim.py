@@ -96,8 +96,12 @@ class SimBase:
                 step = goal - self.odom
                 step[2] = math.atan2(math.sin(step[2]), math.cos(step[2]))
                 n = np.linalg.norm(step[:2])
-                if n > self.speed * self.dt:
-                    step[:2] *= self.speed * self.dt / n
+                try:
+                    scale = min(max(float(self.redis.values.get(K.BASE_MAX_VEL_SCALE, "1.0")), 0.1), 1.0)
+                except ValueError:
+                    scale = 1.0
+                if n > scale * self.speed * self.dt:  # as the driver: never faster than scale x its ceiling
+                    step[:2] *= scale * self.speed * self.dt / n
                 step[2] = np.clip(step[2], -self.yaw_rate * self.dt, self.yaw_rate * self.dt)
                 self.odom = self.odom + step
             self.publish()
@@ -123,17 +127,25 @@ class _NoCameras:
 class SimRobot:
     """FakeRedis + SimBase + the real onboard server on a free local port. `start`: the base's world pose."""
 
-    def __init__(self, start=(0.0, 0.0, 0.0), speed=0.5, yaw_rate=1.0, noise_m=0.0, seed=0):
+    def __init__(self, start=(0.0, 0.0, 0.0), speed=None, yaw_rate=None, noise_m=0.0, seed=0):
+        from pathlib import Path
+
+        import yaml
+
+        from chefbot.interface.limits import base_cap
         from chefbot.onboard.server import build
 
+        real = yaml.safe_load((Path(__file__).resolve().parent / "config.yaml").read_text())  # the measured stop
+        cap = base_cap(real.get("embodiment", "tidybot_fr3"))["vel"]  # the robot's hard base cap: the driver runs at it
         config = {
             "server": {"host": "127.0.0.1", "port": 0, "state_hz": 50, "watchdog_s": 0.3, "camera_idle_s": 10},
-            "base": {"driver_max_vel_xy": 0.125, "driver_max_vel_yaw": 0.4, "driver_max_accel_xy": 0.1, "marker_yaw_offset_deg": 0.0,
-                     "marker_xy": [0.0, 0.0], "mocap_stale_s": 0.25},
+            "base": {"marker_yaw_offset_deg": 0.0, "marker_xy": [0.0, 0.0], "mocap_stale_s": 0.25},
             "gripper": {"speed": 0.05, "force": 20.0},
-            "limits": {"base_max_vel_xy": 0.125, "base_max_vel_yaw": 0.4, "base_stop_tau_s": 0.333, "base_stop_brake_mps2": 0.25},
+            "limits": dict(real["limits"]),
             "cameras": [],
         }  # fmt: skip
+        speed = float(cap[0]) if speed is None else speed
+        yaw_rate = float(cap[2]) if yaw_rate is None else yaw_rate
         self.redis = FakeRedis({K.MOCAP_VALID: "1"})
         self.base = SimBase(self.redis, world_from_odom=tuple(start), speed=speed, yaw_rate=yaw_rate, noise_m=noise_m, seed=seed)
         self.server = build(config, self.redis)

@@ -244,6 +244,7 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
     line_len = float(np.linalg.norm(line))
     u = line / line_len if line_len > 1e-6 else np.zeros(2)
     best, settled_since, errors_seen = float("inf"), None, len(env.errors)
+    last_cap = speed  # the speed the last tick allowed (sizes the carrot)
     log = log_path.open("w") if log_path else None
     samples: list[dict] = []
     t0 = time.monotonic()
@@ -291,7 +292,7 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
                 if follow is not None:
                     from chefbot.robot.nav.speed import lookahead_for
 
-                    look = lookahead_for(speed, accel, 0.1)
+                    look = lookahead_for(min(speed, last_cap), accel, 0.1)
                     target = follow.target_at(p_now, look)
                     while look > 0.12 and not keep_free.segment_free((p_now.x, p_now.y), (target.x, target.y)):
                         look = max(0.12, look * 0.7)  # no corner cut into an obstacle
@@ -300,6 +301,7 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
                 way = way or (target.x - p_now.x, target.y - p_now.y)
                 free = free_distance(keep_free, (p_now.x, p_now.y), way)
                 v_cap = min(speed, stop_model.speed_for(free - stop_buffer_m))
+                last_cap = v_cap
                 extra.update(free_m=free, v_cap=v_cap)
             elif follow is not None:
                 target = follow.target(p_now)
@@ -576,6 +578,12 @@ def park(env: RealEnv, args) -> list[dict]:
     from chefbot.robot.nav.speed import StopModel
 
     stop_model = StopModel.from_limits(env.server_limits)  # refuses when the robot reports no measured stop
+    ceiling = env.server_limits.get("base_max_vel_xy")
+    if ceiling is not None and args.speed > float(ceiling):
+        args.speed = float(ceiling)  # the driver's own ceiling (onboard/config.yaml)
+    ceiling_yaw = env.server_limits.get("base_max_vel_yaw")
+    if ceiling_yaw is not None and args.yaw_speed > float(ceiling_yaw):
+        args.yaw_speed = float(ceiling_yaw)
     accel = float(env.server_limits.get("base_max_accel_xy", 0.1))
     print(f"stop model: tau {stop_model.tau_s:.3f} s, brake {stop_model.brake_mps2:.2f} m/s^2 "
           f"({1000 * stop_model.distance(args.speed):.0f} mm from {args.speed:.3f} m/s); driver accel {accel} m/s^2")
