@@ -246,7 +246,7 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
                yaw_tol_deg: float = 3.0, corridor: float = 0.15, margin: float = 0.10, arm: str = "auto",
                settle_s: float = 0.5, still_mps: float | None = None, lookahead: float = 0.12,
                timeout_s: float | None = None, centre_limit=None, footprint_below=None, stop_model="robot", accel=None,
-               arrive_hold: bool = False):  # fmt: skip
+               arrive_hold: bool = False, path_clearance: float = 0.0, turn_in_room: bool = False):  # fmt: skip
     """The robot layer on the real robot: Robot(RealEnv) on `grid` with the robot's footprint (robot_footprints), its
     measured stop and acceleration as the onboard server reports them (stop_model="robot"; None: none), the run's
     speeds and tolerances. The base drives with the arm as it is (tuck_arm=False: real_nav never moves the arm; the
@@ -264,7 +264,7 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
                   pos_tolerance=float(tol), yaw_tolerance=math.radians(yaw_tol_deg), deviation_threshold=float(corridor),
                   safety_margin=float(margin), snap_radius=0.0, arrive_settle_s=float(settle_s), arrive_still_mps=still_mps,
                   lookahead=float(lookahead), control_rate=20.0, motion_timeout_s=float(timeout_s or 3600.0),
-                  arrive_hold=bool(arrive_hold))  # fmt: skip
+                  arrive_hold=bool(arrive_hold), path_clearance_m=float(path_clearance), turn_in_room=bool(turn_in_room))  # fmt: skip
     if footprint_below is None:
         footprint_below = robot_footprints(env.raw_state(), arm)[0]
     limits = env.server_limits
@@ -468,6 +468,16 @@ def park(env: RealEnv, args) -> list[dict]:
     box = counter_box(args.map, args.counter)
     targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed, args.sides, args.x_range)
     boxes = [box] * len(targets)
+    if args.mix:  # random places across several counter sides: each target on a randomly chosen one
+        rng = np.random.default_rng(args.seed + 7)
+        pairs = [m.split(":") for m in args.mix]
+        mixed, mixed_boxes = [], []
+        for k in range(args.random):
+            name, side = pairs[int(rng.integers(len(pairs)))]
+            b = counter_box(args.map, name)
+            mixed += random_targets(b, 1, args.seed * 100 + k, [side], args.x_range)
+            mixed_boxes.append(b)
+        targets, boxes = mixed, mixed_boxes
     if args.alternate:  # back and forth between two counters: A, B, A, B ... (B's targets from its own side(s))
         box_b = counter_box(args.map, args.alternate[0])
         tb = random_targets(box_b, args.random, args.seed + 1000, args.alternate[1:], args.x_range)
@@ -486,7 +496,8 @@ def park(env: RealEnv, args) -> list[dict]:
 
     stop_model = StopModel.from_limits(env.server_limits)  # refuses when the robot reports no measured stop
     accel = float(env.server_limits.get("base_max_accel_xy", 0.1))
-    robot = map_robot(env, args, grid, settle_s=0.2, still_mps=0.01, arrive_hold=args.hold)
+    robot = map_robot(env, args, grid, settle_s=0.2, still_mps=0.01, arrive_hold=args.hold,
+                      path_clearance=args.clearance, turn_in_room=args.turn_in_room)
     print(f"stop model: tau {stop_model.tau_s:.3f} s, brake {stop_model.brake_mps2:.2f} m/s^2 "
           f"({1000 * stop_model.distance(args.speed):.0f} mm from {args.speed:.3f} m/s); driver accel {accel} m/s^2")
     session = REPO / "runs" / "real_park" / f"{datetime.now():%Y%m%d_%H%M%S}"
@@ -665,6 +676,11 @@ def main() -> None:
     k.add_argument("--seed", type=int, default=0)
     k.add_argument("--sides", nargs="+", choices=("south", "north", "east", "west"), default=None,
                    help="draw --random targets on these counter sides only (a counter against a wall)")
+    k.add_argument("--clearance", type=float, default=0.0,
+                   help="m: plan paths that keep this far from obstacles where they can (down the middle of aisles)")
+    k.add_argument("--turn-in-room", action="store_true", help="turn where the path has room, not evenly along it")
+    k.add_argument("--mix", nargs="+", default=None, metavar="COUNTER:SIDE",
+                   help="random targets, each on a randomly chosen COUNTER:SIDE of these (random A to B across the kitchen)")
     k.add_argument("--around", action="store_true",
                    help="between the island's sides, go round by the map's routes.yaml waypoints (keeping the heading)")
     k.add_argument("--hold", action="store_true",

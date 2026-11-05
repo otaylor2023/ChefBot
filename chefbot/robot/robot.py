@@ -41,7 +41,7 @@ from chefbot.robot.nav.base_controller import BaseController
 from chefbot.robot.nav.goal import Reachability, select_standoff, snap_to_free, standoff_candidates
 from chefbot.robot.nav.footprint import FootprintSpace
 from chefbot.robot.nav.grid import OccupancyGrid
-from chefbot.robot.nav.heading_plan import escape_start, headings, plan_at_headings, subdivide
+from chefbot.robot.nav.heading_plan import PathStyle, escape_start, headings, plan_at_headings, subdivide
 from chefbot.robot.safety import BaseGuard, base_at_rest, require_base_at_rest, tuck_arm_for_driving
 from chefbot.robot.skills.common import ArmStack
 from chefbot.robot.skills.pick import run_pick
@@ -143,10 +143,10 @@ class Robot(RobotAPI):
             return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
         path, start = [], pose
         for k, target in enumerate(via + [goal]):
-            points, why = plan_at_headings(plan, body, start, begin, target, target.yaw)
+            points, why = plan_at_headings(plan, body, start, begin, target, target.yaw, style=self._style())
             if points is None:
                 return self._result(MotionStatus.NO_PATH, f"stretch {k + 1} of {len(via) + 1}: {why}")
-            stretch = headings(start, subdivide(points, 1.0), target.yaw)
+            stretch = headings(start, subdivide(points, 1.0), target.yaw, self._style(), body)
             path += stretch if not path else stretch[1:]
             start, begin = target, (target.x, target.y)
         path_m = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(path, path[1:]))
@@ -305,11 +305,11 @@ class Robot(RobotAPI):
         begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
         if begin is None:
             return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
-        points, why = plan_at_headings(plan, body, pose, begin, pre, goal.yaw)
+        points, why = plan_at_headings(plan, body, pose, begin, pre, goal.yaw, style=self._style())
         if points is None:
             blocking = self._doors_in_the_way(lambda planner: _has_path(planner, pose, goal))
             return self._result(MotionStatus.NO_PATH, why + blocking)
-        path = headings(pose, subdivide(points, 1.0), goal.yaw)
+        path = headings(pose, subdivide(points, 1.0), goal.yaw, self._style(), body)
         if self._tuck_arm:
             # Interlock: the arm is tucked (carrying, if it holds something) before the base moves.
             tucked = tuck_arm_for_driving(self._arm.arm, self._cfg, self._held, preempt)
@@ -475,7 +475,7 @@ class Robot(RobotAPI):
         ranked = sorted((costs[cell], i) for i, c in enumerate(clear) if (cell := planner.grid.world_to_cell(c.x, c.y)) in costs)
         for _, i in ranked:
             c = clear[i]
-            if plan_at_headings(plan, body, pose, begin, c, c.yaw)[0] is not None:
+            if plan_at_headings(plan, body, pose, begin, c, c.yaw, style=self._style())[0] is not None:
                 return c, ""
         return None, "no stance reachable from here"
 
@@ -484,6 +484,12 @@ class Robot(RobotAPI):
         space = FootprintSpace.by_height(grid, self._footprint_below)
         space.heading_zones = list(getattr(self, "heading_zones", []))
         return space
+
+    def _style(self) -> PathStyle | None:
+        c = self._cfg
+        if c.path_clearance_m <= 0 and not c.turn_in_room:
+            return None
+        return PathStyle(clearance_m=c.path_clearance_m, turn_in_room=c.turn_in_room, need_m=0.369 + c.safety_margin)
 
     def set_heading_zones(self, zones) -> None:
         """Where the base may only face some ways: [(cells grid, [(yaw rad, tolerance rad), ...])] (FootprintSpace)."""
