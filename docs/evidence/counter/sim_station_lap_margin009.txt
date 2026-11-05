@@ -1,0 +1,8 @@
+simulated station lap, 2026-11-04, movement 74c082d, maps/src_counter, start hug_a (0.5, 0.86, 0)
+real_nav go <station> --map maps/src_counter --margin 0.09 --arm off --speed 0.125 (onboard/sim.py: no dynamics)
+153933_counter_south reached  path 1.24 m  final 0.0 mm  -0.00 deg
+153940_counter_east reached  path 2.68 m  final 0.0 mm  -0.00 deg
+153950_counter_north reached  path 2.65 m  final 0.0 mm  0.00 deg
+154000_counter_west reached  path 2.65 m  final 0.0 mm  0.00 deg
+154009_hug_a   reached  path 1.47 m  final 0.0 mm  0.00 deg
+min base centre to counter box: 0.438 m (keep-out planned 0.33 + 0.09 = 0.42); minus plate corner 0.369 m -> >= 0.069 m worst case

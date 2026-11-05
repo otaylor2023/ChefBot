@@ -394,3 +394,50 @@ Watchdog halt: the laptop's loop never paused (≤ 63 ms between samples), but t
 ~0.3 s **Wi-Fi stall** between the Mac and the robot (Tailscale direct over SRC at the time, 12 ms). The halt is the
 designed response; for operation the motion loop should not depend on that link.
 Evidence: `docs/evidence/ht4d/` (stop_analysis.txt, lap_analysis.txt, sha256.txt).
+
+---
+
+## HT-5a: counter station lap after the rebase onto main 0a3c7d7, with pole-camera images at each station
+
+**Status:** PASSED 2026-11-04 15:55–16:01 PST (one session): 5/5 stations reached, plate ≥ 5.7 cm from the counter.
+**Commit:** `74c082d` (movement, rebased onto main 0a3c7d7; not pushed at run time), deployed by `git archive` to
+`~/chefbot_movement` (542 files, sha256 verified). Jack on the e-stop; arm driver off, joints locked
+(q [0.137, -0.288, -0.192, -1.324, -0.009, 1.452, 0.659], from Redis: tip 1.15–1.40 m up, reach 0.548 m ahead).
+
+### Setup
+- Robot: `cd ~/chefbot_movement && CHEFBOT_PYTHON=~/chefbot_calib/env/bin/python chefbot/onboard/bringup/base.sh`
+  (the teammate's env, for pyrealsense2). Driver: limits from onboard/config.yaml (0.125 m/s, 0.4 rad/s, accel 0.1 / 0.5),
+  timeout 0.3 s, brake 0.25 m/s² / 0.8 rad/s².
+- Mac: `real_nav go <station> --map maps/src_counter --margin 0.09 --speed 0.125`; after each, a watch-only
+  pole RGB-D grab (scratch script `pole_snap.py`: refuses without live mocap; PNG + depth .npy + pose JSON).
+- Margin 0.09, not HT-4d's 0.05: the footprint's base circle (0.33 m) is smaller than the plate's corners (0.369 m;
+  teammate's review). Sim dry run first: `docs/evidence/counter/sim_station_lap_margin009.txt` (5/5).
+- Link: Mac on 10.32.77.55, robot on SRC; RTT 88 ms average, 124 ms max, 28 ms jitter (40 pings), vs ~12 ms on 11-03.
+
+### Observed
+| Leg | Result | Final error | Peak speed (real_nav) |
+|---|---|---|---|
+| start → hug_a | first try held by the server's watchdog after ~5 cm (link stall); retry reached | 8.6 mm, 0.66° | 0.146 m/s |
+| → counter_south | reached | 5.3 mm, 0.08° | 0.115 |
+| → counter_east | **refused before moving**: "goal is in collision": its approach point (x 3.32) is 0.60 m from the east wall, the footprint with this arm pose + margin 0.653 m | — | — |
+| → east_end (instead: same side, no straight-in approach, 0.82 m from the wall) | reached | 5.3 mm, 0.73° | **0.174** |
+| → counter_north | reached | 5.1 mm, 0.22° | 0.097 |
+| → counter_west | stopped by the laptop: no state for 0.55 s (link); base held | (0.69 m short) | 0.144 |
+| → counter_west (retry) | reached | 6.1 mm, 0.24° | 0.104 |
+| → hug_a | reached | 3.1 mm, 0.23° | 0.123 |
+
+- 12.05 m driven, 3,078 laptop samples. Base centre ≥ **0.426 m** from the counter box (planned keep-out 0.42);
+  **plate rectangle (19 × 22 in) ≥ 0.057 m** from it at every sample (the first check with the plate, not a circle).
+- Every stop from a link stall was a hold (velocity 0, stack up); the driver's own timeout never had to fire.
+- Pole images (Mac `runs/pole_snaps/20261104_lap/`, gitignored: people in frame): counter_south, east_end, counter_north,
+  counter_west, hug_a, each taken at rest (moved < 0.03 mm during the grab), 1.3–1.9 s per grab (cold camera). Sharp.
+  Depth valid only 20–34% of pixels (much of the scene beyond range; the arm fills the right third of every frame,
+  too close for the D455).
+
+### Limitations / open
+- One session. Laptop-side poses only (no 100 Hz robot-side recorder this time).
+- Peak speed 0.146 and 0.174 m/s against the 0.125 cap (real_nav's server-time estimate): with HT-4c's 0.298 lurch, the
+  speed overshoot is still unexplained (review suggestion 2).
+- counter_east is unreachable with this arm pose at margin 0.09 (approach point vs east wall); the footprint fix (review C1)
+  separates the plate-vs-counter and arm-vs-wall cases, which should make the extra margin unnecessary.
+- The cam_to_world in each JSON is the configured pole mount × base pose (tracker without the hand card in view).
