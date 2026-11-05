@@ -8,6 +8,8 @@ fixtures:
     location: [3.816, -3.556]
   fridge:
     location: [3.919, -1.57]
+  far_counter:
+    location: [4.198, 0.56]
   counter:
     location: [1.49, 2.06]
 objects: {}

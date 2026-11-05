@@ -3,9 +3,9 @@
 # Build: python -m chefbot.environments.real.build_map build maps/src_kitchen/spec.yaml
 resolution: 0.05
 # PROVISIONAL bounds: the floor the base may use. Not measured yet (Jack measures the walls next). ymin sits just behind
-# the L counter's back edges (assumed against walls): ymin -4.95 behind leg 1, xmax 4.35 behind leg 2;
+# the L counter's back edges (assumed against walls): ymin -4.95 behind leg 1, xmax 4.60 behind leg 2 and the far counter;
 # xmin, ymax as in maps/src_counter.
-bounds: [[-2.00, -4.95], [4.35, 4.32]]
+bounds: [[-2.00, -4.95], [4.60, 4.32]]
 obstacles:
   - name: kitchen_island_countertop     # Motive body ID 26: 4 corner markers, measured 2026-11-05 12:59
     box: {center: [1.305, -2.087], size: [2.224, 0.961], yaw_deg: -2.96}
@@ -26,12 +26,19 @@ obstacles:
     box: {center: [3.919, -1.570], size: [0.632, 0.990], yaw_deg: -2.96}
     height_m: 1.80
     fixture: fridge
+  - name: far-counter                   # body 29: 5 markers, the east side north of the fridge, 13:25
+    box: {center: [4.198, 0.560], size: [0.566, 3.296], yaw_deg: -2.96}
+    height_m: 0.88
+    fixture: far_counter
+  # KEEP-OUT (Jack, 2026-11-05): the upside-down U of aisles around the island (north, east, south of it, as seen with
+  # the robot facing +x), open to the west. From the island's west end to leg 2's front, from leg 1's front to the
+  # fridge's north end. Tall: the planner never puts any part of the base in it. Remove to drive the kitchen aisles.
+  - name: keepout-U-around-island
+    box: {center: [1.855, -2.643], size: [3.380, 3.345], yaw_deg: -2.96}
   - name: Chef-botcounter-top           # Motive body ID 25: the test counter (HT-4..6), as in maps/src_counter
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
     height_m: 0.93
     fixture: counter
 stations:
-  - {obstacle: kitchen_island_countertop, prefix: island, standoff: 0.45, approach: 0.25}
-  - {obstacle: 1-corner-countertop, prefix: stove_counter, standoff: 0.45, approach: 0.25}
-  - {obstacle: 2-corner-connected-1-and-fridge, prefix: side_counter, standoff: 0.45, approach: 0.25}
   - {obstacle: Chef-botcounter-top, prefix: counter, standoff: 0.45, approach: 0.25}
+  - {obstacle: far-counter, prefix: far_counter, standoff: 0.45, approach: 0.25}
