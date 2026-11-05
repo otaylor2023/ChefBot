@@ -570,6 +570,20 @@ def park(env: RealEnv, args) -> list[dict]:
         log_dir.mkdir(parents=True, exist_ok=True)  # go_planned may refuse before it makes it
         t0 = time.monotonic()
         r = go_planned(env, pose, grid, robot=robot, log_dir=log_dir, confirm=lambda _: None, approach_m=args.approach, via=via)
+        for retry in range(2):  # a link stall the onboard server held the robot for: wait for the link, the same target again
+            if r.get("ok") or "no word from the client" not in str(r.get("reason")):
+                break
+            print(f"    held by the server (link stall): retrying the same target ({retry + 1}/2)")
+            t_wait = time.monotonic()
+            while not env.localization().live and time.monotonic() - t_wait < 10.0:
+                time.sleep(0.1)
+            time.sleep(1.0)
+            pose2, info2 = choose_stance(robot, box, target, args.out, args.approach) if via is None else (pose, info)
+            if pose2 is None:
+                break
+            pose, info = pose2, info2
+            r = go_planned(env, pose, grid, robot=robot, log_dir=session / f"{i:02d}_{info['side']}_retry{retry + 1}",
+                           confirm=lambda _: None, approach_m=args.approach, via=via)  # fmt: skip
         elapsed = time.monotonic() - t0
         end = env.localization().mocap_pose
         asked = math.degrees(wrap(pose.yaw - start.yaw))
