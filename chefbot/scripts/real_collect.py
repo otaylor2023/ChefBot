@@ -39,6 +39,10 @@ POLE_NOTE = ("pole camera re-angled by Jack on 2026-11-05 before these passes: t
              "cam_to_world for the pole) predate it and are NOT valid; solve them offline")
 
 
+def _jsonable(o):
+    return o.tolist() if hasattr(o, "tolist") else float(o)
+
+
 def _wrap(a: float) -> float:
     return (a + math.pi) % (2 * math.pi) - math.pi
 
@@ -152,12 +156,71 @@ def capture(env: RealEnv, cams: list[str], stem: str, out: Path, still_s: float 
                 "intrinsics": np.asarray(f.intrinsics).tolist(), "cam_to_world_configured": np.asarray(f.cam_to_world).tolist(),
                 "shape": list(f.rgb.shape), "depth_valid_frac": float(valid.size / depth.size),
                 "depth_median_m": float(np.median(valid)) if valid.size else None,
-                "notes": [POLE_NOTE if cam == "pole" else "wrist: arm locked; its pose is from the last joint readings",
+                "notes": [POLE_NOTE if cam == "pole" else "wrist: arm locked; cam_to_world from the last joint readings and the embodiment kinematics (arm mount z 0.335 there; the real plate is 0.44 m: approximate)",
                           "cam_to_world is computed at reply time from the latest state, not the capture instant"]}  # fmt: skip
-        base.with_suffix(".json").write_text(json.dumps(meta, indent=1, default=float))
+        base.with_suffix(".json").write_text(json.dumps(meta, indent=1, default=_jsonable))
         rows.append({"camera": cam, "ok": True, "file": base.name, "grab_s": round(t1 - t0, 2), "moved_m": moved,
                      "depth_valid": round(meta["depth_valid_frac"], 3)})
     return rows
+
+
+class RemoteGrabber:
+    """onboard/collect_grab.py on the robot over one ssh session: full-resolution snapshots of every camera stream and a
+    Redis snapshot (all mocap bodies, the arm, base odometry), saved on the robot under ~/chefbot_collect/data/<pass>."""
+
+    def __init__(self, pass_name: str, host: str = "chefbot", control_path: str = "~/.ssh/cm-chefbot",
+                 python: str = "~/chefbot_calib/env/bin/python", remote_dir: str = "~/chefbot_collect"):
+        cmd = f"cd {remote_dir} && exec {python} -u collect_grab.py {remote_dir}/data/{pass_name}"
+        self.p = subprocess.Popen(["ssh", "-o", f"ControlPath={control_path}", host, cmd], stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, text=True)  # fmt: skip
+        ready = json.loads(self.p.stdout.readline() or "{}")
+        if not ready.get("ready"):
+            raise RuntimeError(f"the robot-side grabber did not start: {ready}")
+        self.remote_out = ready["out"]
+
+    def grab(self, stem: str) -> dict:
+        self.p.stdin.write(f"grab {stem}\n")
+        self.p.stdin.flush()
+        line = self.p.stdout.readline()
+        if not line:
+            raise RuntimeError("the robot-side grabber exited")
+        return json.loads(line)
+
+    def close(self) -> None:
+        try:
+            self.p.stdin.write("quit\n")
+            self.p.stdin.flush()
+            self.p.wait(10)
+        except Exception:
+            self.p.kill()
+
+
+def capture_remote(env: RealEnv, grabber: RemoteGrabber, stem: str, still_s: float = 0.3) -> dict:
+    time.sleep(still_s)
+    before = env.localization()
+    if not before.live:
+        return {"ok": False, "reason": "mocap not live"}
+    t0 = time.time()
+    res = grabber.grab(stem)
+    after, raw = env.localization(), env.raw_state()
+    moved = None if before.mocap_pose is None or after.mocap_pose is None else float(
+        math.hypot(after.mocap_pose.x - before.mocap_pose.x, after.mocap_pose.y - before.mocap_pose.y))
+    return {"ok": bool(res.get("ok")), "wall_request": t0, "wall_reply": time.time(), "mocap_before": _pose(before),
+            "mocap_after": _pose(after), "moved_during_grab_m": moved, "odom_pose": raw.get("odom_pose"),
+            "arm_q": raw.get("arm_q"), "grab": res}  # fmt: skip
+
+
+def open_env(url: str | None = None) -> RealEnv:
+    """RealEnv for base moves and grabs: no arm driver needed; the wrist camera's pose from the arm's last joint readings
+    through the embodiment's kinematics (as environments/real/host.py), so the wrist camera can be grabbed too."""
+    from chefbot import embodiments
+
+    kin = embodiments.load("tidybot_fr3").kin
+    mount = kin.root_in_world(Pose2D(0.0, 0.0, 0.0))
+    env = RealEnv.from_config(np.eye(4), url=url or load_config(CONFIG)["url"])  # no pole mount tracker: raw frames
+    env._flange_in_base = lambda q: mount @ kin.flange_pose(q)  # for the wrist camera's configured pose only
+    env.require_arm = False
+    return env
 
 
 def _git_head() -> str:
@@ -184,6 +247,8 @@ def main() -> None:
     ap.add_argument("--start", type=int, default=0, help="skip the first N viewpoints (resume)")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--url", default=None)
+    ap.add_argument("--grabber", choices=("robot", "server"), default="robot",
+                    help="robot: full-resolution, every stream, on the robot (onboard/collect_grab.py); server: 640x480 RGB-D through the onboard server")
     args = ap.parse_args()
 
     box = counter_box(args.map, args.counter)
@@ -199,19 +264,27 @@ def main() -> None:
 
     speed, yaw_speed, profile = base_speeds(embodiments.load("tidybot_fr3"), args.profile, None, None)
     grid, _ = load_map(args.map)
-    env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"])
+    env = open_env(args.url)
     try:
-        env.require_arm = False
         t0 = time.monotonic()
         while not env.localization().live and time.monotonic() - t0 < 3.0:
             time.sleep(0.05)
         here = env.localization().mocap_pose
-        order = tour(vps, None if here is None else (here.x, here.y))[args.start:]
+        name = args.pass_name or f"{datetime.now():%Y%m%d_%H%M%S}_{args.mode}"
+        done_idx = REPO / "runs" / "collect" / name / "index.jsonl"
+        done = set()
+        if done_idx.exists():  # a pass run again picks up where it stopped: viewpoints already captured are skipped
+            for line in done_idx.read_text().splitlines():
+                r = json.loads(line)
+                if r.get("ok") and (r.get("capture") or {}).get("ok", bool(r.get("captures"))):
+                    done.add(r["tag"])
+        order = tour([v for v in vps if v["tag"] not in done], None if here is None else (here.x, here.y))[args.start:]
+        if done:
+            print(f"{len(done)} viewpoints already captured in this pass: skipped")
         if args.limit:
             order = order[: args.limit]
         robot = make_robot(env, grid, speed=speed, yaw_speed=yaw_speed, margin=args.margin, settle_s=0.2, still_mps=0.01)
         _, fp = robot_footprints(env.raw_state(), "auto")
-        name = args.pass_name or f"{datetime.now():%Y%m%d_%H%M%S}_{args.mode}"
         out = REPO / "runs" / "collect" / name
         out.mkdir(parents=True, exist_ok=True)
         session = {"pass": name, "mode": args.mode, "side": args.side, "seed": args.seed, "profile": profile,
@@ -219,28 +292,45 @@ def main() -> None:
                    "started": time.time(), "note": args.note, "map": str(args.map), "counter_box": list(box[:3]),
                    "footprint": fp.get("note"), "pole_note": POLE_NOTE, "viewpoints": order}  # fmt: skip
         sess_path = out / f"session_{datetime.now():%H%M%S}.json"
-        sess_path.write_text(json.dumps(session, indent=1, default=float))
+        sess_path.write_text(json.dumps(session, indent=1, default=_jsonable))
         print(f"pass {name}: {len(order)} viewpoints, profile {profile} ({speed} m/s), cameras {args.cameras} -> {out}")
+        grabber = None
+        if args.grabber == "robot":
+            env.keep_cameras_open([])  # the server lets its cameras idle out; the robot-side grabber opens them
+            grabber = RemoteGrabber(name)
+            session["robot_out"] = grabber.remote_out
+            sess_path.write_text(json.dumps(session, indent=1, default=_jsonable))
+            print(f"robot-side grabber ready: {grabber.remote_out}")
         index = (out / "index.jsonl").open("a")
         n_ok = 0
         try:
-            for i, v in enumerate(order, start=args.start):
+            i0 = sum(1 for _ in done_idx.open()) if done_idx.exists() else 0
+            for i, v in enumerate(order, start=i0):
                 goal = Pose2D(v["x"], v["y"], math.radians(v["yaw_deg"]))
                 res = drive(robot, env, goal, confirm=lambda *_: None, quiet=True)
                 row = {"i": i, **v, "ok": res["ok"], "reason": res["reason"], "seconds": round(res.get("seconds", 0.0), 1),
                        "final_error_m": res.get("final_error_m"), "final_yaw_error_deg": res.get("final_yaw_error_deg")}  # fmt: skip
                 if res["ok"]:
-                    row["captures"] = capture(env, args.cameras, f"{i:03d}_{v['tag']}", out)
+                    if grabber is not None:
+                        row["capture"] = capture_remote(env, grabber, f"{i:03d}_{v['tag']}")
+                    else:
+                        row["captures"] = capture(env, args.cameras, f"{i:03d}_{v['tag']}", out)
                     n_ok += 1
-                index.write(json.dumps(row, default=float) + "\n")
+                index.write(json.dumps(row, default=_jsonable) + "\n")
                 index.flush()
                 caps = " ".join(f"{c['camera']}:{'ok' if c['ok'] else c['reason']}" for c in row.get("captures", []))
+                if "capture" in row:
+                    g = row["capture"].get("grab") or {}
+                    caps = " ".join(f"{n}:{'ok' if c.get('ok') else c.get('reason')}" for n, c in (g.get("cameras") or {}).items()) \
+                        or row["capture"].get("reason", "")
                 print(f"[{i}] {v['tag']:28} {res['reason'][:60]:60} {row['seconds']:5.1f}s {caps}", flush=True)
                 if not res["ok"] and res.get("moved", False) is not False and not str(res["reason"]).startswith("no path"):
                     print(f"stopping the pass at {i}: the move did not finish ({res['reason']}); resume with --start {i}")
                     break
         finally:
             index.close()
+            if grabber is not None:
+                grabber.close()
         print(f"done: {n_ok} stops captured -> {out}")
     finally:
         env.close()
