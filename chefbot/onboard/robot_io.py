@@ -69,6 +69,7 @@ class RedisRobot:
         self.driver = Freshness(stale_after_s=0.25)  # the base driver's heartbeat (100 Hz when it runs)
         self.arm = Freshness(stale_after_s=0.25)  # the arm driver's joint readings (1 kHz, sensor noise, when it runs)
         self.live_for_targets = False  # at the last state read: mocap valid and fresh, the driver live, and tied
+        self.driver_live = False  # at the last state read: the base driver's heartbeat changing
         self.gripper_speed = float(gripper["speed"])
         self.gripper_force = float(gripper["force"])
         self.base_max_vel = base_max_vel  # the base driver's --max-vel-xy, --max-vel-yaw
@@ -99,10 +100,15 @@ class RedisRobot:
             if odom is not None:
                 self.frames.tie(mocap_pose, odom[:3])
         self.live_for_targets = bool(mocap_pose is not None and odom is not None and self.frames.tied)
+        self.driver_live = bool(driver_live)
         base_velocity = _array(v[K.BASE_VELOCITY]) if driver_live else None
         cart_position, cart_orientation = _array(v[K.CARTESIAN_CURRENT_POSITION]), _array(v[K.CARTESIAN_CURRENT_ORIENTATION])
         return {
             "base_pose": None if odom is None else self.frames.to_world(odom[:3]),
+            # The driver's own odometry and its velocity, as it reports them (no mocap in them): the client ties them
+            # to the world itself with mocap_pose (robot/localization.py) and sends base_target_odom.
+            "odom_pose": None if odom is None else [float(v) for v in odom[:3]],
+            "odom_velocity": None if base_velocity is None else [float(v) for v in base_velocity[:3]],
             "base_velocity": None if base_velocity is None else self.frames.velocity_to_world(base_velocity[:3]),
             "localized": self.frames.tied,  # False: never seen mocap; the world frame is odometry
             "mocap_valid": mocap_valid,  # the publisher's tracking flag, as stored (may be stale)
@@ -179,6 +185,18 @@ class RedisRobot:
         scale = min(float(max_vel[0]) / self.base_max_vel[0], float(max_vel[2]) / self.base_max_vel[1], 1.0)
         self._set_on_change(K.BASE_MAX_VEL_SCALE, f"{max(scale, 0.1):.3f}")
         x, y, yaw = self.frames.to_odom(pose_world)
+        self.r.set(K.BASE_DESIRED_POSE, f"[{x}, {y}, {yaw}]")
+        self.r.incr(K.BASE_CMD_SEQ)
+        self._written.pop(K.BASE_STOP, None)
+
+    def base_target_odom(self, pose_odom, max_vel) -> None:
+        """Drive to a pose in the driver's own odometry within `max_vel`. Needs only a live base driver: the client
+        that sends it localizes (and refuses without mocap) itself. Bumps hb1::cmd_seq like base_target."""
+        if not self.driver_live:
+            raise NotLocalized("the base driver is not running: base target refused")
+        scale = min(float(max_vel[0]) / self.base_max_vel[0], float(max_vel[2]) / self.base_max_vel[1], 1.0)
+        self._set_on_change(K.BASE_MAX_VEL_SCALE, f"{max(scale, 0.1):.3f}")
+        x, y, yaw = (float(v) for v in pose_odom)
         self.r.set(K.BASE_DESIRED_POSE, f"[{x}, {y}, {yaw}]")
         self.r.incr(K.BASE_CMD_SEQ)
         self._written.pop(K.BASE_STOP, None)

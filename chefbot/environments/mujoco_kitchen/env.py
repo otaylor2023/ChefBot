@@ -26,7 +26,7 @@ from chefbot.environments.mujoco_kitchen import hand
 from chefbot.environments.mujoco_kitchen.objects import DEFAULT, MASS
 from chefbot.environments.mujoco_kitchen.robot import GRIP_KP, GRIP_KP_MOVE, GRIP_KV, GRIP_KV_MOVE, _absolute_files, robot_spec
 from chefbot.interface.env import Env
-from chefbot.interface.types import RGBD, EnvState, Pose2D
+from chefbot.interface.types import RGBD, EnvState, LocalizationReading, Pose2D
 
 ROBOT = "tb/"
 ARM_JOINTS = [f"{ROBOT}fr3/fr3_joint{i}" for i in range(1, 8)]
@@ -46,6 +46,9 @@ class MujocoKitchenEnv(Env):
     def __init__(self, kitchen_dir: Path, extras: dict[str, Path] | None = None, render: bool = True,
                  grip_speed: float = 0.05, grip_force: float = 20.0):
         self.kitchen_dir = Path(kitchen_dir)
+        # The sim's stand-in for mocap: its ground-truth base pose as EnvState.localization. False models losing it
+        # (as the real robot does when Motive loses the body): the robot layer then does not drive the base.
+        self.localization_available = True
         self.grip_default = (grip_speed, grip_force)  # set_gripper's: the real robot's (onboard/config.yaml)
         self.meta = json.loads((self.kitchen_dir / "meta.json").read_text())
         spec = mujoco.MjSpec.from_file(str(self.kitchen_dir / "kitchen.xml"))
@@ -169,7 +172,9 @@ class MujocoKitchenEnv(Env):
     def get_state(self) -> EnvState:
         d = self.data
         x, y, th = d.qpos[self._base_qpos]
-        return EnvState(base_pose=Pose2D(float(x), float(y), float(th)), base_velocity=d.qvel[self._base_dof].copy(),
+        pose = Pose2D(float(x), float(y), float(th))
+        return EnvState(base_pose=pose, base_velocity=d.qvel[self._base_dof].copy(),
+                        localization=LocalizationReading(pose if self.localization_available else None),
                         base_in_contact=self._base_contact(), time=float(d.time), arm_q=d.qpos[self._arm_qpos].copy(),
                         arm_qd=d.qvel[self._arm_dof].copy(), gripper_width=self.gripper_width(),
                         gripper_closed_cmd=self.gripper_closed_cmd, arm_in_contact=self._arm_contact())  # fmt: skip

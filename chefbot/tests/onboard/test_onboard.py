@@ -274,7 +274,10 @@ def test_real_env_reads_the_robot_and_commands_it(served):
     server, env, redis = served
     wait_until(lambda: env.localization().localized)
     state = env.get_state()
-    assert state.base_pose.x == pytest.approx(3.0) and state.base_pose.yaw == pytest.approx(1.0)
+    # The base pose is the driver's odometry; mocap is its own reading (the world).
+    assert state.base_pose.x == pytest.approx(1.0) and state.base_pose.yaw == pytest.approx(0.5)
+    assert state.localization.live and state.localization.pose.x == pytest.approx(3.0)
+    assert state.localization.pose.yaw == pytest.approx(1.0)
     np.testing.assert_allclose(state.arm_q, Q)
     # A flange pose goes out as the controller's point: 0.1224 m further along the flange's z.
     flange = np.eye(4)
@@ -282,13 +285,14 @@ def test_real_env_reads_the_robot_and_commands_it(served):
     assert env.set_arm_pose_target(flange)
     wait_until(lambda: K.CARTESIAN_GOAL_POSITION in redis.values)
     np.testing.assert_allclose(json.loads(redis.values[K.CARTESIAN_GOAL_POSITION]), [0.4, 0.0, 0.4224])
-    assert env.set_base_target(Pose2D(3.0, 4.0, 1.0), (0.1, 0.1, 0.3))
+    assert env.set_base_target(Pose2D(1.5, 2.0, 0.5), (0.1, 0.1, 0.3))  # in odometry: goes to the driver as is
     wait_until(lambda: K.BASE_DESIRED_POSE in redis.values)
+    np.testing.assert_allclose(json.loads(redis.values[K.BASE_DESIRED_POSE]), [1.5, 2.0, 0.5])
     env.set_gripper(True)
     wait_until(lambda: redis.values.get(K.GRIPPER_MODE) == "g")
     rgbd = env.get_camera_rgbd("wrist")
     assert rgbd.rgb.shape == (4, 6, 3)
-    np.testing.assert_allclose(rgbd.cam_to_world[:3, 3], [3.0, 4.0, 0.0])
+    np.testing.assert_allclose(rgbd.cam_to_world[:3, 3], [1.0, 2.0, 0.0])  # in odometry, as the base pose
 
 
 def test_heartbeats_keep_an_idle_client_from_being_halted(served):
@@ -433,6 +437,25 @@ def test_base_targets_need_live_mocap_and_a_live_driver():
     robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
     robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
     assert redis.values[K.BASE_CMD_SEQ] == "2"  # every target bumps the sequence the driver watches
+
+
+def test_odometry_targets_need_only_the_driver_and_go_to_it_as_they_are():
+    from chefbot.onboard.robot_io import NotLocalized
+
+    redis = FakeRedis(driver_values(valid=False))  # Motive has lost the body
+    robot = build(CONFIG, redis).robot
+    robot.read_state()
+    with pytest.raises(NotLocalized):  # no driver heartbeat seen changing yet
+        robot.base_target_odom([1.2, 2.0, 0.5], (0.1, 0.1, 0.3))
+    redis.values[K.BASE_HEARTBEAT] = "7"
+    s = robot.read_state()
+    assert s["base_driver_live"] and s["mocap_pose"] is None
+    assert s["odom_pose"] == pytest.approx([1.0, 2.0, 0.5])  # the driver's own odometry, no mocap in it
+    with pytest.raises(NotLocalized):  # a world target means nothing without mocap
+        robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
+    robot.base_target_odom([1.2, 2.0, 0.5], (0.1, 0.1, 0.3))  # the client localizes, and refuses, itself
+    assert json.loads(redis.values[K.BASE_DESIRED_POSE]) == pytest.approx([1.2, 2.0, 0.5])
+    assert redis.values[K.BASE_CMD_SEQ] == "1"
 
 
 def test_the_server_reports_a_refused_target_and_does_not_count_it_as_commanding(served):

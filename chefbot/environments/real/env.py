@@ -6,9 +6,12 @@ rate and get_state returns the latest; commands go out without waiting. While no
 sent, a heartbeat keeps the server's watchdog from holding the robot.
 
 Frames: arm targets go out in the frame the arm's controller uses (its point, in the arm base
-frame: `flange_to_control`), so the server passes them through. Base poses are in the world
-(mocap) frame; the server ties that to the base's odometry. Camera poses come from their mounts
-here (`cameras`), as the server sends images only.
+frame: `flange_to_control`), so the server passes them through. get_state's base pose is the base
+driver's odometry, and mocap is its own reading (EnvState.localization): the robot layer ties the
+two (robot/localization.py), sends base targets in odometry, and refuses to drive without mocap.
+Camera poses come from their mounts here (`cameras`), in odometry like the base, as the server
+sends images only. set_base_target_world / localization() are the scripts' world-frame view (the
+server ties odometry to mocap and refuses world targets without it).
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from websockets.sync.client import connect
 from chefbot.interface.env import Env
 from chefbot.interface.transport import onboard as P
 from chefbot.interface.transport.protocol import pack, unpack
-from chefbot.interface.types import RGBD, EnvState, Pose2D
+from chefbot.interface.types import RGBD, EnvState, LocalizationReading, Pose2D
 
 log = logging.getLogger(__name__)
 CONFIG = Path(__file__).resolve().parent / "config.yaml"
@@ -182,12 +185,17 @@ class RealEnv(Env):
         age = time.monotonic() - self._state_at
         if age > self.max_state_age_s:
             raise RuntimeError(f"the robot's state is {age:.2f} s old: lost the onboard server?")
-        if s["base_pose"] is None or s["arm_q"] is None:
-            raise RuntimeError("the robot reports no base pose or no joints: are the base and arm drivers up?")
+        odom = s.get("odom_pose")
+        if odom is None or s["arm_q"] is None:
+            raise RuntimeError("the robot reports no base odometry or no joints: are the base and arm drivers up?")
         n = len(s["arm_q"])
+        mocap = s.get("mocap_pose")
+        mocap_age = s.get("mocap_age_s")
         return EnvState(
-            base_pose=Pose2D(*(float(v) for v in s["base_pose"])),
-            base_velocity=np.zeros(3) if s["base_velocity"] is None else np.asarray(s["base_velocity"], dtype=float),
+            base_pose=Pose2D(*(float(v) for v in odom)),
+            base_velocity=np.zeros(3) if s.get("odom_velocity") is None else np.asarray(s["odom_velocity"], dtype=float),
+            localization=LocalizationReading(None if mocap is None else Pose2D(*(float(v) for v in mocap)),
+                                             float(mocap_age) if mocap_age is not None else math.inf),  # fmt: skip
             base_in_contact=False,  # not sensed
             time=time.monotonic() - self._t0,
             arm_q=np.asarray(s["arm_q"], dtype=float),
@@ -217,9 +225,15 @@ class RealEnv(Env):
         self.set_base_target(target, (math.hypot(vx, vy), math.hypot(vx, vy), abs(vyaw)))
 
     def set_base_target(self, pose: Pose2D, max_vel) -> bool:
-        self._send({"op": P.BASE_TARGET, "pose": [pose.x, pose.y, pose.yaw], "max_vel": [float(v) for v in max_vel]})
+        """A target in the base driver's odometry (get_state's frame)."""
+        self._send({"op": P.BASE_TARGET_ODOM, "pose": [pose.x, pose.y, pose.yaw], "max_vel": [float(v) for v in max_vel]})
         self._base_holding = False
         return True
+
+    def set_base_target_world(self, pose: Pose2D, max_vel) -> None:
+        """A target in the mocap world: the server ties it to odometry itself, and refuses it without live mocap."""
+        self._send({"op": P.BASE_TARGET, "pose": [pose.x, pose.y, pose.yaw], "max_vel": [float(v) for v in max_vel]})
+        self._base_holding = False
 
     def set_arm_joint_targets(self, q: np.ndarray) -> None:
         self._send({"op": P.ARM_JOINTS, "q": np.asarray(q, dtype=float)})

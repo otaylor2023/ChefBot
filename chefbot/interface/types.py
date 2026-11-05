@@ -67,11 +67,12 @@ class MotionStatus:
     ALREADY_HOLDING = "already_holding"
     COLLISION = "collision"
     UNSUPPORTED = "unsupported"
+    NOT_LOCALIZED = "not_localized"  # the env's localization (mocap) is not live: the base will not drive
     FAILED = "failed"  # it did not work this time (a slip, a jam): trying again may
 
     ALL = (
         IDLE, MOVING, SUCCESS, STOPPED, BLOCKED, NO_PATH, UNREACHABLE, TIMEOUT, ERROR,
-        GRASP_FAILED, NO_GRASP, NO_PLACEMENT, NOT_HOLDING, ALREADY_HOLDING, COLLISION, UNSUPPORTED, FAILED,
+        GRASP_FAILED, NO_GRASP, NO_PLACEMENT, NOT_HOLDING, ALREADY_HOLDING, COLLISION, UNSUPPORTED, FAILED, NOT_LOCALIZED,
     )  # fmt: skip
 
 
@@ -83,10 +84,27 @@ class MotionResult:
     data: dict[str, Any] = field(default_factory=dict)  # extra facts about the motion, e.g. {"scripted": True}
 
 
+@dataclass(frozen=True)
+class LocalizationReading:
+    """Where an external localizer (mocap on the real robot; the simulator's ground truth in a sim) puts the base in
+    the world, separate from its odometry (EnvState.base_pose). `pose` is None when it has none now (lost tracking, a
+    stale publisher); `age_s`: how old the reading is. The robot layer ties odometry to the world with it
+    (robot/localization.py), and does not drive the base while an env that has one reports it lost."""
+
+    pose: Pose2D | None
+    age_s: float = 0.0
+
+    @property
+    def live(self) -> bool:
+        return self.pose is not None
+
+
 @dataclass
 class EnvState:
+    # The base's odometry: where the env's own sense of motion puts it, in the env's frame (the frame of its base
+    # targets, velocities and camera poses). In a sim without drift it is also the world.
     base_pose: Pose2D
-    base_velocity: np.ndarray  # (3,) world frame: vx, vy (m/s), vyaw (rad/s)
+    base_velocity: np.ndarray  # (3,) in base_pose's frame: vx, vy (m/s), vyaw (rad/s)
     base_in_contact: bool
     time: float  # seconds on the env's clock
     arm_q: np.ndarray = field(default_factory=lambda: np.zeros(7))  # (7,) rad
@@ -97,6 +115,8 @@ class EnvState:
     # are excluded: fingers touch the target and its support during a grasp.
     arm_in_contact: bool = False
     ee_wrench: np.ndarray | None = None  # (6,) force, torque at the wrist, if measured
+    # The base in the world from an external localizer, if the env has one (None: it has none, odometry is the world).
+    localization: LocalizationReading | None = None
 
 
 @dataclass

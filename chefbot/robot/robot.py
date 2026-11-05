@@ -33,6 +33,7 @@ from chefbot.interface.types import Detection, HeldObject, MotionResult, MotionS
 from chefbot.robot.arm.arm_controller import ArmController, ArmResult
 from chefbot.robot.arm.gripper import Gripper
 from chefbot.robot.config import RobotConfig
+from chefbot.robot.localization import Localizer
 from chefbot.robot.motion import MotionManager
 from chefbot.robot.nav.astar import AStarPlanner, NoPath, with_yaw
 from chefbot.robot.nav.base_controller import BaseController
@@ -87,6 +88,7 @@ class Robot(RobotAPI):
         self._placement_proposer = placement_proposer
         self._fixture_actuator = fixture_actuator
         self._held_object: HeldObject | None = None
+        self._loc = Localizer()  # odometry tied to the world by the env's localization (mocap), if it has one
         self._motion = MotionManager(self.get_base_pose)
 
     # -- RobotAPI ---------------------------------------------------------
@@ -143,7 +145,10 @@ class Robot(RobotAPI):
             self._arm.arm.hold()
 
     def get_base_pose(self) -> Pose2D:
-        return self._env.get_state().base_pose
+        """Where the base is in the world: its odometry, tied to the world by the env's localization (if it has one)."""
+        state = self._env.get_state()
+        self._loc.update(state)
+        return self._loc.world(state.base_pose)
 
     @property
     def _held(self) -> HeldObject | None:
@@ -223,6 +228,9 @@ class Robot(RobotAPI):
         return snap_to_free(self._planner.grid, pose, self._cfg.snap_radius)
 
     def _plan_and_drive(self, goal: Pose2D, preempt: threading.Event) -> MotionResult:
+        lost = self._loc.why_not_live(self._env.get_state())
+        if lost is not None:
+            return self._result(MotionStatus.NOT_LOCALIZED, lost)
         pose = self.get_base_pose()
         start = self._free_start(pose)
         if start is None:
@@ -252,6 +260,12 @@ class Robot(RobotAPI):
                     status, message = MotionStatus.STOPPED, "motion was stopped"
                     break
                 state = env.get_state()
+                self._loc.update(state)
+                lost = self._loc.why_not_live(state)
+                if lost is not None:
+                    status, message = MotionStatus.NOT_LOCALIZED, lost
+                    break
+                pose = self._loc.world(state.base_pose)
                 if start_time is None:
                     start_time = state.time
                 elapsed = state.time - start_time
@@ -266,20 +280,21 @@ class Robot(RobotAPI):
                     status = MotionStatus.GRASP_FAILED
                     message = f"the {label} slipped out of the gripper while driving; it may have dropped"
                     break
-                if controller.at_goal(state.base_pose):
+                if controller.at_goal(pose):
                     status, message = MotionStatus.SUCCESS, "reached the goal"
                     break
                 if elapsed > cfg.motion_timeout_s:
                     status, message = MotionStatus.TIMEOUT, "motion timed out"
                     break
                 # A base that drives to a pose itself gets the carrot; any other, a velocity.
-                target = controller.target(state.base_pose)
+                target = controller.target(pose)
                 if controller.deviation > cfg.deviation_threshold:
                     status = MotionStatus.BLOCKED
                     message = f"base is {controller.deviation:.2f} m off the planned path"
                     break
-                if not env.set_base_target(target, (cfg.max_lin_vel, cfg.max_lin_vel, cfg.max_ang_vel)):
-                    env.set_base_velocity(*controller.step(state.base_pose, dt), frame="world")
+                if not env.set_base_target(self._loc.to_odom(target), (cfg.max_lin_vel, cfg.max_lin_vel, cfg.max_ang_vel)):
+                    vx, vy, vyaw = controller.step(pose, dt)
+                    env.set_base_velocity(*self._loc.velocity_to_odom(vx, vy), vyaw, frame="world")
                 env.wait_for_next_tick(dt)
         finally:
             # Velocity is zeroed on every exit, including exceptions.

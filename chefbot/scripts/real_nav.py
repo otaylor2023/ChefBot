@@ -371,7 +371,7 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
             if math.hypot(target.x - p.x, target.y - p.y) > max_dist:
                 result["reason"] = f"the next target is more than {max_dist} m away"
                 break
-            env.set_base_target(target, (max(v_cap, 0.02), max(v_cap, 0.02), yaw_speed))  # 0.02: creep, never 0
+            env.set_base_target_world(target, (max(v_cap, 0.02), max(v_cap, 0.02), yaw_speed))  # 0.02: creep, never 0
             time.sleep(1.0 / rate_hz)
     except KeyboardInterrupt:
         result["reason"] = "stopped (Ctrl-C)"

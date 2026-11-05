@@ -15,7 +15,7 @@ import numpy as np
 from dataclasses import dataclass
 
 from chefbot.interface.env import Env
-from chefbot.interface.types import RGBD, EnvState, Pose2D, wrap_angle
+from chefbot.interface.types import RGBD, EnvState, LocalizationReading, Pose2D, wrap_angle
 from chefbot.robot.config import RobotConfig
 from chefbot.robot.nav.grid import OccupancyGrid
 
@@ -39,6 +39,10 @@ class FakeEnv(Env):
     `obstacles` (optional) are physical obstacles the base cannot enter; running
     into one holds the base in place and sets `base_in_contact`. `tick_sleep`
     slows ticks down in wall time so tests can interrupt a motion.
+
+    `localizer=True` models the real robot: get_state reports odometry (the true pose seen from `odom_origin`, the
+    world pose of odometry's zero; change it to make odometry drift) and the true pose as EnvState.localization
+    (None while `localization_available` is False). Commands are then in odometry's frame.
     """
 
     def __init__(
@@ -48,6 +52,8 @@ class FakeEnv(Env):
         tick_sleep: float = 0.0,
         arm_q: np.ndarray | None = None,
         tcp_world=None,
+        localizer: bool = False,
+        odom_origin: Pose2D = Pose2D(0.0, 0.0, 0.0),
     ):
         """`tcp_world(base_pose, arm_q) -> (3,)` locates the grip point; needed only for grasping."""
         # Starts stowed, so base motions do not have to tuck the arm first.
@@ -69,12 +75,30 @@ class FakeEnv(Env):
         self.in_contact = False
         self.time = 0.0
         self.ticks = 0
-        self.commands: list[tuple[float, np.ndarray]] = []  # (time, world-frame command)
+        self.commands: list[tuple[float, np.ndarray]] = []  # (time, command in base_pose's frame)
+        self.localizer = localizer
+        self.odom_origin = odom_origin
+        self.localization_available = True
+
+    def _rot(self, vx: float, vy: float, yaw: float) -> tuple[float, float]:
+        c, s = math.cos(yaw), math.sin(yaw)
+        return c * vx - s * vy, s * vx + c * vy
+
+    def odom(self) -> Pose2D:
+        """The true pose in odometry's frame (the true pose itself without a localizer)."""
+        if not self.localizer:
+            return self.pose
+        o = self.odom_origin
+        x, y = self._rot(self.pose.x - o.x, self.pose.y - o.y, -o.yaw)
+        return Pose2D(x, y, wrap_angle(self.pose.yaw - o.yaw))
 
     def get_state(self) -> EnvState:
+        v = self.velocity.copy()
+        if self.localizer:
+            v[0], v[1] = self._rot(v[0], v[1], -self.odom_origin.yaw)
         return EnvState(
-            self.pose,
-            self.velocity.copy(),
+            self.odom(),
+            v,
             self.in_contact,
             self.time,
             arm_q=self.arm_q.copy(),
@@ -82,16 +106,20 @@ class FakeEnv(Env):
             gripper_width=self.gripper_width,
             gripper_closed_cmd=self.gripper_closed,
             arm_in_contact=self.arm_in_contact,
+            localization=(LocalizationReading(self.pose if self.localization_available else None)
+                          if self.localizer else None),  # fmt: skip
         )
 
     def set_base_velocity(self, vx: float, vy: float, vyaw: float, frame: str = "world") -> None:
+        self.commands.append((self.time, np.array([vx, vy, vyaw], dtype=float)))
         if frame == "base":
-            c, s = math.cos(self.pose.yaw), math.sin(self.pose.yaw)
-            vx, vy = c * vx - s * vy, s * vx + c * vy
-        elif frame != "world":
+            vx, vy = self._rot(vx, vy, self.pose.yaw)
+        elif frame == "world":
+            if self.localizer:  # odometry's frame, into the true world's
+                vx, vy = self._rot(vx, vy, self.odom_origin.yaw)
+        else:
             raise ValueError(f"unknown frame {frame!r}")
         self.velocity = np.array([vx, vy, vyaw], dtype=float)
-        self.commands.append((self.time, self.velocity.copy()))
 
     def set_arm_joint_targets(self, q: np.ndarray) -> None:
         self.arm_target = np.array(q, dtype=float)
