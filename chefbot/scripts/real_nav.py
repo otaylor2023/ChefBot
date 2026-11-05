@@ -404,7 +404,7 @@ def counter_box(map_dir: Path, name: str | None = None) -> tuple:
     raise SystemExit(f"no box obstacle {name or ''} in {map_dir}/spec.yaml")
 
 
-def random_targets(box, n: int, seed: int, sides=None, x_range=None) -> list[tuple[float, float]]:
+def random_targets(box, n: int, seed: int, sides=None, x_range=None, end_margin=None) -> list[tuple[float, float]]:
     """Targets drawn as the pick task draws them: a side, a spot along it >= 0.35 m from its ends, 0.10-0.16 m in.
     `sides`: only these (south / north / east / west), e.g. a counter against a wall reached from one side."""
     from chefbot.robot.nav.goal import PARK_END_MARGIN_M, TRAINED_INSET_M, counter_faces
@@ -419,7 +419,7 @@ def random_targets(box, n: int, seed: int, sides=None, x_range=None) -> list[tup
         if tries > 1000 * max(n, 1):
             raise SystemExit(f"no targets on {sides or 'any side'} within x {x_range}")
         f = faces[int(rng.integers(len(faces)))]
-        along = rng.uniform(-1, 1) * (f["half_along"] - PARK_END_MARGIN_M)
+        along = rng.uniform(-1, 1) * (f["half_along"] - (PARK_END_MARGIN_M if end_margin is None else end_margin))
         inset = rng.uniform(*TRAINED_INSET_M)
         p = np.asarray(box[0], dtype=float) + f["t"] * along + f["n"] * (f["half_n"] - inset)
         if x_range and not (x_range[0] <= p[0] <= x_range[1]):
@@ -435,13 +435,14 @@ class _ByRule:
         return True
 
 
-def choose_stance(robot, box, target, out_m, approach: float):
+def choose_stance(robot, box, target, out_m, approach: float, end_margin=None):
     """The stance for `target` by the start rule (robot/nav/goal.py counter_park_candidates) that the robot layer finds
     clear for the whole footprint at its own heading, with its straight approach clear, and cheapest to reach from
     where the base is (Robot.choose_stance): (pose, info) or (None, reason)."""
     from chefbot.robot.nav.goal import counter_park_candidates
 
-    cands = counter_park_candidates(*box[:3], target, out_m=tuple(out_m or (0.45, 0.48)))
+    kw = {} if end_margin is None else {"end_margin": end_margin}
+    cands = counter_park_candidates(*box[:3], target, out_m=tuple(out_m or (0.45, 0.48)), **kw)
     if not cands:
         return None, "the target is not 0-0.25 m in from a side and >= 0.35 m from its ends: no stance by the rule"
     body = robot._space
@@ -466,7 +467,7 @@ def park(env: RealEnv, args) -> list[dict]:
     from chefbot.robot.nav.goal import park_report
 
     box = counter_box(args.map, args.counter)
-    targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed, args.sides, args.x_range)
+    targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed, args.sides, args.x_range, args.end_margin)
     boxes = [box] * len(targets)
     if args.mix:  # random places across several counter sides: each target on a randomly chosen one
         rng = np.random.default_rng(args.seed + 7)
@@ -475,12 +476,12 @@ def park(env: RealEnv, args) -> list[dict]:
         for k in range(args.random):
             name, side = pairs[int(rng.integers(len(pairs)))]
             b = counter_box(args.map, name)
-            mixed += random_targets(b, 1, args.seed * 100 + k, [side], args.x_range)
+            mixed += random_targets(b, 1, args.seed * 100 + k, [side], args.x_range, args.end_margin)
             mixed_boxes.append(b)
         targets, boxes = mixed, mixed_boxes
     if args.alternate:  # back and forth between two counters: A, B, A, B ... (B's targets from its own side(s))
         box_b = counter_box(args.map, args.alternate[0])
-        tb = random_targets(box_b, args.random, args.seed + 1000, args.alternate[1:], args.x_range)
+        tb = random_targets(box_b, args.random, args.seed + 1000, args.alternate[1:], args.x_range, args.end_margin)
         ta = targets[len(targets) - args.random:]
         mixed, mixed_boxes = [tuple(t) for t in args.target or []], [box] * len(args.target or [])
         for a, b in zip(ta, tb):
@@ -531,7 +532,7 @@ def park(env: RealEnv, args) -> list[dict]:
             if pose is not None:
                 print(f"[{i + 1}/{len(targets)}] around the island, {side_now} to {side_to}, through {len(via)} points without stopping")
         else:
-            pose, info = choose_stance(robot, box, target, args.out, args.approach)
+            pose, info = choose_stance(robot, box, target, args.out, args.approach, args.end_margin)
         head = f"[{i + 1}/{len(targets)}] target ({target[0]:.3f}, {target[1]:.3f})"
         if pose is None and info == "no stance reachable from here" and not args.plan_only:
             # A path that needs a turn where the base may not turn (a heading zone, a tight aisle): turn in place to
@@ -552,7 +553,7 @@ def park(env: RealEnv, args) -> list[dict]:
                     rt = go_planned(env, turn, grid, robot=robot, log_dir=tlog, confirm=lambda _: None)
                     print(f"    turn: {rt['reason']}")
                     if rt.get("ok"):
-                        pose, info = choose_stance(robot, box, target, args.out, args.approach)
+                        pose, info = choose_stance(robot, box, target, args.out, args.approach, args.end_margin)
                         break
                     if rt.get("moved"):
                         break  # it moved and stopped: don't try another
@@ -578,7 +579,7 @@ def park(env: RealEnv, args) -> list[dict]:
             while not env.localization().live and time.monotonic() - t_wait < 10.0:
                 time.sleep(0.1)
             time.sleep(1.0)
-            pose2, info2 = choose_stance(robot, box, target, args.out, args.approach) if via is None else (pose, info)
+            pose2, info2 = choose_stance(robot, box, target, args.out, args.approach, args.end_margin) if via is None else (pose, info)
             if pose2 is None:
                 break
             pose, info = pose2, info2
@@ -701,6 +702,8 @@ def main() -> None:
                    help="once inside --tol / --yaw-tol, hold the base where it is (no re-aiming for millimetres)")
     k.add_argument("--alternate", nargs="+", default=None, metavar=("COUNTER", "SIDE"),
                    help="alternate --random targets with as many on this second counter (its name, then its side(s))")
+    k.add_argument("--end-margin", type=float, default=None,
+                   help="m: targets (and stances) this close to a counter side's ends (default: the pick rule's 0.35)")
     k.add_argument("--x-range", nargs=2, type=float, default=None, metavar=("XMIN", "XMAX"),
                    help="draw --random targets only within this world-x stretch (one section of a kitchen)")
     k.add_argument("--counter", default=None, help="the counter's obstacle name in the map spec (default: the first box)")
