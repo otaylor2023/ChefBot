@@ -20,7 +20,8 @@ msgpack, msgpack-numpy, opencv; no planning, IK or simulator.
    the arm, the gripper and base drivers, the mocap publisher (`mocap.sh`: `chefbot-tidy::pos` / `::ori` on Redis),
    then the onboard server. Ctrl-C stops them all, the arm driver first (the brakes hold the arm); it says whether
    the arm driver stopped. While it runs, **f** floats the arm (OpenSai's `float_controller`: no stiffness, light
-   damping; move it by hand) and **h** holds it again where it is; **g** gives the base to the gamepad (the base
+   damping; move it by hand), **s** holds it where it is, **h** takes it home (from floating too; refused if the
+   straight way passes the pole's keep-out); **g** gives the base to the gamepad (the base
    driver stops, the teleop below starts; Start on the gamepad begins) and **b** gives it back to its driver (its
    odometry starts over). `--no-arm-driver` if one is already running;
    `arm.sh` is just the arm driver and OpenSai; `float.sh` just the arm driver (the arm floating on zero torques);

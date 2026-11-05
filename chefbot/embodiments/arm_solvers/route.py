@@ -20,6 +20,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from chefbot.embodiments import constraints as C
+from chefbot.interface.workspace import DEEPER_SLACK_M
 from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints, scale
 from chefbot.robot.arm.ik import TCP_SITE, ArmIK
 
@@ -69,7 +70,7 @@ class Router:
         floor = min(0.0, self.clearance(a))
         for t in np.linspace(0, 1, k + 1)[1:]:
             c = self.clearance(a + (b - a) * t)
-            if c < floor - 1e-5:
+            if c < (floor - DEEPER_SLACK_M if floor < 0 else 0.0):  # the slack only for an arm already inside
                 return False
             floor = max(floor, min(0.0, c))
         return floor >= 0 or self.clearance(b) >= 0

@@ -27,7 +27,12 @@ EMBODIMENTS = Path(__file__).resolve().parent.parent / "embodiments"
 LIMITS = np.array([[-2.7437, 2.7437], [-1.7837, 1.7837], [-2.9007, 2.9007], [-3.0421, -0.1518], [-2.8065, 2.8065],
                    [0.5445, 4.5169], [-3.0159, 3.0159]])  # fmt: skip
 MARGIN = 0.1
+# The FR3's ready pose: the hand pointing down (the calibrations' start; the real host's --home; launch.sh's h).
+HOME = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)
 MIN_SPARE_M = 0.0254  # every keep-out clears its part by the links' radius and at least an inch more
+# An arm already in a keep-out may move out, never deeper: by more than this (a path out of it can wobble a mm deeper
+# first; 2026-11-04 the way home from 2.8 cm in dipped 1 mm, and a 0.01 mm rule refused it).
+DEEPER_SLACK_M = 0.005
 
 
 @dataclass(frozen=True)
@@ -136,6 +141,20 @@ def in_keep_out(q, margin: float = 0.0, body: Body = BODY) -> bool:
 
 
 def path_clear(q0, q1, samples: int = 30, margin: float = 0.0, body: Body = BODY) -> bool:
-    """The joint-space straight line from q0 to q1 (how the arm moves) stays out of the keep-out."""
+    """The joint-space straight line from q0 to q1 (how the arm moves) stays out of the keep-out; from a start already
+    in it, it never goes more than DEEPER_SLACK_M deeper and ends clear."""
     q0, q1 = np.asarray(q0, float), np.asarray(q1, float)
-    return not any(in_keep_out(q0 + (q1 - q0) * t, margin, body) for t in np.linspace(0, 1, samples))
+    if not in_keep_out(q0, margin, body):
+        return not any(in_keep_out(q0 + (q1 - q0) * t, margin, body) for t in np.linspace(0, 1, samples))
+    floor = clearance_at(q0, body)
+    for t in np.linspace(0, 1, samples)[1:]:
+        c = clearance_at(q0 + (q1 - q0) * t, body)
+        if c < floor - DEEPER_SLACK_M:
+            return False
+        floor = max(floor, min(0.0, c))
+    return not in_keep_out(q1, margin, body)
+
+
+def clearance_at(q, body: Body = BODY) -> float:
+    """The arm's least clearance (m; negative: in) from the keep-out at joints q."""
+    return float(body.clearance(arm_points(q, body.hand_m))[0].min())

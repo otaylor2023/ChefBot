@@ -36,7 +36,7 @@ from chefbot.embodiments import Robot, Speed
 from chefbot.embodiments.wholebody import WholeBodyController, quat_wxyz
 from chefbot.interface.types import Pose2D
 
-HOME = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)  # the FR3's ready pose: the hand pointing down (the calibrations' start)
+from chefbot.interface.workspace import DEEPER_SLACK_M, HOME  # noqa: E402  (the FR3's ready pose: one copy, the robot computer's too)
 HOME_SPEED = 0.3  # rad/s, the fastest joint, going home
 # Over the base's plate (within its outline: the embodiment's body), every arm point at least its plate clearance
 # above it, the flange above FLANGE_Z_MIN. Beyond the base, a table may be at the plate's height or lower: there only
@@ -133,7 +133,7 @@ class GuardedEnv:
         floor = min(0.0, self.clearance(q0))
         for t in np.linspace(0, 1, k + 1)[1:]:
             c = self.clearance(q0 + (q1 - q0) * t)
-            if c < floor - 1e-5:
+            if c < (floor - DEEPER_SLACK_M if floor < 0 else 0.0):  # the slack only for an arm already inside
                 return False
             floor = max(floor, min(0.0, c))
         return True
