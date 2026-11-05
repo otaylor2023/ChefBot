@@ -34,6 +34,29 @@ def test_the_catalog_lists_by_env():
     assert all(env in skills.ENVS for s in skills.catalog() for env in s.envs)
 
 
+def test_each_skill_says_where_it_could_run():
+    def at(env):
+        return [s.path for s in skills.catalog(env=env)]
+
+    assert at("symbolic") == []  # the agent's tools join here in step 5
+    assert at("robocasa") == ["bringup/v1", "pick_up/chefbot_v30"]
+    assert at("mujoco_kitchen") == ["bringup/v1", "tongs_lift/mujoco_tongs1_v34", "tongs_lift/mujoco_tongs2_v17",
+                                    "tongs_lift/mujoco_tongs3_v59"]  # fmt: skip
+    assert at("real") == ["bringup/v1", "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1"]
+    for path in IMPORTED:
+        assert skills.load(path).envs == ()  # runs nowhere here
+
+
+def test_a_skills_envs_match_its_labs_suite():
+    from chefbot.autoresearch import config as C
+    from chefbot.autoresearch.register import envs_of
+
+    assert envs_of(C.load("chefbot/labs/robocasa_pick.yaml")) == ["robocasa"]
+    assert envs_of(C.load("chefbot/labs/mujoco_tongs.yaml")) == ["mujoco_kitchen"]
+    assert skills.load("pick_up/chefbot_v30").envs == ("robocasa",)
+    assert all(skills.load(p).envs == ("mujoco_kitchen",) for p in REGISTERED if p.startswith("tongs_lift/"))
+
+
 def test_the_catalog_refuses_what_it_does_not_know():
     with pytest.raises(ValueError, match="no env 'moon'"):
         skills.catalog(env="moon")
@@ -60,6 +83,9 @@ def _copy(tmp_path: Path, edit, family="bringup", version="v1") -> Path:
         (lambda m: m.update(sandboxed=False), "always sandboxed"),
         (lambda m: m.update(interface="robot-api-v1", sandboxed=True), "cannot be sandboxed"),
         (lambda m: m.update(sandboxed="yes"), "true or false"),
+        (lambda m: m.pop("sandboxed"), "no sandboxed"),
+        (lambda m: m.pop("envs"), "envs must be some of"),
+        (lambda m: m.update(interface="wholebody-v2"), "runs nowhere here"),
         (lambda m: m.update(envs=["moon"]), "envs must be some of"),
         (lambda m: m.update(envs=[]), "envs must be some of"),
         (lambda m: m.update(envs="real"), "envs must be some of"),
@@ -74,14 +100,12 @@ def test_a_broken_manifest_is_refused(tmp_path, edit, message):
 
 
 def test_a_robot_api_skill_is_never_sandboxed(tmp_path):
-    s = skills.load(str(_copy(tmp_path, lambda m: m.update(interface="robot-api-v1"))))
+    s = skills.load(str(_copy(tmp_path, lambda m: m.update(interface="robot-api-v1", sandboxed=False))))
     assert not s.sandboxed and s.runnable
-    s = skills.load(str(_copy(tmp_path / "b", lambda m: m.update(interface="robot-api-v1", sandboxed=False))))
-    assert not s.sandboxed
 
 
 def test_a_manifest_may_say_where_it_could_run(tmp_path):
-    s = skills.load(str(_copy(tmp_path, lambda m: m.update(envs=["robocasa", "real"], sandboxed=True))))
+    s = skills.load(str(_copy(tmp_path, lambda m: m.update(envs=["robocasa", "real"]))))
     assert s.envs == ("robocasa", "real") and s.sandboxed
 
 

@@ -55,7 +55,7 @@ class Skill:
 
     @property
     def envs(self) -> tuple[str, ...]:
-        """Where it could run. Empty: its manifest does not say yet."""
+        """Where it could run. Empty for an imported skill: nowhere here."""
         return tuple(self.manifest.get("envs") or ())
 
     @property
@@ -107,14 +107,18 @@ class Skill:
             problems.append(f"name/version {m.get('name')}/{m.get('version')} is not its folder's, {family}/{version}")
         if self.interface not in INTERFACES + IMPORTED_INTERFACES:
             problems.append(f"interface must be one of {list(INTERFACES + IMPORTED_INTERFACES)}, not {self.interface!r}")
-        if "sandboxed" in m and not isinstance(m["sandboxed"], bool):
+        if "sandboxed" not in m:
+            problems.append("no sandboxed (true for a chefbot-v1 skill, false for a robot-api-v1 one)")
+        elif not isinstance(m["sandboxed"], bool):
             problems.append(f"sandboxed must be true or false, not {m['sandboxed']!r}")
         elif self.interface == "robot-api-v1" and self.sandboxed:
             problems.append("a robot-api-v1 skill runs in the agent's process: it cannot be sandboxed")
         elif self.interface != "robot-api-v1" and not self.sandboxed:
             problems.append(f"a {self.interface} skill runs as its own process and is always sandboxed")
         envs = m.get("envs")
-        if envs is not None and (not isinstance(envs, list) or not envs or set(envs) - set(ENVS)):
+        if not self.runnable and envs is not None:
+            problems.append(f"a {self.interface} skill runs nowhere here: it has no envs")
+        elif self.runnable and (not isinstance(envs, list) or not envs or set(envs) - set(ENVS)):
             problems.append(f"envs must be some of {list(ENVS)}, not {envs!r}")
         file, _, func = str(m.get("entry", "")).partition(":")
         if not func or not (self.dir / file).is_file():

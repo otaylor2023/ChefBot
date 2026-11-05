@@ -2,6 +2,8 @@ name: tongs_lift
 version: mujoco_tongs1_v34
 entry: main.py:run
 interface: chefbot-v1
+envs: [mujoco_kitchen]                # its lab's suite (mujoco_tongs)
+sandboxed: true
 robot: tidybot_fr3
 args:
   object: {type: string, doc: "the food to lift, in a few words"}

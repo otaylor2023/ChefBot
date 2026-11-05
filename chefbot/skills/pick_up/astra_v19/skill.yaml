@@ -2,6 +2,7 @@ name: pick_up
 version: astra_v19
 entry: main.py:run
 interface: wholebody-v2
+sandboxed: true
 robot: yam_tidybot
 arm_only: true
 args:

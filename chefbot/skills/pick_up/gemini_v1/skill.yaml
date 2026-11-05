@@ -2,6 +2,8 @@ name: pick_up
 version: gemini_v1
 entry: main.py:run
 interface: chefbot-v1
+envs: [real]                          # written for environments/real/host.py
+sandboxed: true
 robot: tidybot_fr3
 arm_only: true
 cameras: [wrist]

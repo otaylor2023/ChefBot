@@ -2,6 +2,8 @@ name: bringup
 version: v1
 entry: main.py:run
 interface: chefbot-v1
+envs: [robocasa, mujoco_kitchen, real]  # robot: any; it only lifts the arm 3 cm and back
+sandboxed: true
 robot: any
 arm_only: true
 args:

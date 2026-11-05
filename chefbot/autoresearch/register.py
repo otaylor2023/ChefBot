@@ -17,7 +17,7 @@ from pathlib import Path
 import yaml
 
 from chefbot.autoresearch import config as C
-from chefbot import skills
+from chefbot import setups, skills, suites
 
 
 def models_in(code: str) -> dict:
@@ -36,6 +36,11 @@ def models_in(code: str) -> dict:
     for m in sorted(vision):
         out[m] = {"runs": "vision_models"}
     return out
+
+
+def envs_of(cfg: C.LabConfig) -> list[str]:
+    """Where a lab's skill could run: the environments of its dev suite's setups."""
+    return sorted({setups.load(item.setup).environment for item in suites.load(cfg.suite("dev")).items})
 
 
 def main() -> None:
@@ -57,7 +62,8 @@ def main() -> None:
     if (ws / "REPORT.md").exists():
         shutil.copy(ws / "REPORT.md", dst / "REPORT.md")
     code = "\n".join(p.read_text() for p in dst.rglob("*.py"))
-    manifest = {"name": cfg.goal["skill"], "version": a.version, "entry": "main.py:run", "interface": cfg.interface, "robot": cfg.robot,
+    manifest = {"name": cfg.goal["skill"], "version": a.version, "entry": "main.py:run", "interface": cfg.interface,
+                "envs": envs_of(cfg), "sandboxed": cfg.interface != "robot-api-v1", "robot": cfg.robot,
                 **({"arm_only": True} if cfg.arm_only else {}), **({"args": cfg.raw_args} if cfg.raw_args else {}),
                 "speed": "normal", "models": models_in(code), "assumes": "the start rule of its lab's task",
                 "provenance": {"lab": cfg.name, "run": a.run.name, "suite": cfg.suite("dev").split("/")[0], "test": "not tested", "report": "REPORT.md"}}  # fmt: skip

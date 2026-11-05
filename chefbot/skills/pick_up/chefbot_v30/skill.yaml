@@ -2,6 +2,8 @@ name: pick_up
 version: chefbot_v30
 entry: main.py:run
 interface: chefbot-v1
+envs: [robocasa]                    # its lab's suite (robocasa_pick)
+sandboxed: true
 robot: panda_franka
 arm_only: true
 args:
