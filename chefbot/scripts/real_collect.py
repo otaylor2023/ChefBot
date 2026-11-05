@@ -308,6 +308,15 @@ def main() -> None:
             for i, v in enumerate(order, start=i0):
                 goal = Pose2D(v["x"], v["y"], math.radians(v["yaw_deg"]))
                 res = drive(robot, env, goal, confirm=lambda *_: None, quiet=True)
+                for _retry in range(2):  # a brief mocap or link dropout: wait for a live pose, then the same stop again
+                    if res["ok"] or str(res["reason"]).startswith("no path"):
+                        break
+                    print(f"[{i}] {v['tag']}: {res['reason'][:70]}; waiting for a live pose and retrying", flush=True)
+                    t_wait = time.monotonic()
+                    while not env.localization().live and time.monotonic() - t_wait < 10.0:
+                        time.sleep(0.1)
+                    time.sleep(1.0)
+                    res = drive(robot, env, goal, confirm=lambda *_: None, quiet=True)
                 row = {"i": i, **v, "ok": res["ok"], "reason": res["reason"], "seconds": round(res.get("seconds", 0.0), 1),
                        "final_error_m": res.get("final_error_m"), "final_yaw_error_deg": res.get("final_yaw_error_deg")}  # fmt: skip
                 if res["ok"]:
