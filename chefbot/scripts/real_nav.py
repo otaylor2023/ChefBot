@@ -245,7 +245,8 @@ def fence_cells(fence: Fence, grid, margin: float = 0.05):
 def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
                yaw_tol_deg: float = 3.0, corridor: float = 0.15, margin: float = 0.10, arm: str = "auto",
                settle_s: float = 0.5, still_mps: float | None = None, lookahead: float = 0.12,
-               timeout_s: float | None = None, centre_limit=None, footprint_below=None, stop_model="robot", accel=None):  # fmt: skip
+               timeout_s: float | None = None, centre_limit=None, footprint_below=None, stop_model="robot", accel=None,
+               arrive_hold: bool = False):  # fmt: skip
     """The robot layer on the real robot: Robot(RealEnv) on `grid` with the robot's footprint (robot_footprints), its
     measured stop and acceleration as the onboard server reports them (stop_model="robot"; None: none), the run's
     speeds and tolerances. The base drives with the arm as it is (tuck_arm=False: real_nav never moves the arm; the
@@ -262,7 +263,8 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
     cfg = replace(embodiments.load("tidybot_fr3").config, max_lin_vel=float(speed), max_ang_vel=float(yaw_speed),
                   pos_tolerance=float(tol), yaw_tolerance=math.radians(yaw_tol_deg), deviation_threshold=float(corridor),
                   safety_margin=float(margin), snap_radius=0.0, arrive_settle_s=float(settle_s), arrive_still_mps=still_mps,
-                  lookahead=float(lookahead), control_rate=20.0, motion_timeout_s=float(timeout_s or 3600.0))  # fmt: skip
+                  lookahead=float(lookahead), control_rate=20.0, motion_timeout_s=float(timeout_s or 3600.0),
+                  arrive_hold=bool(arrive_hold))  # fmt: skip
     if footprint_below is None:
         footprint_below = robot_footprints(env.raw_state(), arm)[0]
     limits = env.server_limits
@@ -480,7 +482,7 @@ def park(env: RealEnv, args) -> list[dict]:
 
     stop_model = StopModel.from_limits(env.server_limits)  # refuses when the robot reports no measured stop
     accel = float(env.server_limits.get("base_max_accel_xy", 0.1))
-    robot = map_robot(env, args, grid, settle_s=0.2, still_mps=0.01)
+    robot = map_robot(env, args, grid, settle_s=0.2, still_mps=0.01, arrive_hold=args.hold)
     print(f"stop model: tau {stop_model.tau_s:.3f} s, brake {stop_model.brake_mps2:.2f} m/s^2 "
           f"({1000 * stop_model.distance(args.speed):.0f} mm from {args.speed:.3f} m/s); driver accel {accel} m/s^2")
     session = REPO / "runs" / "real_park" / f"{datetime.now():%Y%m%d_%H%M%S}"
@@ -612,6 +614,8 @@ def main() -> None:
     k.add_argument("--seed", type=int, default=0)
     k.add_argument("--sides", nargs="+", choices=("south", "north", "east", "west"), default=None,
                    help="draw --random targets on these counter sides only (a counter against a wall)")
+    k.add_argument("--hold", action="store_true",
+                   help="once inside --tol / --yaw-tol, hold the base where it is (no re-aiming for millimetres)")
     k.add_argument("--alternate", nargs="+", default=None, metavar=("COUNTER", "SIDE"),
                    help="alternate --random targets with as many on this second counter (its name, then its side(s))")
     k.add_argument("--x-range", nargs=2, type=float, default=None, metavar=("XMIN", "XMAX"),

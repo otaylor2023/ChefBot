@@ -313,6 +313,7 @@ class Robot(RobotAPI):
         settled_since: float | None = None
         best = math.inf
         guard.begin(env.get_state())
+        hold = None  # cfg.arrive_hold: the odometry pose held once inside the tolerances
         try:
             while True:
                 if preempt.is_set():
@@ -342,6 +343,24 @@ class Robot(RobotAPI):
                     break
                 speed = math.hypot(*state.base_velocity[:2])
                 still = cfg.arrive_still_mps is None or speed < cfg.arrive_still_mps
+                inside = controller.at_goal(pose)
+                if cfg.arrive_hold and (inside or hold is not None):
+                    if hold is None:  # first tick inside the tolerances: the goal frozen in odometry, never re-tied
+                        hold = self._loc.to_odom(goal)
+                    if still:
+                        settled_since = elapsed if settled_since is None else settled_since
+                        if elapsed - settled_since >= cfg.arrive_settle_s:
+                            status, message = MotionStatus.SUCCESS, "reached the goal (held inside the tolerances)"
+                            break
+                    else:
+                        settled_since = None
+                    if elapsed > timeout:
+                        status, message = MotionStatus.TIMEOUT, f"motion timed out after {timeout:.0f} s"
+                        break
+                    self._log(leg, "hold", elapsed, state, pose, goal)
+                    env.set_base_target(hold, (0.05, 0.05, cfg.max_ang_vel))
+                    env.wait_for_next_tick(dt)
+                    continue
                 if controller.at_goal(pose) and still:
                     settled_since = elapsed if settled_since is None else settled_since
                     if elapsed - settled_since >= cfg.arrive_settle_s:
