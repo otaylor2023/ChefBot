@@ -162,3 +162,25 @@ def path_clear(q0, q1, samples: int = 30, margin: float = 0.0, body: Body = BODY
 def clearance_at(q, body: Body = BODY) -> float:
     """The arm's least clearance (m; negative: in) from the keep-out at joints q."""
     return float(body.clearance(arm_points(q, body.hand_m))[0].min())
+
+
+def joint_path(q0, q1, point_clear, segment_clear, limits, vias=(), tries: int = 60, rng=None) -> list | None:
+    """Joint waypoints from q0 to q1 (the last is q1), each leg a straight joint-space line clear (segment_clear(a, b)):
+    straight if it is, else through one waypoint clear itself (point_clear(v)): the given vias (a posture) first, then
+    the shoulder's joints moved first or last, then random joints between; else None. The one planner around the
+    keep-out: the arm solvers' router (embodiments/arm_solvers/route.py: the real host's way to the ready position) and
+    the calibration's moves (onboard/calibration/arm.py) each pass their own checks."""
+    q0, q1 = np.asarray(q0, dtype=float), np.asarray(q1, dtype=float)
+    if segment_clear(q0, q1):
+        return [q1]
+    rng = np.random.default_rng(0) if rng is None else rng
+    lim, n = np.asarray(limits, dtype=float), len(q0)
+    shoulder_first, wrist_first = q0.copy(), q0.copy()
+    shoulder_first[: min(4, n)] = q1[: min(4, n)]
+    wrist_first[min(4, n):] = q1[min(4, n):]
+    cands = [np.asarray(v, dtype=float) for v in vias] + [shoulder_first, wrist_first]
+    cands += [np.clip(q0 + (q1 - q0) * rng.uniform(0.2, 0.8) + rng.normal(0, 0.5, n), lim[:, 0], lim[:, 1]) for _ in range(tries)]
+    for v in cands:
+        if point_clear(v) and segment_clear(q0, v) and segment_clear(v, q1):
+            return [v, q1]
+    return None

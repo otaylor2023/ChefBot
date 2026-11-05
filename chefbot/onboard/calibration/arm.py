@@ -3,6 +3,7 @@ sensors): slow joint moves, each shown and confirmed at the keyboard first, and 
 
     arm = Arm()
     arm.move_to(q)            # prints the move, waits for Enter (confirm=False: doesn't), then leads the arm there
+                              # (around the keep-out through one waypoint when the straight way isn't clear)
     arm.hold()                # the goal where the arm is
     arm.still(2.0)            # {"q", "tau_J", "gravity"} averaged over 2 s with the arm still
 """
@@ -19,7 +20,7 @@ from chefbot.onboard import keys as K
 TAU_J = "opensai::sensors::FrankaRobot::joint_torques"  # measured (link-side torque sensors)
 GRAVITY = "opensai::sensors::FrankaRobot::model::robot_gravity"  # libfranka's model, with Desk's end-effector load
 from chefbot.interface.workspace import (  # noqa: F401  (shared with the real host)
-    BODY, LIMITS, MARGIN, TCP_Z, _inside, arm_points, in_keep_out, path_clear)
+    BODY, LIMITS, MARGIN, TCP_Z, _inside, arm_points, in_keep_out, joint_path, path_clear)
 
 # OpenSai's joint task (chefbot_fr3.xml) moves smoothly to a goal itself (jerk-limited, up to 0.5 rad/s): the goal
 # goes ahead in large steps only so that a stall shows early.
@@ -28,6 +29,13 @@ CAUGHT_UP = 0.1  # rad from the step's goal: on to the next
 SAG = 0.25  # rad: how far short of a goal the joint controller may settle (OpenSai's shoulder tracking is weak: 7 deg seen)
 STALL_S = 4.0  # no progress for this long: settled there, or stuck
 STEP_TIMEOUT_S = 30.0
+
+
+def around(q0, q1, margin: float = 0.0) -> list | None:
+    """Joint waypoints from q0 to q1 (the last is q1) clear of the keep-out (path_clear, the hand's grown by margin):
+    interface/workspace.py's joint_path, the planner the real host goes to the ready position with."""
+    lim = np.column_stack([LIMITS[:, 0] + MARGIN, LIMITS[:, 1] - MARGIN])
+    return joint_path(q0, q1, lambda v: not in_keep_out(v, margin), lambda a, b: path_clear(a, b, margin=margin), lim)
 
 
 class Stop(Exception):
@@ -71,8 +79,18 @@ class Arm:
             bad = [i + 1 for i in np.flatnonzero((target < lo) | (target > hi))]
             raise ValueError(f"target outside the joint limits (less {MARGIN} rad) at joints {bad}: {np.round(target, 3)}")
         q0 = self.q()
-        if not path_clear(q0, target, margin=margin):
-            raise ValueError(f"the move would pass behind the arm on its left (the pole): {np.round(target, 3)}")
+        route = around(q0, target, margin)
+        if route is None:
+            raise ValueError(f"no clear way there around the keep-out (the pole, its camera): {np.round(target, 3)}")
+        if len(route) > 1:
+            print(f"\n{label}: the straight way passes the keep-out; going around, through {np.round(route[0], 3).tolist()}")
+            self._leg(route[0], f"{label} (around the keep-out, 1/2)", confirm, settle_s)
+            label, confirm = f"{label} (2/2)", False
+        self._leg(target, label, confirm, settle_s)
+
+    def _leg(self, target, label: str, confirm: bool, settle_s: float) -> None:
+        """One straight joint-space move (already checked clear)."""
+        q0 = self.q()
         delta = target - q0
         n = max(1, int(np.ceil(np.abs(delta).max() / STEP)))
         print(f"\n{label}\n  joints now    {np.round(q0, 3).tolist()}\n  joints target {np.round(target, 3).tolist()}"
