@@ -1,10 +1,13 @@
 """Named-object pick from RGB-D using only the chefbot-v1 robot API.
 
 chefbot_v30 (the robocasa_pick lab's, on the sim's panda_franka) ported to the real FR3 on ChefBot: only its hand's
-numbers changed (marked PORT), every other line as the lab left it. The real Franka Hand sits on a 27.25 mm camera
+numbers and a move's step cap changed (marked PORT), every other line as the lab left it. The real Franka Hand sits on a 27.25 mm camera
 holder: the fingertip pads' center is 0.13065 m out from the flange (the sim hand's 0.093), the fingers 2.7 cm
 further out in the wrist camera's view, and they close along +45 deg in the flange's xy (the sim's -45; the Desk
-end-effector transform turns the hand +45 deg on the flange)."""
+end-effector transform turns the hand +45 deg on the flange). A move may run up to MOVE_CAP steps while the arm is
+still closing in (it still stops on arriving, or once progress stalls): the real arm's moves to a tilted grasp
+are joint-speed bound (the wrist turns ~150 deg) and took ~10 s, where the lab's n+50 steps (~6 s) ended the hover
+16-19 cm short, and the grasp then came from above and missed (2026-11-04, three runs)."""
 import json
 import numpy as np
 import cv2
@@ -13,6 +16,7 @@ from scipy.spatial.transform import Rotation
 PADS = 0.13065  # PORT: the real pads' center (sim 0.093)
 CLOSING_ANGLE = np.pi/4  # PORT: the real hand's (sim -pi/4). Documented fallback; estimate from the visible open fingers.
 FINGER_BAND = (.075 + .027, .115 + .027)  # PORT: where the open fingers are, out from the flange (sim .075-.115)
+MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing (the lab's: n+50)
 
 
 def planar(x, y, yaw):
@@ -59,7 +63,7 @@ def row(F, g):
 def move(robot, F, g, n=30, settle=True):
     first = min(n,15) if settle else n
     r = robot.act_arm([row(F,g)]*first)
-    remaining = n+50-first
+    remaining = max(n+50, MOVE_CAP)-first  # PORT: was n+50-first
     previous = None
     stalled = 0
     while settle and remaining>0:
