@@ -441,3 +441,53 @@ Evidence: `docs/evidence/ht4d/` (stop_analysis.txt, lap_analysis.txt, sha256.txt
 - counter_east is unreachable with this arm pose at margin 0.09 (approach point vs east wall); the footprint fix (review C1)
   separates the plate-vs-counter and arm-vs-wall cases, which should make the extra margin unnecessary.
 - The cam_to_world in each JSON is the configured pole mount × base pose (tracker without the hand card in view).
+
+---
+
+## HT-5b: park for random counter work targets, baseline (straight-in) vs direct, after the heading fix
+
+**Status:** PASSED 2026-11-04 16:35–16:47 PST (one session each). Robot `da85382` (driver heading fix), laptop `fa9138d`
+(`real_nav park`). base.sh as HT-5a. Arm off, joints locked (footprint 0.556 m vs walls, 0.33 m vs the counter). Mac on
+10.32.77.55 (not SRC), RTT ~9 ms.
+
+Command (the same 8 targets, drawn by the pick task's start rule, seed 1):
+`real_nav park --random 8 --seed 1 --map maps/src_counter --margin 0.09 --speed 0.125 --approach {0.25|0}` (yaw 0.3 rad/s,
+so the driver's speed scale is 0.75: planar 0.094 m/s). Stances 0.53–0.56 m out, square to the side, target ahead.
+
+### Heading fix (the HT-5a east_end failure)
+Every move turned the short way: asked/taken -87/-87, -90/-90, -174/-174, +178/+179(asked), -178/-179, +90/+89 …
+(15 parks, `turn_taken_deg` from the logs). Nothing like HT-5a's 285 deg wrong-way spin.
+
+### Results (`docs/evidence/ht5b/park_metrics.txt`)
+| | baseline (stop 0.25 m out, straight in) | direct (one smooth path) |
+|---|---|---|
+| parks | 7/7 (east skipped: its approach point is 0.49 m from the wall < 0.65) | **8/8** incl. east |
+| like-for-like time, targets 2–6 | 190.9 s | **158.9 s (−17%)** |
+| intermediate stops | 7 | **0** |
+| within 5 cm → parked (median) | 5.70 s | **0.82 s** |
+| final error | ≤ 12.5 mm, ≤ 0.45° | ≤ 8.3 mm, ≤ 1.30° |
+| out from the edge / target lateral | 0.529–0.560 m / ≤ 4 mm | 0.526–0.558 m / ≤ 8 mm |
+| plate rectangle → counter, min | 64 mm | 61 mm |
+| base centre → walls, min | 1.00 m | 0.75 m |
+
+Clearance against the measured stop (HT-4d: 78 mm from 0.131 m/s, last fresh command → rest incl. the 0.3 s timeout),
+in the direction of travel: worst +60 mm (direct, at its closest the base moves along the counter at 0.007 m/s toward it);
+projected to 0.125 m/s +46 mm. Not yet run at 0.125.
+
+### Unexpected stops
+Two holds (baseline target 3, direct target 6), both resumed. Direct target 6: mocap stopped updating on the robot
+(age 0.10 s) about 0.1 s before the server's state stopped reaching the laptop (0.4 s); the server held on the laptop's
+silence and then refused targets (mocap stale). Both mocap (Motive → robot) and the laptop link use the robot's Wi-Fi
+(wlp88s0, power save already off, signal −63 dBm, quality 47/70): a robot-side Wi-Fi dropout. Executing the path on the
+robot would not remove it (mocap still stalls).
+
+### What limits speed (measured, direct runs)
+- Cruise flat at ~0.072 m/s (median, every leg) against the 0.094 m/s scaled cap; turns ≤ 6 deg/s; nothing else stopping
+  it. The follower sends a position target 0.12 m ahead (carrot) each tick and the driver's Ruckig plans to come to rest
+  there: with 0.1 m/s² and ~0.1 s command lag the steady speed is ~0.07 m/s whatever the cap.
+- 1.0 s of hold logging after every park (`go` tail_s), 0.5 s settle.
+
+### Next
+Faster (Jack: 2–3x, "a real kitchen"): a speed-dependent carrot (or velocity commands), higher driver velocity and
+acceleration ceilings with stops re-measured at each step, speed limited by clearance near the counter from the measured
+stop envelope, no hold tail. Closer to the counter (Jack: "a bit too far"): see current-state for the trade-off.
