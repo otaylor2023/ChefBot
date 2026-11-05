@@ -124,6 +124,7 @@ class RealEnv(Env):
         self._ids = itertools.count()
         self._closed = threading.Event()
         self.halted: str | None = None  # why the server last held the robot
+        self.require_arm = True  # get_state refuses without joint readings (False: base-only runs; arm_q is then None)
         self.errors: list[str] = []
         self._gripper_closed: bool | None = None
         self._base_holding = False
@@ -186,9 +187,11 @@ class RealEnv(Env):
         if age > self.max_state_age_s:
             raise RuntimeError(f"the robot's state is {age:.2f} s old: lost the onboard server?")
         odom = s.get("odom_pose")
-        if odom is None or s["arm_q"] is None:
-            raise RuntimeError("the robot reports no base odometry or no joints: are the base and arm drivers up?")
-        n = len(s["arm_q"])
+        if odom is None:
+            raise RuntimeError("the robot reports no base odometry: is the base driver up?")
+        if s["arm_q"] is None and self.require_arm:
+            raise RuntimeError("the robot reports no joints: is the arm driver up?")
+        n = 7 if s["arm_q"] is None else len(s["arm_q"])
         mocap = s.get("mocap_pose")
         mocap_age = s.get("mocap_age_s")
         return EnvState(
@@ -198,7 +201,7 @@ class RealEnv(Env):
                                              float(mocap_age) if mocap_age is not None else math.inf),  # fmt: skip
             base_in_contact=False,  # not sensed
             time=time.monotonic() - self._t0,
-            arm_q=np.asarray(s["arm_q"], dtype=float),
+            arm_q=None if s["arm_q"] is None else np.asarray(s["arm_q"], dtype=float),
             arm_qd=np.zeros(n) if s["arm_qd"] is None else np.asarray(s["arm_qd"], dtype=float),
             gripper_width=float(s["gripper_width"] or 0.0),
             gripper_closed_cmd=bool(self._gripper_closed),

@@ -463,7 +463,7 @@ def test_the_server_reports_a_refused_target_and_does_not_count_it_as_commanding
     env.publisher.stop()
     redis.values[K.MOCAP_VALID] = "false"
     wait_until(lambda: not env.localization().mocap_valid)
-    env.set_base_target(Pose2D(3.0, 4.0, 1.0), (0.1, 0.1, 0.3))
+    env.set_base_target_world(Pose2D(3.0, 4.0, 1.0), (0.1, 0.1, 0.3))  # a world target: refused without mocap
     wait_until(lambda: env.errors)
     assert "refused" in env.errors[-1] and not server.commanded
     assert K.BASE_CMD_SEQ not in redis.values

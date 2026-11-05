@@ -50,8 +50,12 @@ def wrap(a: float) -> float:
 
 
 class WholeBodyController:
-    def __init__(self, env: Env, robot: Robot, speed: Speed, tick_s: float = 0.05, on_tick=None):
+    def __init__(self, env: Env, robot: Robot, speed: Speed, tick_s: float = 0.05, on_tick=None, guard=None):
+        """guard: robot/safety.py BaseGuard (base_guard below): the base's stops and speed limit, checked every tick
+        before the base is commanded (a stop raises BaseStopped). None: the base is not guarded (an arm-only host,
+        whose base holds, or a sim)."""
         self.env, self.robot, self.kin, self.speed = env, robot, robot.kin, speed
+        self.guard = guard
         self.hz = float(robot.raw["control"]["hz"])
         self.tick_s = tick_s
         self.on_tick = on_tick  # called after every tick (e.g. to record a video frame)
@@ -156,7 +160,10 @@ class WholeBodyController:
         root_target = np.eye(4)
         root_target[:3, :3] = Rotation.from_euler("z", yaw_world).as_matrix()
         root_target[:3, 3] = [base_xy_world[0], base_xy_world[1], root[2, 3]]
-        if not env.set_base_target(self.kin.base_for_root(root_target), sp.base_max_vel):
+        base_vel = sp.base_max_vel
+        if self.guard is not None:
+            base_vel = self._guarded(s, root, base_xy_world, base_vel)
+        if not env.set_base_target(self.kin.base_for_root(root_target), base_vel):
             err = base_xy_world - root[:2, 3]
             v = BASE_KP_LIN * err
             if np.linalg.norm(v) > sp.base_max_vel[0]:
@@ -206,6 +213,46 @@ class WholeBodyController:
             self.on_tick()
         return ok
 
+    def _guarded(self, s, root, base_xy, base_vel):
+        """The guard's stops (BaseStopped) and its speed limit toward the base target, in the world (the localizer's
+        tie of odometry), before the base is commanded."""
+        from chefbot.robot.safety import BaseStopped
+
+        g = self.guard
+        g.localizer.update(s)
+        pose = g.localizer.world(s.base_pose)
+        why = g.stop_reason(s, pose)
+        if why is not None:
+            raise BaseStopped(why)
+        way_odom = (base_xy[0] - root[0, 3], base_xy[1] - root[1, 3])
+        c, sn = math.cos(g.localizer.world_from_odom.yaw), math.sin(g.localizer.world_from_odom.yaw)
+        cap, _ = g.speed_cap(pose, (c * way_odom[0] - sn * way_odom[1], sn * way_odom[0] + c * way_odom[1]), base_vel[0])
+        return (min(base_vel[0], cap), min(base_vel[1], cap), base_vel[2])
+
     def _base_xy(self) -> tuple[float, float]:
         p = self.env.get_state().base_pose
         return p.x, p.y
+
+
+def base_guard(robot: Robot, map_dir=None, stop_limits: dict | None = None):
+    """A BaseGuard (robot/safety.py) for the whole-body controller driving the base: it never drives without the env's
+    localization (mocap); with a map folder (maps/README.md), also not into it (the base's plate at its heading: the
+    arm, which moves with the skill, is the host's own guard's), and with the robot's measured stop (stop_limits: the
+    onboard server's hello limits), at most as fast as it can stop in the free space ahead."""
+    from pathlib import Path
+
+    from chefbot.robot.nav.footprint import FootprintSpace
+    from chefbot.robot.nav.grid import OccupancyGrid
+    from chefbot.robot.nav.speed import StopModel
+    from chefbot.robot.safety import BaseGuard
+
+    space = None
+    if map_dir is not None:
+        grid = OccupancyGrid.load(Path(map_dir) / "grid.npy")
+        body = robot.body
+        if body is None:
+            raise ValueError(f"{robot.name} has no body: (its footprint) to guard the base on a map with")
+        space = FootprintSpace.by_height(grid, lambda top=math.inf: body.footprint())
+    limits = stop_limits or {}
+    stop_model = StopModel.from_limits(limits) if "base_stop_tau_s" in limits else None
+    return BaseGuard(space, stop_model=stop_model, accel=float(limits.get("base_max_accel_xy", 0.1)), arm_moved_rad=None)

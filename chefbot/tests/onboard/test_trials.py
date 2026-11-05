@@ -67,7 +67,7 @@ def test_a_short_session_goes_around_obstacles_without_violations(tmp_path):
 
 
 def test_long_segments_are_split_into_steps_go_accepts():
-    from chefbot.scripts.real_nav import subdivide
+    from chefbot.robot.nav.heading_plan import subdivide
 
     pts = subdivide([(0.0, 0.0), (2.5, 0.0), (2.5, 0.4)], 1.0)
     assert pts == [(0.0, 0.0), pytest.approx((2.5 / 3, 0.0)), pytest.approx((5 / 3, 0.0)), (2.5, 0.0), (2.5, 0.4)]
@@ -111,7 +111,7 @@ def test_smooth_following_goes_around_an_obstacle_in_one_motion(tmp_path):
         grid, _ = build({"resolution": 0.05, "bounds": [[s.x - 2.1, s.y - 1.6], [s.x + 1.6, s.y + 1.6]],
                          "obstacles": [{"name": "box", "box": {"center": [s.x - 0.6, s.y], "size": [0.3, 0.3]}}]})  # fmt: skip
         r = go_planned(env, Pose2D(s.x - 1.4, s.y, s.yaw), grid, confirm=lambda _: None, log_dir=tmp_path, speed=0.5,
-                       yaw_speed=1.0, smooth=True)  # fmt: skip
+                       yaw_speed=1.0)  # fmt: skip
     finally:
         env.close()
         sim.close()

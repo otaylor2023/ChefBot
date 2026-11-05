@@ -517,3 +517,54 @@ The HT-4/HT-5 clearances above were computed against the 0.33 m circle, so at th
 Sim (`onboard/sim.py`, start 0.285 0.276 179.6): `real_nav park --random 8 --seed 1 --map maps/src_counter --margin
 0.09 --approach 0`: 8/8 reached, ≤ 9 mm, 0.45 m out, square. None of 4,031 logged poses put the plate (at its logged
 heading) on an obstacle cell. With HT-5a's arm pose all 8 stances are still clear and plannable. Not yet run on the robot.
+
+## Pending for PR #1: hardware tests the review asks for (procedures; none run yet)
+
+**Deploy first.** These changes touch the robot computer: the onboard server reports raw odometry and takes
+`base_target_odom` (#5). The laptop's `RealEnv` now sends base targets in odometry, so an older server on the robot
+answers each target with an error and the base does not move. That fails safe, but nothing works until the robot runs
+the same commit. On the robot, in Jack's checkout for this branch (`~/chefbot_movement`, not the teammate's
+`~/ChefBot`): check `git status` is clean, then `git fetch && git checkout <the pushed head>`, and restart
+`bringup/base.sh` (or `launch.sh`). `hello` reports the base cap and the measured stop; `real_nav` refuses if the
+robot's cap disagrees with the laptop's.
+
+Every move below is `Robot(RealEnv).go_to_pose` (real_nav is a thin caller now), on the counter route and places that
+HT-4/HT-5 used (`maps/src_counter`). Jack on the e-stop; the laptop side as in HT-5b.
+
+### HT-6a: stop distance at the cap (0.25 m/s): owed before any counter run faster than 0.131 m/s
+- Setup: `base.sh`; `real_nav go close_near --map maps/src_counter --speed 0.25` from `west_end` (a straight leg of
+  >= 1 m along the counter's near side).
+- Mid-leg, at cruise, freeze the server on the robot: `kill -STOP <onboard server pid>`; `kill -CONT` (or Ctrl-C
+  base.sh) after 3 s. This is the HT-4d method: the driver brakes on its 0.3 s command timeout.
+- Measure, from the robot-side log (calibration/base.py record, as HT-4c/4d): speed at the last fresh command, the
+  distance to rest, the time to rest.
+- Expected: about 0.21 m from 0.25 m/s (`robot.yaml` `control.limits` `base_stop_tau_s` 0.333, `base_stop_brake_mps2`
+  0.25). If it's longer, put the measured tau and brake in `robot.yaml` before driving faster near the counter.
+
+### HT-6b: losing mocap mid-move, on purpose (review #5)
+- Setup: `base.sh`; `real_nav park --target <x y> --map maps/src_counter --profile slow`, a target whose stance needs
+  a >= 1 m path.
+- Mid-path, in Motive (Windows, via KVM), untick the base's rigid body (`chefbot-tidy`) in the Assets pane, which
+  stops its stream. Don't cover the markers by hand near a moving base.
+- Expected: `NOT_LOCALIZED` ("lost the live mocap pose ...") within ~0.25 s of the last frame (the server's
+  `mocap_stale_s`), the base held, and its roll-out after the hold within HT-6a's stop distance for the speed it had.
+  The server's world-target refusal no longer applies (targets go in odometry), so the robot layer's refusal is the
+  stop. Re-tick the body; a new `park` must start from a live pose.
+- Then, with the body unticked: `real_nav go close_near --map ...` must refuse to start ("no live mocap pose").
+
+### HT-6c: a run with the arm driver up (review: "arm on")
+- **Precondition (CLAUDE.md, unresolved): the arm sagged/dropped once when its joints were unlocked.** Don't do this
+  until an experienced operator has reviewed the arm's setup (payload, gravity compensation) with Jack. Nothing here
+  moves the arm: `real_nav` builds `Robot(..., tuck_arm=False)` and never sends an arm command.
+- Setup: `launch.sh` (arm driver, OpenSai, base driver, server), the arm held at the ready position (`r`, then `h`).
+- `real_nav arm` must report the footprint from **live** joints (`arm from live joints`, ~0.39 m ahead at READY).
+  Then `real_nav park --random 3 --seed 2 --map maps/src_counter --profile slow`.
+- Expected: stances at 0.45 m (the arm passes over the 0.93 m counter top, the plate doesn't); any arm joint moving
+  > 0.05 rad while driving stops the base ("the arm moved ...").
+
+### HT-6d: measure the map's bounds (review: map bounds)
+- `maps/src_counter/spec.yaml`'s xmax/ymax are "roughly" (walls, Jack 2026-11-03); xmin/ymin are open floor, not walls.
+- With a mocap-tracked point (the base's own pose from `real_pose`, or a wand), touch each wall and the Motive table
+  and record x, y. Put the obstacles in the spec (walls with no `height_m`; tables with their top), then
+  `python -m chefbot.environments.real.build_map build maps/src_counter/spec.yaml`, and check
+  `python -m chefbot.scripts.real_map show maps/src_counter --yaw 90`. Commit the spec and the rebuilt files.

@@ -22,14 +22,17 @@ And every `go` stops if the arm moves more than 0.05 rad on any joint while the 
 
 Points are base poses in the mocap world (x, y in m, yaw in deg), in runs/real_nav/points.json.
 
-`go` drives straight at the target: the base driver plans the motion to the pose it is sent (RealEnv.set_base_target),
-and the target is re-sent every 0.1 s through the latest mocap tie, so mocap closes the loop. No obstacle avoidance:
-the floor between the points must be clear. Before starting it checks that mocap and the base driver are live and
-that B is within --max-dist (bringup/base.sh, which it needs, refuses to start while the arm driver runs). While driving it stops the
-base (base_hold) and exits on: lost mocap or driver, a halt or error from the server, more than --corridor off the
-straight line A-B, more than 0.10 m further from B than it has been, --timeout, or Ctrl-C. Reached: within --tol and
---yaw-tol for 0.5 s. The onboard server and the driver have their own stops behind these (0.3 s and 0.5 s without
-commands). Every sample goes to runs/real_nav/<time>_<point>.jsonl.
+This script is thin: every move is the robot layer's Robot(RealEnv).go_to_pose (make_robot), the same planning,
+drive loop and stops as the agent's go_to and the sims (robot/robot.py, robot/safety.py BaseGuard). The robot layer
+ties the base's odometry to mocap (robot/localization.py) and sends targets in odometry each control tick (20 Hz), so
+mocap closes the loop. Without --map, `go` drives straight on a map with nothing on it: the floor between the points
+must be clear, and B within --max-dist. Before starting it checks that mocap and the base driver are live
+(bringup/base.sh). While driving the base stops (held) on: lost mocap, the base driver gone or a halt from the server,
+the footprint reaching the map, more than --corridor off the path, a straight move more than 0.10 m further from B
+than it has been, the arm moving, --timeout, or Ctrl-C; its speed is held to what it can stop in within the free
+space ahead (the robot's measured stop, from the onboard server). Reached: within --tol and --yaw-tol for 0.5 s. The
+onboard server and the driver have their own stops behind these (0.3 s and 0.5 s without commands). Every control
+tick goes to runs/real_nav/<time>_<point>.jsonl (with --map: a folder, one file per leg).
 """
 
 from __future__ import annotations
@@ -91,7 +94,6 @@ def relative_point(origin: dict, forward: float, left: float, turn_deg: float) -
             "relative_to": {"forward": forward, "left": left, "turn_deg": turn_deg}}  # fmt: skip
 
 
-ARM_MOVED_RAD = 0.05  # a joint moving more than this while the base drives stops it
 
 
 LOW_CLEARANCE_M = 0.05  # an arm point passes over a low obstacle only with its underside this much above its top
@@ -218,350 +220,168 @@ def check_server_cap(limits: dict, speed: float, yaw_speed: float) -> None:
             raise ValueError(f"{asked} is over the robot's reported {key} {limits[key]}: deploy the same commit on both sides")
 
 
+def open_grid(points, pad: float = 1.0, res: float = 0.05):
+    """A map with nothing on it, covering `points` (x, y) and `pad` m around them: for moves without --map."""
+    from chefbot.robot.nav.grid import OccupancyGrid
+
+    xy = np.asarray(points, dtype=float)
+    lo, hi = xy.min(axis=0) - pad, xy.max(axis=0) + pad
+    shape = (int(math.ceil((hi[1] - lo[1]) / res)), int(math.ceil((hi[0] - lo[0]) / res)))
+    return OccupancyGrid(np.zeros(shape, dtype=bool), res, (float(lo[0]), float(lo[1])))
+
+
+def fence_cells(fence: Fence, grid, margin: float = 0.05):
+    """The grid's cells outside the fence (plus `margin`): where the base's centre may not go."""
+    from chefbot.robot.nav.grid import OccupancyGrid
+
+    rows, cols = grid.shape
+    cc, rr = np.meshgrid(np.arange(cols), np.arange(rows))
+    x, y = grid.origin[0] + (cc + 0.5) * grid.resolution, grid.origin[1] + (rr + 0.5) * grid.resolution
+    c, s_ = math.cos(fence.yaw), math.sin(fence.yaw)
+    u, v = c * (x - fence.x) + s_ * (y - fence.y), -s_ * (x - fence.x) + c * (y - fence.y)
+    return OccupancyGrid((np.abs(u) > fence.half + margin) | (np.abs(v) > fence.half + margin), grid.resolution, grid.origin)
+
+
+def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
+               yaw_tol_deg: float = 3.0, corridor: float = 0.15, margin: float = 0.10, arm: str = "auto",
+               settle_s: float = 0.5, still_mps: float | None = None, lookahead: float = 0.12,
+               timeout_s: float | None = None, centre_limit=None, footprint_below=None, stop_model="robot", accel=None):  # fmt: skip
+    """The robot layer on the real robot: Robot(RealEnv) on `grid` with the robot's footprint (robot_footprints), its
+    measured stop and acceleration as the onboard server reports them (stop_model="robot"; None: none), the run's
+    speeds and tolerances. The base drives with the arm as it is (tuck_arm=False: real_nav never moves the arm; the
+    footprint covers it and the arm moving stops the drive). Every stop is the robot layer's (robot/safety.py BaseGuard
+    and Robot's drive): lost mocap, the footprint on the map, the fence, the arm moving, off the path (corridor),
+    moving away, the timeout, a halt from the server."""
+    from dataclasses import replace
+
+    from chefbot import embodiments
+    from chefbot.robot.nav.speed import StopModel
+    from chefbot.robot.robot import Robot
+
+    env.require_arm = False  # base moves need no arm driver (its last readings, if any, still give its footprint)
+    cfg = replace(embodiments.load("tidybot_fr3").config, max_lin_vel=float(speed), max_ang_vel=float(yaw_speed),
+                  pos_tolerance=float(tol), yaw_tolerance=math.radians(yaw_tol_deg), deviation_threshold=float(corridor),
+                  safety_margin=float(margin), snap_radius=0.0, arrive_settle_s=float(settle_s), arrive_still_mps=still_mps,
+                  lookahead=float(lookahead), control_rate=20.0, motion_timeout_s=float(timeout_s or 3600.0))  # fmt: skip
+    if footprint_below is None:
+        footprint_below = robot_footprints(env.raw_state(), arm)[0]
+    limits = env.server_limits
+    if stop_model == "robot":
+        stop_model = StopModel.from_limits(limits) if "base_stop_tau_s" in limits else None
+    accel = float(limits.get("base_max_accel_xy", 0.1)) if accel is None else float(accel)
+    return Robot(env, grid, cfg, _ByRule(), footprint_below=footprint_below, stop_model=stop_model, base_accel=accel,
+                 centre_limit=centre_limit, tuck_arm=False)  # fmt: skip
+
+
+def drive(robot, env: RealEnv, goal: Pose2D, *, approach_m: float = 0.0, confirm=input, log_dir: Path | None = None,
+          log_path: Path | None = None, quiet: bool = False, preflight=None) -> dict:  # fmt: skip
+    """robot.go_to_pose(goal) on the real robot, with the checks before it, Enter first (`confirm`), Ctrl-C to stop,
+    every tick logged (log_dir/leg00.jsonl.. or `log_path`), and a result dict: ok, reason, moved, final errors (by
+    mocap), path, path_m, the legs' reasons, and the move's summary (summarize_move). `preflight`: a reason not to move,
+    or None."""
+    from chefbot.interface.types import MotionStatus
+
+    loc, raw = env.localization(), env.raw_state()
+    problems = [] if loc.live else ["no live mocap pose"]
+    if not raw.get("base_driver_live"):
+        problems.append("the base driver is not running (bringup/base.sh)")
+    if not problems and preflight is not None:
+        problems += [p for p in [preflight(loc.mocap_pose)] if p]
+    if problems:
+        return {"ok": False, "reason": "; ".join(problems), "moved": False}
+    start = loc.mocap_pose
+    d0, turn = math.hypot(goal.x - start.x, goal.y - start.y), math.degrees(wrap(goal.yaw - start.yaw))
+    if not quiet:
+        print(f"from  x {start.x:.3f}  y {start.y:.3f}  yaw {math.degrees(start.yaw):7.2f}")
+        print(f"to    x {goal.x:.3f}  y {goal.y:.3f}  yaw {math.degrees(goal.yaw):7.2f}   ({d0:.3f} m, turn {turn:+.1f} deg)")
+    try:
+        confirm("Floor clear and e-stop in hand? Enter to drive, Ctrl-C to cancel: ")
+    except (KeyboardInterrupt, EOFError):
+        return {"ok": False, "reason": "cancelled", "moved": False}
+    rows: list[dict] = []
+    t0, wall0 = time.monotonic(), time.time()
+
+    def log(row):
+        row = dict(row, t=time.monotonic() - t0, wall=time.time(), server_t=env.raw_state().get("t"))
+        if row.get("off_line") is None:  # coming to rest: the path deviation as it last was (as the old logs had)
+            row["off_line"] = next((r["off_line"] for r in reversed(rows) if r.get("off_line") is not None), 0.0)
+        rows.append(row)
+        if not quiet and row["phase"] == "drive":
+            print(f"\r{row['t']:5.1f}s  to go {row['dist']:6.3f} m  yaw {row['yaw_err_deg']:+6.1f} deg  "
+                  f"off path {row.get('off_line') or 0.0:5.3f} m", end="", flush=True)  # fmt: skip
+
+    robot.drive_log = log
+    robot.go_to_pose(goal, approach_m)
+    try:
+        res = robot.wait()
+    except KeyboardInterrupt:
+        robot.stop()
+        res = robot.wait()
+        res.message = "stopped (Ctrl-C)"
+    finally:
+        robot.drive_log = None
+        if not quiet:
+            print()
+    ok = res.status == MotionStatus.SUCCESS
+    reason = "reached" if ok else res.message
+    if res.status == MotionStatus.NOT_LOCALIZED:
+        reason = f"lost the live mocap pose ({res.message})"
+    elif res.status == MotionStatus.NO_PATH and not res.message.startswith("no path"):
+        reason = f"no path: {res.message}"
+    legs = sorted({r["leg"] for r in rows})
+    for leg in legs:
+        path = (Path(log_dir) / f"leg{leg:02d}.jsonl") if log_dir is not None else (log_path if leg == 0 else None)
+        if path is not None:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text("".join(json.dumps(r, default=float) + "\n" for r in rows if r["leg"] == leg))
+    result = {"ok": ok, "reason": reason, "status": res.status, "moved": bool(rows), "wall_start": wall0,
+              "start": [start.x, start.y, start.yaw], "goal": [goal.x, goal.y, goal.yaw],
+              "legs": [{"leg": leg, "reason": reason if leg == legs[-1] else "reached"} for leg in legs],
+              "path": res.data.get("path") or [], "path_m": res.data.get("path_m") or 0.0, "seconds": time.monotonic() - t0,
+              "distance_m": d0, "turn_deg": turn}  # fmt: skip
+    end = env.localization().mocap_pose
+    if end is not None:
+        result.update(final_error_m=math.hypot(goal.x - end.x, goal.y - end.y),
+                      final_yaw_error_deg=math.degrees(wrap(goal.yaw - end.yaw)))  # fmt: skip
+    result.update(summarize_move([dict(r, off_line=r.get("off_line") or 0.0) for r in rows], start, goal))
+    drive_rows, hold = [r for r in rows if r["phase"] == "drive"], [r for r in rows if r["phase"] == "hold"]
+    if drive_rows and hold:
+        result["moved_after_hold_m"] = float(np.linalg.norm(np.array(hold[-1]["pose"][:2]) - drive_rows[-1]["pose"][:2]))
+    return result
+
+
 def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
        yaw_tol_deg: float = 3.0, corridor: float = 0.15, max_dist: float = 1.5, timeout_s: float | None = None,
-       confirm=input, log_path: Path | None = None, rate_hz: float = 20.0, fence: Fence | None = None,
-       tail_s: float = 1.0, quiet: bool = False, keep_free=None, follow=None, stop_model=None, accel: float = 0.1,
-       settle_s: float = 0.5, still_mps: float | None = None, stop_buffer_m: float = 0.03) -> dict:  # fmt: skip
-    """Drive to `goal` (world). Returns a result dict; the base is held on every exit. With a `fence`, a goal outside
-    it is refused and leaving it (plus 5 cm) stops the move. `tail_s`: keep logging this long after the hold.
-
-    `follow`: a robot/nav BaseController over a whole path ending at `goal`: each tick the target sent is its carrot
-    (0.3 m ahead on the path), "off line" is the distance from the path, and there is no "moving away" stop (a path
-    around a counter moves away from its goal at times); --max-dist applies to each carrot, not to the goal.
-
-    `stop_model` (robot/nav/speed.py, the robot's measured stop) with `keep_free`: each tick the speed is capped so the
-    base can stop within the free space ahead of it, along the way it is moving, on `keep_free` (the footprint-grown
-    grid, arm included); a `follow` carrot is sized for that speed at `accel` and shortened until the straight line to
-    it is clear. Arrival: within tolerance (and slower than `still_mps`, when given) for `settle_s`."""
+       confirm=input, log_path: Path | None = None, fence: Fence | None = None, quiet: bool = False,
+       settle_s: float = 0.5, **_) -> dict:  # fmt: skip
+    """Straight to `goal` (world) on open floor (no map): Robot(RealEnv).go_to_pose on a map with nothing on it, the
+    target within `max_dist`; with a `fence`, a target or start outside it is refused and the base's centre may not
+    leave it (plus 5 cm)."""
     loc, raw = env.localization(), env.raw_state()
-    arm_q0 = np.asarray(raw["arm_q"], dtype=float) if raw.get("arm_live") and raw.get("arm_q") is not None else None
-    problems = []
-    if not loc.live:
-        problems.append("no live mocap pose")
+    problems = [] if loc.live else ["no live mocap pose"]
     if not raw.get("base_driver_live"):
         problems.append("the base driver is not running (bringup/base.sh)")
     if problems:
         return {"ok": False, "reason": "; ".join(problems), "moved": False}
     start = loc.mocap_pose
     d0 = math.hypot(goal.x - start.x, goal.y - start.y)
-    turn = math.degrees(wrap(goal.yaw - start.yaw))
-    path_len = None
-    if follow is not None:
-        path_len = float(follow._cum[-1])
-    elif d0 > max_dist:
+    if d0 > max_dist:
         return {"ok": False, "reason": f"the target is {d0:.2f} m away (> --max-dist {max_dist} m)", "moved": False}
     if fence is not None and not (fence.contains(goal.x, goal.y) and fence.contains(start.x, start.y, 0.05)):
         return {"ok": False, "reason": "the start or the target is outside the fence", "moved": False}
-    timeout_s = timeout_s or 10.0 + 3.0 * max((path_len or d0) / speed, abs(math.radians(turn)) / yaw_speed)
-    if not quiet:
-        print(f"from  x {start.x:.3f}  y {start.y:.3f}  yaw {math.degrees(start.yaw):7.2f}")
-        print(f"to    x {goal.x:.3f}  y {goal.y:.3f}  yaw {math.degrees(goal.yaw):7.2f}   ({d0:.3f} m, turn {turn:+.1f} deg)")
-        print(f"at most {speed} m/s, {yaw_speed} rad/s; stops if > {corridor} m off the line, timeout {timeout_s:.0f} s")
-    try:
-        confirm("Floor clear and e-stop in hand? Enter to drive, Ctrl-C to cancel: ")
-    except (KeyboardInterrupt, EOFError):
-        return {"ok": False, "reason": "cancelled", "moved": False}
-
-    line = np.array([goal.x - start.x, goal.y - start.y])
-    line_len = float(np.linalg.norm(line))
-    u = line / line_len if line_len > 1e-6 else np.zeros(2)
-    best, settled_since, errors_seen = float("inf"), None, len(env.errors)
-    last_cap = speed  # the speed the last tick allowed (sizes the carrot)
-    log = log_path.open("w") if log_path else None
-    samples: list[dict] = []
-    t0 = time.monotonic()
-    result = {"ok": False, "reason": "?", "moved": True, "wall_start": time.time(),
-              "start": [start.x, start.y, start.yaw], "goal": [goal.x, goal.y, goal.yaw], "speed": speed, "yaw_speed": yaw_speed}
-
-    def sample(t, loc, raw, phase, extra=None):
-        p = loc.mocap_pose
-        rel = np.array([p.x - start.x, p.y - start.y])
-        row = {"t": t, "wall": time.time(), "server_t": raw.get("t"), "phase": phase, "pose": [p.x, p.y, p.yaw],
-               "off_line": float(abs(rel[0] * u[1] - rel[1] * u[0])) if line_len > 1e-6 else float(np.linalg.norm(rel)),
-               "dist": math.hypot(goal.x - p.x, goal.y - p.y), "yaw_err_deg": math.degrees(wrap(goal.yaw - p.yaw)),
-               "odom_world": None if loc.base_pose is None else [loc.base_pose.x, loc.base_pose.y, loc.base_pose.yaw],
-               "base_velocity": None if raw.get("base_velocity") is None else [float(v) for v in raw["base_velocity"]],
-               "mocap_age_s": loc.mocap_age_s, "state_age_s": loc.state_age_s, "seq": loc.seq}  # fmt: skip
-        row.update(extra or {})
-        samples.append(row)
-        if log:
-            log.write(json.dumps(row) + "\n")
-        return row
-    try:
-        while True:
-            t = time.monotonic() - t0
-            loc, raw = env.localization(), env.raw_state()
-            if env.halted:
-                result["reason"] = f"the server held the robot: {env.halted}"
-                break
-            if len(env.errors) > errors_seen:
-                err = str(env.errors[-1])
-                # The server refuses a target the moment its mocap goes stale, which can be before this loop sees it.
-                result["reason"] = (f"lost the live mocap pose (the server refused the target: {err})" if "NotLocalized" in err
-                                    else f"server error: {err}")  # fmt: skip
-                break
-            if not loc.state_current:
-                result["reason"] = f"no state from the onboard server for {loc.state_age_s:.2f} s (server or link down)"
-                break
-            if not loc.live or not raw.get("base_driver_live"):
-                result["reason"] = "lost the live mocap pose" if not loc.live else "the base driver stopped"
-                break
-            target, extra = goal, {}
-            v_cap = speed
-            p_now = loc.mocap_pose
-            kf = keep_free.at(p_now.yaw) if hasattr(keep_free, "at") else keep_free  # a FootprintSpace: at this heading
-            if stop_model is not None and kf is not None:
-                from chefbot.robot.nav.speed import free_distance
-
-                bv = raw.get("base_velocity")
-                way = (bv[0], bv[1]) if bv is not None and math.hypot(bv[0], bv[1]) > 0.02 else None
-                if follow is not None:
-                    from chefbot.robot.nav.speed import lookahead_for
-
-                    look = lookahead_for(min(speed, last_cap), accel, 0.1)
-                    target = follow.target_at(p_now, look)
-                    while look > 0.12 and not kf.segment_free((p_now.x, p_now.y), (target.x, target.y)):
-                        look = max(0.12, look * 0.7)  # no corner cut into an obstacle
-                        target = follow.target_at(p_now, look)
-                    extra["lookahead"] = look
-                way = way or (target.x - p_now.x, target.y - p_now.y)
-                free = free_distance(kf, (p_now.x, p_now.y), way)
-                v_cap = min(speed, stop_model.speed_for(free - stop_buffer_m))
-                last_cap = v_cap
-                extra.update(free_m=free, v_cap=v_cap)
-            elif follow is not None:
-                target = follow.target(p_now)
-            if follow is not None:
-                extra.update(carrot=[target.x, target.y, target.yaw], off_line=follow.deviation)
-            row = sample(t, loc, raw, "drive", extra or None)
-            p, off_line, dist, yaw_err = loc.mocap_pose, row["off_line"], row["dist"], row["yaw_err_deg"]
-            if not quiet:
-                print(f"\r{t:5.1f}s  to go {dist:6.3f} m  yaw {yaw_err:+6.1f} deg  off line {off_line:5.3f} m", end="", flush=True)
-            best = min(best, dist)
-            if fence is not None and not fence.contains(p.x, p.y, 0.05):
-                result["reason"] = "left the fence"
-                break
-            if kf is not None and not kf.is_free(p.x, p.y):
-                result["reason"] = "the base's footprint reached an obstacle on the map"
-                break
-            if arm_q0 is not None and raw.get("arm_q") is not None:
-                moved = float(np.max(np.abs(np.asarray(raw["arm_q"], dtype=float) - arm_q0)))
-                if moved > ARM_MOVED_RAD:
-                    result["reason"] = f"the arm moved {moved:.3f} rad while the base was driving"
-                    break
-            if off_line > corridor:
-                result["reason"] = f"{off_line:.2f} m off the line A-B (> {corridor} m)"
-                break
-            if follow is None and dist > best + 0.10:
-                result["reason"] = f"moving away from the target ({dist:.2f} m, best {best:.2f} m)"
-                break
-            bv = raw.get("base_velocity")
-            still = still_mps is None or (bv is not None and math.hypot(bv[0], bv[1]) < still_mps)
-            if dist <= tol and abs(yaw_err) <= yaw_tol_deg and still:
-                settled_since = settled_since if settled_since is not None else t
-                if t - settled_since >= settle_s:
-                    result.update(ok=True, reason="reached")
-                    break
-            else:
-                settled_since = None
-            if t > timeout_s:
-                result["reason"] = f"timed out after {timeout_s:.0f} s"
-                break
-            if math.hypot(target.x - p.x, target.y - p.y) > max_dist:
-                result["reason"] = f"the next target is more than {max_dist} m away"
-                break
-            env.set_base_target_world(target, (max(v_cap, 0.02), max(v_cap, 0.02), yaw_speed))  # 0.02: creep, never 0
-            time.sleep(1.0 / rate_hz)
-    except KeyboardInterrupt:
-        result["reason"] = "stopped (Ctrl-C)"
-    finally:
-        env.set_base_velocity(0.0, 0.0, 0.0)  # base_hold: decelerate and hold
-        t_hold = time.monotonic()
-        try:
-            while time.monotonic() - t_hold < tail_s:  # how it comes to rest after the hold
-                loc = env.localization()
-                if not loc.live:
-                    break
-                sample(time.monotonic() - t0, loc, env.raw_state(), "hold")
-                time.sleep(1.0 / rate_hz)
-        except Exception:  # the server may be gone (a stop test): the tail is best-effort
-            pass
-        if log:
-            log.close()
-        if not quiet:
-            print()
-    end = env.localization().mocap_pose
-    if end is not None:
-        result.update(final_error_m=math.hypot(goal.x - end.x, goal.y - end.y),
-                      final_yaw_error_deg=math.degrees(wrap(goal.yaw - end.yaw)))  # fmt: skip
-    result.update(seconds=time.monotonic() - t0, distance_m=d0, turn_deg=turn, path_m=path_len)
-    result.update(summarize_move([s for s in samples], start, goal))
-    if samples and samples[-1]["phase"] == "hold":
-        drive = [s for s in samples if s["phase"] == "drive"]
-        if drive:
-            last, rest = np.array(drive[-1]["pose"][:2]), np.array(samples[-1]["pose"][:2])
-            result["moved_after_hold_m"] = float(np.linalg.norm(rest - last))  # how far it rolled once held
-    return result
+    grid = open_grid([(start.x, start.y), (goal.x, goal.y)])
+    robot = make_robot(env, grid, speed=speed, yaw_speed=yaw_speed, tol=tol, yaw_tol_deg=yaw_tol_deg, corridor=corridor,
+                       margin=0.0, settle_s=settle_s, timeout_s=timeout_s,
+                       centre_limit=None if fence is None else fence_cells(fence, grid))  # fmt: skip
+    return drive(robot, env, goal, confirm=confirm, log_path=log_path, quiet=quiet)
 
 
-def escape_start(plan_grid, body_grid, start, max_m: float = 0.3):
-    """Where planning starts: `start` itself if it is clear with the margin, else the nearest cell that is (within
-    `max_m`) when the straight move there is clear for the body itself; None if neither."""
-    if plan_grid.is_free(start[0], start[1]):
-        return tuple(start)
-    cell = plan_grid.nearest_free_cell(start[0], start[1], max_m)
-    if cell is None:
-        return None
-    p = plan_grid.cell_to_world(cell)
-    return tuple(p) if body_grid.segment_free(tuple(start), tuple(p)) else None
-
-
-def subdivide(points, max_segment: float) -> list:
-    """Split segments longer than `max_segment` into equal straight pieces (the same path, more waypoints)."""
-    out = [points[0]]
-    for a, b in zip(points, points[1:]):
-        n = max(1, math.ceil(math.dist(a, b) / max_segment))
-        out += [(a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n) for k in range(1, n + 1)]
-    return out
-
-
-def headings(start: Pose2D, points, goal_yaw: float) -> list[Pose2D]:
-    """The poses the base drives through: out of the margin first (if points[0] is not the start) at its own heading,
-    then turning to goal_yaw in proportion to the way gone along `points`."""
-    from chefbot.robot.nav.astar import with_yaw
-
-    poses = with_yaw(list(points), start.yaw, goal_yaw)
-    if tuple(points[0]) != (start.x, start.y):
-        poses = [start] + poses
-    return poses
-
-
-def plan_at_headings(plan, space, start: Pose2D, begin, pre: Pose2D, goal_yaw: float, repairs: int = 200):
-    """A* from `begin` to `pre` whose path is clear for the footprint at the heading the base will have at each point
-    (turning from start.yaw to goal_yaw in proportion to the way gone): with `plan`'s margin from `begin` on, and for
-    the body itself from `start` (out of the margin first, if begin is not start). A* starts on the grid blocked only
-    where every heading of the turn is; where the path then meets a cell not clear at its heading, that cell is blocked
-    and A* runs again. (points, None) or (None, reason)."""
-    from chefbot.robot.nav.astar import AStarPlanner, NoPath, with_yaw
-    from chefbot.robot.nav.grid import OccupancyGrid
-
-    g = plan.blocked_for_all(plan.sweep(start.yaw, goal_yaw))
-    occ = g.occupied.copy()
-    escaped = tuple(begin) != (start.x, start.y)
-    keep = {g.world_to_cell(*begin), g.world_to_cell(pre.x, pre.y)}
-    for _ in range(repairs):
-        try:
-            found = AStarPlanner(OccupancyGrid(occ, g.resolution, g.origin)).plan_xy(tuple(begin), (pre.x, pre.y))
-        except NoPath as exc:
-            return None, f"no path: {exc}"
-        poses = [(p.x, p.y, p.yaw) for p in headings(start, found, goal_yaw)]
-        bad = plan.first_blocked(poses[1:] if escaped else poses) or space.first_blocked(poses)
-        if bad is None:
-            return found, None
-        r0, c0 = g.world_to_cell(bad[0], bad[1])
-        # The cell, or (a point on a cell's edge falls in either) the free cells around it; never the start's or goal's.
-        near = [(r0, c0)] if g.in_bounds((r0, c0)) and not occ[r0, c0] else [
-            (r, c) for r in (r0 - 1, r0, r0 + 1) for c in (c0 - 1, c0, c0 + 1) if g.in_bounds((r, c)) and not occ[r, c]]
-        near = [cell for cell in near if cell not in keep]
-        if not near:
-            break  # no progress (the turn itself, at the start or the goal, is the problem)
-        for cell in near:
-            occ[cell] = True
-    return None, "no path: none clear for the footprint at the headings along it"
-
-
-def go_planned(env: RealEnv, goal: Pose2D, grid, *, space=None, margin: float = 0.10, confirm=input,
-               log_dir: Path | None = None, max_segment: float = 1.0, smooth: bool = True, approach_m: float = 0.0,
-               lookahead: float = 0.12, **go_args) -> dict:  # fmt: skip
-    """A* from where the base is to `goal`, then the path with go(). `space` (robot/nav/footprint.py FootprintSpace,
-    default: `grid` (the furniture itself) and the plate's outline) says where the base's centre may be at each heading
-    for its footprint: the path keeps `margin` more at the headings the base will have along it (it turns from its
-    heading to the goal's in proportion to the way gone), and the base stops if its footprint ever reaches an obstacle."""
-    from chefbot.robot.nav.astar import AStarPlanner, NoPath, path_length, with_yaw
-
-    loc = env.localization()
-    if not loc.live:
-        return {"ok": False, "reason": "no live mocap pose", "moved": False}
-    start = loc.mocap_pose
-    if space is None:
-        space = nav_space(grid, {}, arm="off")[0]
-    plan = space.with_margin(margin)
-    body_grid = space  # go() checks it at the base's heading each tick
-    if not space.is_free(start.x, start.y, start.yaw):
-        return {"ok": False, "reason": "the base is touching an obstacle on the map where it stands", "moved": False}
-    # A square finish: A* to a point `approach_m` straight back from the goal along its heading, turning to the goal's
-    # heading on the way, then straight in at that heading (for a station facing a counter: along its normal).
-    pre = Pose2D(goal.x - approach_m * math.cos(goal.yaw), goal.y - approach_m * math.sin(goal.yaw), goal.yaw)
-    if approach_m > 0 and not space.at(goal.yaw).segment_free((pre.x, pre.y), (goal.x, goal.y)):
-        return {"ok": False, "reason": "the straight approach to the goal is not clear", "moved": False}
-    begin = escape_start(plan.at(start.yaw), space.at(start.yaw), (start.x, start.y))
-    if begin is None:
-        return {"ok": False, "reason": "no path: the start is inside the margin with no clear way out", "moved": False}
-    points, why = plan_at_headings(plan, space, start, begin, pre, goal.yaw)
-    if points is None:
-        return {"ok": False, "reason": why, "moved": False}
-    poses = headings(start, subdivide(points, max_segment), goal.yaw)  # as plan_at_headings checked them
-    if begin != (start.x, start.y):  # out of the margin first, straight (clear for the body)
-        points = [(start.x, start.y)] + points
-    if approach_m > 0:
-        poses = poses + [goal]
-        points = points + [(goal.x, goal.y)]
-    if smooth:
-        from chefbot.robot.config import RobotConfig
-        from chefbot.robot.nav.base_controller import BaseController
-
-        print(f"A* path {path_length(points):.2f} m, followed smoothly (carrot {lookahead:.2f} m ahead)"
-              + (f", straight in for the last {approach_m:.2f} m" if approach_m > 0 else "") + ": "
-              + " -> ".join(f"({p.x:.2f}, {p.y:.2f}, {math.degrees(p.yaw):.0f})" for p in poses[1:]))  # fmt: skip
-        try:
-            confirm("Floor clear along the path and e-stop in hand? Enter to drive, Ctrl-C to cancel: ")
-        except (KeyboardInterrupt, EOFError):
-            return {"ok": False, "reason": "cancelled", "moved": False}
-        if log_dir is not None:
-            Path(log_dir).mkdir(parents=True, exist_ok=True)
-        follow_poses = poses[:-1] if approach_m > 0 else poses  # up to `pre` (already at the goal's heading)
-        legs = []
-        if len(follow_poses) >= 2 and math.dist((start.x, start.y), (follow_poses[-1].x, follow_poses[-1].y)) > 1e-3:
-            # A short carrot: commands at 20 Hz keep the base moving, and a corner is cut by at most ~lookahead/2 x
-            # sin(turn) (0.3 m cut A* corners by up to ~10 cm, more than the margin, in a dry run).
-            import dataclasses
-
-            follow = BaseController(follow_poses, dataclasses.replace(RobotConfig(), lookahead=lookahead))
-            r = go(env, follow_poses[-1], confirm=lambda _: None, keep_free=body_grid, quiet=True, follow=follow,
-                   log_path=None if log_dir is None else Path(log_dir) / "leg00.jsonl", **go_args)  # fmt: skip
-            legs.append(r)
-            print(f"  followed: {r['reason']}" + (f", {1000 * r['final_error_m']:.1f} mm" if r.get("final_error_m") is not None else ""))
-            if not r.get("ok"):
-                return r | {"legs": legs, "path": points, "path_m": path_length(points)}
-        if approach_m > 0:  # straight in along the goal's heading: no carrot to cut the corner
-            r = go(env, goal, confirm=lambda _: None, keep_free=body_grid, quiet=True,
-                   log_path=None if log_dir is None else Path(log_dir) / f"leg{len(legs):02d}.jsonl", **go_args)  # fmt: skip
-            legs.append(r)
-            print(f"  straight in: {r['reason']}" + (f", {1000 * r['final_error_m']:.1f} mm" if r.get("final_error_m") is not None else ""))
-        r = legs[-1]
-        return r | {"legs": legs, "path": points, "path_m": path_length(points)}
-    poses = poses[1:]  # each step within go's --max-dist
-    print(f"A* path {path_length(points):.2f} m in {len(poses)} segment(s): "
-          + " -> ".join(f"({p.x:.2f}, {p.y:.2f}, {math.degrees(p.yaw):.0f})" for p in poses))  # fmt: skip
-    try:
-        confirm("Floor clear along the path and e-stop in hand? Enter to drive, Ctrl-C to cancel: ")
-    except (KeyboardInterrupt, EOFError):
-        return {"ok": False, "reason": "cancelled", "moved": False}
-    legs = []
-    if log_dir is not None:
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
-    for i, waypoint in enumerate(poses):
-        log_path = None if log_dir is None else log_dir / f"leg{i:02d}.jsonl"
-        r = go(env, waypoint, confirm=lambda _: None, log_path=log_path, keep_free=body_grid, quiet=True, **go_args)
-        legs.append(r)
-        print(f"  segment {i + 1}/{len(poses)}: {r['reason']}" + (f", {1000 * r['final_error_m']:.1f} mm" if r.get("final_error_m") is not None else ""))
-        if not r.get("ok"):
-            return {"ok": False, "reason": f"segment {i + 1}: {r['reason']}", "moved": True, "legs": legs, "path": points}
-    last = legs[-1]
-    return {"ok": True, "reason": "reached", "moved": True, "legs": legs, "path": points,
-            "final_error_m": last.get("final_error_m"), "final_yaw_error_deg": last.get("final_yaw_error_deg"),
-            "path_m": path_length(points)}  # fmt: skip
+def go_planned(env: RealEnv, goal: Pose2D, grid, *, robot=None, margin: float = 0.10, confirm=input,
+               log_dir: Path | None = None, approach_m: float = 0.0, arm: str = "auto", **robot_args) -> dict:  # fmt: skip
+    """A* on `grid` to `goal` and the path driven: Robot(RealEnv).go_to_pose, its footprint kept `margin` clear of
+    the map at the heading the base will have along the path (the robot layer plans, drives and stops)."""
+    robot = robot or make_robot(env, grid, margin=margin, arm=arm, **robot_args)
+    return drive(robot, env, goal, approach_m=approach_m, confirm=confirm, log_dir=log_dir, quiet=True)
 
 
 def counter_box(map_dir: Path, name: str | None = None) -> tuple:
@@ -599,35 +419,22 @@ class _ByRule:
         return True
 
 
-def choose_stance(env: RealEnv, box, target, space, margin: float, out_m, approach: float):
-    """The stance for `target` by the start rule that is clear for the whole footprint (arm included) at the stance's
-    own heading, and cheapest to reach by A* from where the base is: (pose, info) or (None, reason)."""
-    from chefbot.robot.nav.astar import AStarPlanner
-    from chefbot.robot.nav.goal import counter_park_candidates, select_standoff
+def choose_stance(robot, box, target, out_m, approach: float):
+    """The stance for `target` by the start rule (robot/nav/goal.py counter_park_candidates) that the robot layer finds
+    clear for the whole footprint at its own heading, with its straight approach clear, and cheapest to reach from
+    where the base is (Robot.choose_stance): (pose, info) or (None, reason)."""
+    from chefbot.robot.nav.goal import counter_park_candidates
 
     cands = counter_park_candidates(*box[:3], target, out_m=tuple(out_m or (0.45, 0.48)))
     if not cands:
         return None, "the target is not 0-0.25 m in from a side and >= 0.35 m from its ends: no stance by the rule"
-    plan = space.with_margin(margin)
-    clear = []
-    for pose, info in cands:
-        pre = (pose.x - approach * math.cos(pose.yaw), pose.y - approach * math.sin(pose.yaw))
-        at = plan.at(pose.yaw)
-        if at.is_free(pose.x, pose.y) and at.is_free(*pre) and space.at(pose.yaw).segment_free(pre, (pose.x, pose.y)):
-            clear.append((pose, info))
-    if not clear:
-        return None, f"no stance clear for the footprint ({len(cands)} by the rule, all blocked)"
-    start = env.localization().mocap_pose
-    begin = escape_start(plan.at(start.yaw), space.at(start.yaw), (start.x, start.y))
-    if begin is None:
-        return None, "the base is inside the margin with no clear way out"
-    # Ranked by A* where some heading of each turn is clear (go_planned then checks the path at its headings).
-    yaws = [y for p, _ in clear for y in plan.sweep(start.yaw, p.yaw)]
-    pick = select_standoff(AStarPlanner(plan.blocked_for_all(yaws)), Pose2D(begin[0], begin[1], start.yaw),
-                           np.array([*target, 0.93]), [p for p, _ in clear], _ByRule())  # fmt: skip
+    body = robot._space
+    ok = [(p, i) for p, i in cands
+          if body.at(p.yaw).segment_free((p.x - approach * math.cos(p.yaw), p.y - approach * math.sin(p.yaw)), (p.x, p.y))]  # fmt: skip
+    pick, why = robot.choose_stance([p for p, _ in ok])
     if pick is None:
-        return None, "no stance reachable by A* from here"
-    return pick, next(i for p, i in clear if p is pick)
+        return None, why
+    return pick, next(i for p, i in ok if p is pick)
 
 
 def turn_taken_deg(log_dir: Path) -> float:
@@ -649,11 +456,11 @@ def park(env: RealEnv, args) -> list[dict]:
     from chefbot.scripts.real_map import load as load_map
 
     grid, _ = load_map(args.map)
-    space = map_space(env, args, grid)
     from chefbot.robot.nav.speed import StopModel
 
     stop_model = StopModel.from_limits(env.server_limits)  # refuses when the robot reports no measured stop
     accel = float(env.server_limits.get("base_max_accel_xy", 0.1))
+    robot = map_robot(env, args, grid, settle_s=0.2, still_mps=0.01)
     print(f"stop model: tau {stop_model.tau_s:.3f} s, brake {stop_model.brake_mps2:.2f} m/s^2 "
           f"({1000 * stop_model.distance(args.speed):.0f} mm from {args.speed:.3f} m/s); driver accel {accel} m/s^2")
     session = REPO / "runs" / "real_park" / f"{datetime.now():%Y%m%d_%H%M%S}"
@@ -662,7 +469,7 @@ def park(env: RealEnv, args) -> list[dict]:
                                                       for k, v in vars(args).items()}}, indent=2))  # fmt: skip
     results = []
     for i, target in enumerate(targets):
-        pose, info = choose_stance(env, box, target, space, args.margin, args.out, args.approach)
+        pose, info = choose_stance(robot, box, target, args.out, args.approach)
         head = f"[{i + 1}/{len(targets)}] target ({target[0]:.3f}, {target[1]:.3f})"
         if pose is None:
             print(f"{head}: skipped, {info}")  # nothing moved: go on to the next target
@@ -677,11 +484,7 @@ def park(env: RealEnv, args) -> list[dict]:
         log_dir = session / f"{i:02d}_{info['side']}"
         log_dir.mkdir(parents=True, exist_ok=True)  # go_planned may refuse before it makes it
         t0 = time.monotonic()
-        r = go_planned(env, pose, grid, space=space, margin=args.margin, log_dir=log_dir,
-                       confirm=lambda _: None, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
-                       yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist, smooth=args.smooth,
-                       approach_m=args.approach, stop_model=stop_model, accel=accel, settle_s=0.2, still_mps=0.01,
-                       tail_s=0.3)  # fmt: skip
+        r = go_planned(env, pose, grid, robot=robot, log_dir=log_dir, confirm=lambda _: None, approach_m=args.approach)
         elapsed = time.monotonic() - t0
         end = env.localization().mocap_pose
         asked = math.degrees(wrap(pose.yaw - start.yaw))
@@ -711,13 +514,13 @@ def park(env: RealEnv, args) -> list[dict]:
     return results
 
 
-def map_space(env: RealEnv, args, grid):
-    """Where the base's centre may be at each heading on --map, for the robot's footprint (robot_footprints: the
-    plate, and the arm from its joints with --arm auto)."""
-    space, info = nav_space(grid, env.raw_state(), args.arm)
+def map_robot(env: RealEnv, args, grid, **kw):
+    """make_robot for --map, with the run's speeds and tolerances, and its footprint said."""
+    _, info = robot_footprints(env.raw_state(), args.arm)
     print(f"footprint: plate {info['plate']['x']} x {info['plate']['y']} m about the base centre ({info['note']}); "
-          f"reach by obstacle top: {info['by_top']}")  # fmt: skip
-    return space
+          f"reach {info['radius_m']:.2f} m, {info['reach_ahead_m']:.2f} m ahead")  # fmt: skip
+    return make_robot(env, grid, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol, yaw_tol_deg=args.yaw_tol,
+                      corridor=args.corridor, margin=args.margin, arm=args.arm, timeout_s=args.timeout, **kw)  # fmt: skip
 
 
 def add_go_args(g) -> None:
@@ -734,8 +537,6 @@ def add_go_args(g) -> None:
     g.add_argument("--map", type=Path, default=None, help="a map folder (maps/README.md): plan around its obstacles")
     g.add_argument("--margin", type=float, default=0.10, help="m added to the footprint for planning (with --map)")
     g.add_argument("--arm", choices=("auto", "off"), default="auto", help="grow the footprint to cover the arm (with --map)")
-    g.add_argument("--segments", dest="smooth", action="store_false",
-                   help="stop at each corner of the A* path (default: follow it smoothly)")  # fmt: skip
 
 
 def main() -> None:
@@ -826,10 +627,8 @@ def main() -> None:
         if grid is not None:
             log_dir = REPO / "runs" / "real_nav" / stamp
             log_dir.mkdir(parents=True, exist_ok=True)
-            space = map_space(env, args, grid)
-            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, space=space,
-                                margin=args.margin, log_dir=log_dir, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol,
-                                yaw_tol_deg=args.yaw_tol, corridor=args.corridor, max_dist=args.max_dist, smooth=args.smooth,
+            robot = map_robot(env, args, grid)
+            result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, robot=robot, log_dir=log_dir,
                                 approach_m=float(p.get("approach_m", 0.0)))  # fmt: skip
             (log_dir / "result.json").write_text(json.dumps(result, indent=2, default=str))
             print(json.dumps({k: v for k, v in result.items() if k != "legs"}, indent=2, default=str))

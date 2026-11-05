@@ -102,6 +102,10 @@ class RobotConfig:
     lookahead: float = 0.3
     deviation_threshold: float = 0.2
     motion_timeout_s: float = 60.0
+    # Arrival: within the tolerances (and slower than arrive_still_mps, when set) for arrive_settle_s.
+    arrive_settle_s: float = 0.0
+    arrive_still_mps: float | None = None
+    moving_away_m: float = 0.10  # a straight move stops once this much further from its goal than it has been
     # Goal handling
     snap_radius: float = 0.5
     reach_clearance: float = 0.20

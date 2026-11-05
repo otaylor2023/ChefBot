@@ -6,7 +6,7 @@
 Each session: the fence is a square of half-width --half about where the base starts (C), along its heading (the
 base CENTRE stays inside; set --half for the floor you have). --obstacles imaginary boxes are placed at random
 inside it (nothing is really there). Then --trials random goals (free, at least --min-move away, a random heading
-within --max-turn), each reached with A* (scripts/real_nav.go_planned) from wherever the base is.
+within --max-turn), each reached with A* (scripts/real_nav.go_planned: Robot(RealEnv).go_to_pose) from wherever the base is.
 
 The footprint is the robot's measured body (embodiments/tidybot_fr3/robot.yaml `body:`, interface/workspace.py
 Body.footprint): the plate's outline about the base centre, plus with --arm-from-robot the arm from its current joints.
@@ -175,8 +175,9 @@ def run_session(env: RealEnv, *, half: float, trials: int, seed: int, obstacles:
             break
         tdir = out / f"trial{i:02d}"
         try:
-            r = go_planned(env, goal, grid, space=space, margin=margin, confirm=lambda _: None, log_dir=tdir,
-                           speed=speed, yaw_speed=yaw_speed)  # fmt: skip
+            r = go_planned(env, goal, obstacle_grid, margin=margin, confirm=lambda _: None, log_dir=tdir, speed=speed,
+                           yaw_speed=yaw_speed, footprint_below=lambda top=math.inf: footprint, centre_limit=outside,
+                           stop_model=None)  # fmt: skip  (as before: on the robot <= 0.12 m/s, a short carrot)
         except KeyboardInterrupt:
             r = {"ok": False, "reason": "stopped (Ctrl-C)", "moved": True}
         poses = [json.loads(line)["pose"] for leg in sorted(tdir.glob("leg*.jsonl")) for line in leg.read_text().splitlines()]
