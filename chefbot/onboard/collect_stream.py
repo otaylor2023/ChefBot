@@ -1,8 +1,9 @@
 """Robot-side recorder for data collection while the base drives (real_nav park at teleop speed): streams both
-RealSenses and saves every frame, with the robot's state sampled alongside on the same clock. Self-contained: run as a
+RealSenses and saves the frames taken while the base moves (A to B; --all: every frame), with the robot's state
+sampled alongside on the same clock. Self-contained: run as a
 file with the robot's camera env (pyrealsense2, cv2, redis, numpy); imports nothing from chefbot.
 
-    python collect_stream.py OUT_DIR [--seconds 0]      # SIGTERM / Ctrl-C stops it cleanly
+    python collect_stream.py OUT_DIR [--seconds 0] [--all]     # SIGTERM / Ctrl-C stops it cleanly
 
 OUT_DIR/
     <camera>/color/<n>.png, <camera>/depth/<n>.png    every frame, lossless (depth 16-bit raw units x depth_scale = m)
@@ -41,6 +42,13 @@ STATE_KEYS = ["chefbot-tidy::pos", "chefbot-tidy::ori", "chefbot-tidy::tracking_
 PNG = [cv2.IMWRITE_PNG_COMPRESSION, 1]  # fast; still lossless
 
 stop = threading.Event()
+# Motion gating (the default): frames are written only while the base moves (odometry speed or turn rate over the
+# thresholds), plus MOTION_PAD_S before and after, so an A-to-B drive is captured and the time the base stands still
+# (planning, waiting, parked) is not. --all writes every frame.
+MOVE_MPS, MOVE_RADPS, MOTION_PAD_S = 0.02, 0.05, 0.5
+SAVE_ALL = False
+last_motion = [0.0]  # wall time the base was last seen moving
+pending: dict = {}  # camera -> frames held for the pre-motion pad
 
 
 def _intr(p) -> dict:
@@ -140,10 +148,22 @@ def camera_loop(name: str, spec: dict, out: Path, writes: queue.Queue, stats: di
                 row["exposure_us"] = c.get_frame_metadata(rs.frame_metadata_value.actual_exposure)
             except Exception:
                 pass
-            log.write(json.dumps(row) + "\n")
-            writes.put((out / name / "color" / f"{n:06d}.png", color))
-            writes.put((out / name / "depth" / f"{n:06d}.png", depth))
-            n += 1
+            now = time.time()
+            moving = SAVE_ALL or now - last_motion[0] <= MOTION_PAD_S
+            buf = pending.setdefault(name, [])
+            if not moving:  # hold the last MOTION_PAD_S of frames, in case motion starts
+                buf.append((row, color, depth))
+                while buf and now - buf[0][0]["wall"] > MOTION_PAD_S:
+                    buf.pop(0)
+                    st["skipped_still"] = st.get("skipped_still", 0) + 1
+                continue
+            for brow, bcolor, bdepth in buf + [(row, color, depth)]:
+                brow["n"] = n
+                log.write(json.dumps(brow) + "\n")
+                writes.put((out / name / "color" / f"{n:06d}.png", bcolor))
+                writes.put((out / name / "depth" / f"{n:06d}.png", bdepth))
+                n += 1
+            buf.clear()
             st["frames"] = n
     finally:
         log.close()
@@ -174,6 +194,14 @@ def state_loop(out: Path, stats: dict, hz: float = 200.0) -> None:
             t = time.time()
             vals = r.mget(STATE_KEYS)
             changed = {k: v for k, v in zip(STATE_KEYS, vals) if last.get(k) != v}
+            vel = dict(zip(STATE_KEYS, vals)).get("hb1::current_vel")
+            if vel:
+                try:
+                    vx, vy, w = json.loads(vel)
+                    if (vx * vx + vy * vy) ** 0.5 > MOVE_MPS or abs(w) > MOVE_RADPS:
+                        last_motion[0] = t
+                except (ValueError, TypeError):
+                    pass
             if changed:
                 f.write(json.dumps({"wall": t, **changed}) + "\n")
                 last.update(changed)
@@ -183,6 +211,8 @@ def state_loop(out: Path, stats: dict, hz: float = 200.0) -> None:
 
 
 def main() -> None:
+    global SAVE_ALL
+    SAVE_ALL = "--all" in sys.argv
     out = Path(sys.argv[1]).expanduser()
     seconds = float(sys.argv[sys.argv.index("--seconds") + 1]) if "--seconds" in sys.argv else 0.0
     out.mkdir(parents=True, exist_ok=True)
