@@ -75,6 +75,7 @@ cleanup() {
 		fi
 		pgrep -f "[s]ai_franka_robot_redis_driver" >/dev/null && echo "THE ARM DRIVER IS STILL RUNNING: stop it (E-stop, or Desk)" >&2 || echo "arm driver stopped" >&2
 	fi
+	pkill -TERM -f "[g]amepad_teleop.py" 2>/dev/null || true  # its Vehicle stops (its SIGTERM handler)
 	for pid in "${PIDS[@]}"; do
 		pkill -TERM -P "$pid" 2>/dev/null || true
 		kill -TERM "$pid" 2>/dev/null || true
@@ -109,11 +110,68 @@ arm_hold() {  # back to the joint controller, its goal where the arm is now (Ope
 	echo "=== ARM HOLDING where it is ==="
 }
 
+BASE_PID="" GAMEPAD_PID=""
+
+start_base_driver() {  # ours (onboard/drivers/base), a part like the others; a stale one of either holds the CAN bus
+	pkill -TERM -f "[d]rivers/base/driver.py" 2>/dev/null || true
+	pkill -TERM -f "[t]idybot_base/redis_driver.py" 2>/dev/null || true
+	redis-cli DEL hb1::current_pose >/dev/null  # a stale pose would look live (before the driver writes its first)
+	(cd "$BASE_DRIVER_DIR" && exec "$BASE_PYTHON" "$BASE_DRIVER_DIR/driver.py" --max-vel-xy "$MAX_VEL_XY" --max-vel-yaw "$MAX_VEL_YAW" \
+		--max-accel-xy "$MAX_ACCEL_XY" --max-accel-yaw "$MAX_ACCEL_YAW") >>"$LOGS/base.log" 2>&1 &
+	BASE_PID=$!
+	PIDS+=("$BASE_PID")
+	NAMES[$BASE_PID]="the base driver"
+	wait_for_key "hb1::current_pose" "[" 15
+}
+
+stop_base_driver() {  # out of the watched parts first (its exit is ours), then until it has let go of the CAN bus
+	local keep=() pid
+	for pid in "${PIDS[@]}"; do [[ "$pid" == "$BASE_PID" ]] || keep+=("$pid"); done
+	PIDS=("${keep[@]}")
+	pkill -TERM -P "$BASE_PID" 2>/dev/null || true
+	kill -TERM "$BASE_PID" 2>/dev/null || true
+	for _ in $(seq 1 30); do
+		pgrep -f "[d]rivers/base/driver.py" >/dev/null || break
+		sleep 0.1
+	done
+	pkill -KILL -f "[d]rivers/base/driver.py" 2>/dev/null || true
+	BASE_PID=""
+}
+
+gamepad_start() {  # the base to the gamepad (onboard/drivers/base/gamepad_teleop.py, its own speeds): the driver stops
+	if [[ -n "$GAMEPAD_PID" ]]; then
+		echo "=== the gamepad already has the base (b gives it back) ==="
+		return
+	fi
+	echo "=== GAMEPAD: stopping the base driver..."
+	stop_base_driver
+	(cd "$BASE_DRIVER_DIR" && exec "$BASE_PYTHON" "$BASE_DRIVER_DIR/gamepad_teleop.py") 2>&1 | grep --line-buffered -v -i "pkg_resources\|import os\|^pygame \|hello from the pygame" &
+	GAMEPAD_PID=$!
+	echo "=== GAMEPAD has the base: Start on the gamepad begins, hold a bumper to drive (left: base frame, right: world),"
+	echo "    left stick moves, right stick turns; b gives the base back to its driver. Laptop base targets wait meanwhile. ==="
+}
+
+gamepad_stop() {  # the gamepad's Vehicle stops (its SIGTERM handler), then the driver takes the base again
+	[[ -n "$GAMEPAD_PID" ]] || { echo "=== the gamepad isn't running (g starts it) ==="; return; }
+	pkill -TERM -f "[g]amepad_teleop.py" 2>/dev/null || true
+	for _ in $(seq 1 30); do
+		pgrep -f "[g]amepad_teleop.py" >/dev/null || break
+		sleep 0.1
+	done
+	pkill -KILL -f "[g]amepad_teleop.py" 2>/dev/null || true
+	wait "$GAMEPAD_PID" 2>/dev/null || true
+	GAMEPAD_PID=""
+	echo "=== gamepad stopped; the base driver: starting..."
+	start_base_driver
+	echo "=== the base driver has the base again (its odometry starts over from where it is) ==="
+}
+
 watch_parts() {  # until a part exits (then say which, and stop everything); meanwhile f / h float and hold the arm
 	local keys="" pid k
-	if $OPENSAI && [[ -t 0 ]]; then
+	if { $OPENSAI || $BASE; } && [[ -t 0 ]]; then
 		keys=1
-		echo "keys: f floats the arm (move it by hand), h holds it where it is"
+		$OPENSAI && echo "keys: f floats the arm (move it by hand), h holds it where it is"
+		$BASE && echo "keys: g gives the base to the gamepad, b gives it back to its driver"
 	fi
 	while true; do
 		for pid in "${PIDS[@]}"; do
@@ -123,12 +181,19 @@ watch_parts() {  # until a part exits (then say which, and stop everything); mea
 				exit 1
 			fi
 		done
+		if [[ -n "$GAMEPAD_PID" ]] && ! kill -0 "$GAMEPAD_PID" 2>/dev/null; then
+			echo "=== the gamepad exited by itself: giving the base back to its driver ===" >&2
+			GAMEPAD_PID="x"
+			gamepad_stop
+		fi
 		if [[ -n "$keys" ]]; then
 			k=""
 			read -rsn1 -t 0.5 k || true
 			case "$k" in
-				f | F) arm_float ;;
-				h | H) arm_hold ;;
+				f | F) $OPENSAI && arm_float ;;
+				h | H) $OPENSAI && arm_hold ;;
+				g | G) $BASE && gamepad_start ;;
+				b | B) $BASE && gamepad_stop ;;
 			esac
 		else
 			sleep 0.5
@@ -204,14 +269,7 @@ fi
 
 if $BASE; then
 	echo "3) hb1 base driver (max vel $MAX_VEL_XY m/s, $MAX_VEL_YAW rad/s): starting..."
-	# A stale base driver holds the CAN bus: ours, or ZitiBot's (its checkout on the NUC, as launch.sh ran before).
-	pkill -TERM -f "[d]rivers/base/driver.py" 2>/dev/null || true
-	pkill -TERM -f "[t]idybot_base/redis_driver.py" 2>/dev/null || true
-	(cd "$BASE_DRIVER_DIR" && exec "$BASE_PYTHON" "$BASE_DRIVER_DIR/driver.py" --max-vel-xy "$MAX_VEL_XY" --max-vel-yaw "$MAX_VEL_YAW" \
-		--max-accel-xy "$MAX_ACCEL_XY" --max-accel-yaw "$MAX_ACCEL_YAW") >"$LOGS/base.log" 2>&1 &
-	PIDS+=($!)
-	NAMES[$!]="the base driver"
-	wait_for_key "hb1::current_pose" "[" 15
+	start_base_driver
 	echo "3) hb1 base driver: up"
 else
 	echo "3) base driver skipped"
