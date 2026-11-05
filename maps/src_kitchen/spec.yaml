@@ -35,7 +35,7 @@ obstacles:
   # (now floor level: the plate stays out, the arm may cross in). The U itself (the island's north, east and south aisles) is
   # where the robot works.
   - name: nogo-west-of-island
-    box: {center: [-1.383, -2.475], size: [2.293, 3.345], yaw_deg: -2.96}  # east edge 16 in (0.406 m) west of the island's end (Jack 14:20)
+    box: {center: [-1.434, -2.473], size: [2.191, 3.345], yaw_deg: -2.96}  # east edge 20 in (0.508 m) west of the island's end (Jack 16:15; was 16 in)
     height_m: 0.05   # floor level (Jack 14:15): the base's plate may not enter, the arm may reach over it
   - name: Chef-botcounter-top           # Motive body ID 25: the test counter (HT-4..6), as in maps/src_counter
     box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
