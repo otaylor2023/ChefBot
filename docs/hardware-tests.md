@@ -617,3 +617,45 @@ Every turn the short way (asked = taken). No link stalls today (robot on SRC; la
 
 **Limitations.** Arm locked (not the READY pose). Map bounds still provisional (HT-6d). One session, one floor state.
 HT-6b (mocap loss mid-move) not yet run: needs the body unticked in Motive.
+
+---
+
+## HT-7 (EXPERIMENT, branch `speed-exp` only — NOT main, NOT PR #1): base cap raised to 0.5 m/s (2026-11-05)
+
+**Read this first.** Main's hard base cap (`robot.yaml` `control.limits`, 0.25 m/s) is the teammate's decision and is
+unchanged on `main` and on `movement` / PR #1. On Jack's go-ahead this branch alone raises the cap to **0.5 m/s**
+(the driver's own sanity bound); acceleration and the driver's braking stay **0.25 m/s²**; yaw stays 0.8 rad/s.
+Two base-only speed profiles, `exp35` (0.35) and `exp50` (0.5), are added. Deployed to a separate robot tree
+`~/chefbot_speedexp` (e42fe35, sha256 == git); `~/chefbot_movement` stays the PR head 80f7ad0; `~/ChefBot` untouched.
+Evidence: `docs/evidence/speedexp/`.
+
+### Stops at the higher speeds (HT-6a method: robot-side watcher freezes the server mid-leg) — model holds
+| frozen at | stop (odometry / mocap) | time to rest | model (tau 0.333 s, brake 0.25) |
+|---|---|---|---|
+| 0.225 m/s (teleop, HT-6a) | 0.177 m | 1.2 s | 0.176 m |
+| 0.323 m/s (exp35, hug_a → hug_c, freeze x > 1.15) | 0.311 / 0.326 m | 1.5 s | 0.316 m |
+| 0.478 m/s (exp50, (−0.5, 0.86) → hug_c, freeze x > 1.2) | 0.574 / 0.594 m | 2.1 s | 0.616 m |
+
+`robot.yaml`'s `base_stop_tau_s` / `base_stop_brake_mps2` need no change up to 0.5 m/s.
+
+### Counter parks at 0.5 m/s (`park --random 8 --seed 1 --map maps/src_counter --margin 0.09 --approach 0 --profile exp50`)
+| | teleop 0.25 m/s (HT-6e) | exp50 0.5 m/s |
+|---|---|---|
+| parks | 8/8 | 8/8 |
+| driving time | 114.4 s | **89.8 s (−22%)** |
+| final error | ≤ 1.8 mm, ≤ 0.18° | ≤ 1.8 mm, ≤ 0.39° |
+| mean speed per park | 0.10–0.20 m/s | 0.10–0.27 m/s |
+| max deviation from the planned path | 55 mm | **118 mm** |
+| plate rectangle → counter, min | 92 mm | **33 mm** (03_west; 01_north 59 mm) |
+| intermediate stops | 0 | 0 |
+
+**Reading.** The time gain is far below 2x because acceleration (0.25 m/s²) now dominates: 1 m to reach 0.5 m/s, so
+most legs never cruise. The speed-sized carrot cuts corners more at speed: path deviation doubled and the plate came to
+33 mm of the counter (outside the 0.09 m planning margin's footprint check, nothing touched, but too thin with an arm).
+
+### Before using 0.5 m/s for real (open)
+1. Tighter tracking at speed: shorter carrot / curvature and clearance speed limits so deviation and plate clearance
+   stay at the 0.25 m/s values (target plate ≥ ~80 mm); re-run the same seed-1 parks.
+2. Higher acceleration/braking (driver `--brake-accel-xy`, cap accel) is the bigger time lever; needs its own stop
+   test (drive current limit 10 A in base_controller.py).
+3. The teammate decides whether main's cap moves.
