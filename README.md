@@ -157,6 +157,13 @@ iCloud here). On macOS skills run under `sandbox-exec` plus an in-process guard
 (no network, no subprocesses, nothing of the repo); Codex is not walled off from
 the repo on macOS (`--hide` needs Linux), so the brief asks it not to look.
 
+A skill's `skill.yaml` says which robot API it is written against (`interface`:
+`chefbot-v1`, a sandboxed process; `robot-api-v1`, a function in the agent's process,
+never sandboxed; `wholebody-v2`, imported from agentic-skills-exploration and not run),
+where it could run (`envs`: symbolic, robocasa, mujoco_kitchen, real) and `sandboxed`.
+`skills.load` refuses a manifest that contradicts itself or has a key it does not know;
+`skills.catalog(env=..., interface=...)` lists the skills that could run there.
+
 **Generator labs** (`chefbot/autoresearch/generator_lab`, labs with `kind: generator`) work the same way, but the
 researcher writes a *generator*: given a seed, a MuJoCo model of one thing in a family
 (`chefbot/generators/<family>/contract.md`), so that seeds give a realistic variety. `./lab build` generates assets

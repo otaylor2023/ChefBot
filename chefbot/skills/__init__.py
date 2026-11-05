@@ -7,6 +7,12 @@ and where each runs (`api`: a paid API, key from .env; `vision_models`: our visi
 
     skill = skills.load("pick_up/run1_v12")
     skill.check(robot="panda_franka", vision_url=...)   # raises if anything it needs is missing
+    skills.catalog(env="robocasa", interface="chefbot-v1")   # the skills that could run there, with that API
+
+Every skill is one kind of thing, whatever runs it: `interface` names the robot API it is written against
+(interface.INTERFACES: chefbot-v1, a sandboxed process speaking interface/skill_api.py; robot-api-v1, a function
+in the agent's process given a RobotAPI, never sandboxed), `envs` where it could run (ENVS), and `sandboxed` says
+which of the two it is. A manifest that says otherwise, or has a key the loader does not know, is refused.
 
 (agentic-skills-exploration's skills/, without privileged skills or Astra.)
 """
@@ -19,7 +25,14 @@ from pathlib import Path
 
 import yaml
 
+from chefbot.interface import INTERFACES
+
 ROOT = Path(__file__).resolve().parent
+ENVS = ("symbolic", "robocasa", "mujoco_kitchen", "real")  # where a skill could run (chefbot/environments)
+IMPORTED_INTERFACES = ("wholebody-v2",)  # agentic-skills-exploration's robot API: kept as lab starting points, never run
+KEYS = {"name", "version", "entry", "interface", "envs", "sandboxed", "robot", "arm_only", "cameras", "args", "speed",
+        "models", "assumes", "privileged", "provenance", "imported_from"}  # fmt: skip
+ARG_TYPES = {"string", "number", "integer", "boolean"}
 
 
 class MissingRequirement(RuntimeError):
@@ -39,6 +52,20 @@ class Skill:
     @property
     def interface(self) -> str:
         return self.manifest.get("interface", "chefbot-v1")
+
+    @property
+    def envs(self) -> tuple[str, ...]:
+        """Where it could run. Empty: its manifest does not say yet."""
+        return tuple(self.manifest.get("envs") or ())
+
+    @property
+    def sandboxed(self) -> bool:
+        return bool(self.manifest.get("sandboxed", self.interface != "robot-api-v1"))
+
+    @property
+    def runnable(self) -> bool:
+        """False for an imported skill whose robot API no session speaks."""
+        return self.interface in INTERFACES
 
     @property
     def robot(self) -> str:
@@ -69,6 +96,35 @@ class Skill:
         vision = sorted(n for n, m in self.models.items() if m.get("runs") == "vision_models")
         return {"llm": "api" in runs, "vision": vision, "cameras": self.cameras, "arm_only": bool(self.manifest.get("arm_only", False))}
 
+    def validate(self) -> None:
+        """Raise ValueError if the manifest is not one the loader understands."""
+        m, problems = self.manifest, []
+        unknown = set(m) - KEYS
+        if unknown:
+            problems.append(f"unknown keys {sorted(unknown)}")
+        family, version = self.dir.parent.name, self.dir.name
+        if m.get("name") != family or str(m.get("version")) != version:
+            problems.append(f"name/version {m.get('name')}/{m.get('version')} is not its folder's, {family}/{version}")
+        if self.interface not in INTERFACES + IMPORTED_INTERFACES:
+            problems.append(f"interface must be one of {list(INTERFACES + IMPORTED_INTERFACES)}, not {self.interface!r}")
+        if "sandboxed" in m and not isinstance(m["sandboxed"], bool):
+            problems.append(f"sandboxed must be true or false, not {m['sandboxed']!r}")
+        elif self.interface == "robot-api-v1" and self.sandboxed:
+            problems.append("a robot-api-v1 skill runs in the agent's process: it cannot be sandboxed")
+        elif self.interface != "robot-api-v1" and not self.sandboxed:
+            problems.append(f"a {self.interface} skill runs as its own process and is always sandboxed")
+        envs = m.get("envs")
+        if envs is not None and (not isinstance(envs, list) or not envs or set(envs) - set(ENVS)):
+            problems.append(f"envs must be some of {list(ENVS)}, not {envs!r}")
+        file, _, func = str(m.get("entry", "")).partition(":")
+        if not func or not (self.dir / file).is_file():
+            problems.append(f"entry {m.get('entry')!r} is not file:function with the file in its folder")
+        for arg, spec in self.args.items():
+            if not isinstance(spec, dict) or spec.get("type") not in ARG_TYPES:
+                problems.append(f"arg {arg!r} must have a type, one of {sorted(ARG_TYPES)}")
+        if problems:
+            raise ValueError(f"skill {self.path}: " + "; ".join(problems))
+
     def check(self, robot: str, vision_url: str | None = None) -> None:
         """Raise MissingRequirement if the run can't give the skill what it needs."""
         problems = []
@@ -88,8 +144,20 @@ def load(path: str) -> Skill:
     if not (d / "skill.yaml").exists():
         raise ValueError(f"no skill at {d} (expected skill.yaml)")
     rel = str(d.relative_to(ROOT)) if d.is_relative_to(ROOT) else str(d)
-    return Skill(rel, d, yaml.safe_load((d / "skill.yaml").read_text()))
+    skill = Skill(rel, d, yaml.safe_load((d / "skill.yaml").read_text()) or {})
+    skill.validate()
+    return skill
 
 
 def names() -> list[str]:
     return sorted(str(p.parent.relative_to(ROOT)) for p in ROOT.glob("*/*/skill.yaml"))
+
+
+def catalog(env: str | None = None, interface: str | None = None) -> list[Skill]:
+    """The registered skills that could run in `env` with `interface` (either left out: any)."""
+    if env is not None and env not in ENVS:
+        raise ValueError(f"no env {env!r}; envs: {', '.join(ENVS)}")
+    if interface is not None and interface not in INTERFACES:
+        raise ValueError(f"no interface {interface!r}; interfaces: {', '.join(INTERFACES)}")
+    found = [load(path) for path in names()]
+    return [s for s in found if (env is None or env in s.envs) and (interface is None or s.interface == interface)]
