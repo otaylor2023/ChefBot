@@ -495,7 +495,7 @@ def test_real_nav_goes_from_a_to_b_and_holds(sim, tmp_path):
     wait_until(lambda: env.localization().live and env.raw_state().get("base_driver_live"))
     start = env.localization().mocap_pose
     goal = Pose2D(start.x + 0.3, start.y - 0.2, start.yaw + 0.3)
-    result = go(env, goal, speed=0.5, yaw_speed=1.0, confirm=lambda _: None, log_path=tmp_path / "go.jsonl")
+    result = go(env, goal, speed=0.25, yaw_speed=0.8, confirm=lambda _: None, log_path=tmp_path / "go.jsonl")
     assert result["ok"] and result["reason"] == "reached", result
     assert result["final_error_m"] < 0.03 and abs(result["final_yaw_error_deg"]) < 3.0
     assert redis.values[K.BASE_STOP] in ("stop", "ok")  # held at the end
@@ -510,7 +510,7 @@ def test_real_nav_stops_when_mocap_is_lost_mid_move(sim):
     start = env.localization().mocap_pose
     goal = Pose2D(start.x + 1.0, start.y, start.yaw)
     threading.Timer(0.5, base.mocap_lost.set).start()
-    result = go(env, goal, speed=0.2, yaw_speed=1.0, confirm=lambda _: None)
+    result = go(env, goal, speed=0.2, yaw_speed=0.8, confirm=lambda _: None)
     assert not result["ok"] and "lost the live mocap pose" in result["reason"]
     wait_until(lambda: redis.values.get(K.BASE_STOP) == "ok" or redis.writes[-1][0] == K.BASE_STOP)
     odom_then = base.odom.copy()
@@ -583,8 +583,8 @@ def test_characterize_runs_a_session_and_reports(sim, tmp_path):
     wait_until(lambda: env.localization().live and env.raw_state().get("base_driver_live"))
     moves = [m for m in plan(half=0.2, speed=0.1) if m["name"] in ("forward-1", "forward-2", "left", "turn+45")]
     for m in moves:
-        m["speed"] = 0.5  # the simulated base is quick
-    results = run(env, 0.2, tmp_path, moves, yaw_speed=1.0, confirm=lambda _: None)
+        m["speed"] = 0.25  # at the robot's cap (the simulated base runs at it)
+    results = run(env, 0.2, tmp_path, moves, yaw_speed=0.8, confirm=lambda _: None)
     assert len(results) == 8 and all(r["ok"] for r in results), [r["reason"] for r in results]
     text = report(tmp_path)
     assert "[repeat] 4 legs" in text and "[turns] 2 legs" in text and "centre drift in turns" in text
@@ -616,7 +616,7 @@ def test_real_nav_plans_around_an_obstacle_and_never_touches_it(sim, tmp_path):
                      "obstacles": [{"name": "box", "box": {"center": [s.x - 0.6, s.y], "size": [0.3, 0.3]}}]})  # fmt: skip
     goal = Pose2D(s.x - 1.4, s.y, s.yaw)  # 0.65 m past the box's far edge
     result = go_planned(env, goal, grid, margin=0.10, confirm=lambda _: None, log_dir=tmp_path,
-                        speed=0.5, yaw_speed=1.0)  # fmt: skip
+                        speed=0.25, yaw_speed=0.8)  # fmt: skip
     assert result["ok"], result["reason"]
     assert len(result["path"]) > 2  # not the straight line through the box
     assert result["final_error_m"] < 0.03
@@ -665,7 +665,7 @@ def test_real_nav_stops_the_base_if_the_arm_moves_while_driving(sim):
         wait_until(lambda: env.localization().live and env.raw_state().get("arm_live") and env.raw_state().get("base_driver_live"))
         start = env.localization().mocap_pose
         threading.Timer(0.4, bump.set).start()
-        r = go(env, Pose2D(start.x + 1.0, start.y, start.yaw), speed=0.2, yaw_speed=1.0, confirm=lambda _: None)
+        r = go(env, Pose2D(start.x + 1.0, start.y, start.yaw), speed=0.2, yaw_speed=0.8, confirm=lambda _: None)
         assert not r["ok"] and "the arm moved" in r["reason"]
     finally:
         stop.set()

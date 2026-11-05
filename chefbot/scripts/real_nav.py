@@ -266,6 +266,8 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
     if footprint_below is None:
         footprint_below = robot_footprints(env.raw_state(), arm)[0]
     limits = env.server_limits
+    if "base_max_vel_xy" in limits:
+        check_server_cap(limits, float(speed), float(yaw_speed))  # over the robot's cap: refused (ValueError), not clipped
     if stop_model == "robot":
         stop_model = StopModel.from_limits(limits) if "base_stop_tau_s" in limits else None
     accel = float(limits.get("base_max_accel_xy", 0.1)) if accel is None else float(accel)

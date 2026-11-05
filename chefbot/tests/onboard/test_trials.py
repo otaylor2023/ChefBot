@@ -56,7 +56,7 @@ def test_a_short_session_goes_around_obstacles_without_violations(tmp_path):
                 time.sleep(0.02)
             res = T.run_session(env, half=1.0, trials=6, seed=3, obstacles=2, box=0.3,
                                 footprint=Footprint((-0.28, 0.28, -0.24, 0.24), np.array([[0.4, 0.0, 0.1]])), margin=0.1, min_move=0.1,
-                                max_turn_deg=90, speed=0.5, yaw_speed=1.0, out=tmp_path, confirm=lambda _: None,
+                                max_turn_deg=90, speed=0.25, yaw_speed=0.8, out=tmp_path, confirm=lambda _: None,
                                 stop_on_violation=False, detour=1.0)  # fmt: skip
         finally:
             env.close()
@@ -110,8 +110,8 @@ def test_smooth_following_goes_around_an_obstacle_in_one_motion(tmp_path):
         s = env.localization().mocap_pose
         grid, _ = build({"resolution": 0.05, "bounds": [[s.x - 2.1, s.y - 1.6], [s.x + 1.6, s.y + 1.6]],
                          "obstacles": [{"name": "box", "box": {"center": [s.x - 0.6, s.y], "size": [0.3, 0.3]}}]})  # fmt: skip
-        r = go_planned(env, Pose2D(s.x - 1.4, s.y, s.yaw), grid, confirm=lambda _: None, log_dir=tmp_path, speed=0.5,
-                       yaw_speed=1.0)  # fmt: skip
+        r = go_planned(env, Pose2D(s.x - 1.4, s.y, s.yaw), grid, confirm=lambda _: None, log_dir=tmp_path, speed=0.25,
+                       yaw_speed=0.8)  # fmt: skip
     finally:
         env.close()
         sim.close()
@@ -136,7 +136,7 @@ def test_a_station_is_reached_square_after_a_straight_approach(tmp_path):
         s = env.localization().mocap_pose
         grid, _ = build({"resolution": 0.05, "bounds": [[s.x - 2.0, s.y - 2.0], [s.x + 2.0, s.y + 2.0]]})
         goal = Pose2D(s.x + 0.8, s.y + 0.5, math.pi / 2)  # facing +y, as at a counter's south side
-        r = go_planned(env, goal, grid, confirm=lambda _: None, log_dir=tmp_path, speed=0.5, yaw_speed=1.0, approach_m=0.25)
+        r = go_planned(env, goal, grid, confirm=lambda _: None, log_dir=tmp_path, speed=0.25, yaw_speed=0.8, approach_m=0.25)
     finally:
         env.close()
         sim.close()
