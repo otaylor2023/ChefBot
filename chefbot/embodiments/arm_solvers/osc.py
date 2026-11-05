@@ -23,7 +23,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from chefbot.embodiments import constraints as C
-from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints
+from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints, mass_matrix
 from chefbot.robot.arm.ik import TCP_SITE, ArmIK
 
 KP, KV, KV_NULL = 100.0, 20.0, 10.0  # chefbot_fr3.xml's cartesian_task gains; the nullspace's joint damping
@@ -92,7 +92,7 @@ class OSCSolver:
                 tau_rep = self._repulsion()
             mujoco.mj_jacSite(m, d, self._jp, self._jr, self.site)
             J = np.vstack([self._jp, self._jr])[:, :n]
-            mujoco.mj_fullM(m, self._M, d.qM)
+            mass_matrix(m, d, self._M)
             M = self._M[:n, :n]
             MiJt = np.linalg.solve(M, J.T)
             Lam = np.linalg.pinv(J @ MiJt, rcond=1e-3)

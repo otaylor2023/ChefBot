@@ -52,3 +52,20 @@ def scale(dq: np.ndarray, Jp: np.ndarray, Jr: np.ndarray, dt: float, max_lin: fl
         if speed > limit:
             s = min(s, limit / speed)
     return s
+
+
+def mass_matrix(model: mujoco.MjModel, data: mujoco.MjData, out: np.ndarray) -> np.ndarray:
+    """The joint-space mass matrix (nv x nv) into `out`, after mj_crb (or a forward pass). MjData.qM, its packed form,
+    is gone in newer MuJoCo (3.17: the real-host tests failed on it), so without it the matrix is built a column at a
+    time from mj_mulM (M times a unit vector), which every version has."""
+    if hasattr(data, "qM"):
+        mujoco.mj_fullM(model, out, data.qM)
+        return out
+    e, col = np.zeros(model.nv), np.zeros(model.nv)
+    for i in range(model.nv):
+        e[:] = 0.0
+        e[i] = 1.0
+        mujoco.mj_mulM(model, data, col, e)
+        out[:, i] = col
+    return out
+

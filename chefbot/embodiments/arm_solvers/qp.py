@@ -21,7 +21,7 @@ import qpsolvers
 from scipy.spatial.transform import Rotation
 
 from chefbot.embodiments import constraints as C
-from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints, scale
+from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints, mass_matrix, scale
 from chefbot.robot.arm.ik import TCP_SITE, ArmIK
 
 INERTIA_WEIGHT = 0.1  # the motion's cost, dq' M dq, against the pose error's
@@ -71,7 +71,7 @@ class QPSolver:
         q = np.clip(np.asarray(q, dtype=float), self.lim[:, 0], self.lim[:, 1])
         self.config.update(q)
         mujoco.mj_crb(m, d)
-        mujoco.mj_fullM(m, self._M, d.qM)
+        mass_matrix(m, d, self._M)
         mujoco.mj_jacSite(m, d, self._jp, self._jr, self.site)
         Jp, Jr = self._jp[:, :n], self._jr[:, :n]
         R, p = d.site_xmat[self.site].reshape(3, 3), d.site_xpos[self.site]
