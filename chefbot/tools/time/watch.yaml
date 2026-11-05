@@ -1,0 +1,21 @@
+name: watch
+description: >-
+  Check a step's done_when every every_s seconds until it holds (event: monitor passed; then call complete)
+  or timeout_s passes (event: monitor timed out). For things that finish on their own, like cooking.
+parameters:
+  step_id:
+    type: string
+    description: A step id from the plan, e.g. "s3".
+  every_s:
+    type: number
+  timeout_s:
+    type: number
+required:
+- step_id
+- every_s
+- timeout_s
+entry: time.watch
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

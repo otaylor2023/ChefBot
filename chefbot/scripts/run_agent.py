@@ -76,7 +76,7 @@ def run(
         plan, world.robot, world.detector, world.world_map, world.clock, run_dir, judge, world.observer,
         config, agent_def.settings, operator=operator,
         tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
-        prompts_dir=agent_def.prompts_dir,
+        prompts_dir=agent_def.prompts_dir, agent_tools=agent_def.tools,
     )  # fmt: skip
     session.bus.add_safety(world.safety)
     session.log.start(

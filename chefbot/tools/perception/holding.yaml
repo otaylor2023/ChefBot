@@ -1,0 +1,7 @@
+name: holding
+description: Say what the gripper is holding, if anything.
+entry: manip.holding
+needs:
+- grasp
+interfaces:
+- robot-api-v1

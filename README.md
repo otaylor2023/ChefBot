@@ -230,8 +230,17 @@ section for each kind of tool offered (the agent's `prompts/`).
 
 **Agents** are definitions, one folder each in `chefbot/agents/`: `agent.yaml` names
 the harness the agent runs in (`agent/harnesses/`: `plan_loop` is the loop above), the
-robot APIs it runs with, its prompts, its tools' `settings:` and its `loop:` settings.
-Today's agent is `kitchen_planner`, the default; `run_agent --agent <name>` picks another.
+robot APIs it runs with, its prompts, the `tools:` it gets, its tools' `settings:` and
+its `loop:` settings. Today's agent is `kitchen_planner`, the default; `run_agent --agent
+<name>` picks another.
+
+**Tools** that do not move the robot are defined one file each in `chefbot/tools/<group>/`
+(perception: detect, nearby, holding, get_pose; motion: wait, get_status, stop; plan:
+complete, set_status, add_step, skip_step, request_replan, finish; time: set_timer,
+cancel_timer, watch). A file holds the schema the LLM sees, its handler (`entry`), the
+robot capabilities it `needs` and the robot APIs it works with (`interfaces`). An agent
+lists the ones it gets; the tools that move the robot are still defined in
+`agent/tools/registry.py`.
 
 **Handheld tools** go through one `RobotAPI` call, `use_tool(action, target,
 seconds)`: `lower_into` a container, `lift_out`, `squeeze` / `release` the

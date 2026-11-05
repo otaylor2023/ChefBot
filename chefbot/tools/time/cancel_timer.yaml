@@ -1,0 +1,12 @@
+name: cancel_timer
+description: Cancel a running timer.
+parameters:
+  name:
+    type: string
+required:
+- name
+entry: time.cancel_timer
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

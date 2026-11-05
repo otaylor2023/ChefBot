@@ -1,0 +1,6 @@
+name: get_pose
+description: Return the robot base's current position (meters) and heading (degrees).
+entry: nav.get_pose
+needs: []
+interfaces:
+- robot-api-v1

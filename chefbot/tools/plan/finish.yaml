@@ -1,0 +1,16 @@
+name: finish
+description: >-
+  End the run with a summary. Allowed once every step is done, skipped or failed; abandon=true ends it
+  anyway.
+parameters:
+  summary:
+    type: string
+  abandon:
+    type: boolean
+required:
+- summary
+entry: plan.finish
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

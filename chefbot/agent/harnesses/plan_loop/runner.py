@@ -88,6 +88,7 @@ class AgentSession:
         tools_exclude: tuple[str, ...] = (),
         tools_only: tuple[str, ...] | None = None,
         prompts_dir: str | Path | None = None,
+        agent_tools: tuple[str, ...] | None = None,
     ) -> "AgentSession":
         config = config or LoopConfig.load()
         log = RunLog(run_dir, clock, observer, config.log_full_requests)
@@ -112,6 +113,7 @@ class AgentSession:
             robot, detector, world_map, agent_config or AgentConfig.load(),
             exclude=tuple(config.tools_exclude) + tuple(tools_exclude),
             only=tuple(tools_only) if tools_only is not None else (tuple(config.tools_only) if config.tools_only else None),
+            agent_tools=agent_tools,
         )  # fmt: skip
         time_tools = TimeTools(robot, bus, clock, store)
         plan_tools = PlanTools(store, check, bus, operator)

@@ -1,0 +1,29 @@
+name: set_status
+description: >-
+  Change a step's status: active (working on it now; one step at a time, and its depends_on must be done),
+  waiting (progressing without you, e.g. cooking), pausing (winding it down to do something else), paused
+  (stopped partway: note says what is left and where things are), failed (note says why). Use complete
+  for done and skip_step for skipped.
+parameters:
+  step_id:
+    type: string
+    description: A step id from the plan, e.g. "s3".
+  status:
+    type: string
+    enum:
+    - active
+    - waiting
+    - pausing
+    - paused
+    - failed
+  note:
+    type: string
+    description: Resume note (paused) or reason (failed); optional otherwise.
+required:
+- step_id
+- status
+entry: plan.set_status
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

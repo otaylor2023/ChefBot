@@ -1,0 +1,14 @@
+name: wait
+description: >-
+  Let time pass. Returns on the first of: the current motion ends, an event arrives (a timer is up, a
+  watched step's check passed or timed out, a safety event), or timeout_s seconds pass. Use it instead
+  of polling while food cooks or a timer runs. Fails with nothing_to_wait_for if nothing is moving, no
+  timer or monitor is running and no timeout_s is given.
+parameters:
+  timeout_s:
+    type: number
+    description: Seconds to wait at most.
+entry: nav.wait
+needs: []
+interfaces:
+- robot-api-v1

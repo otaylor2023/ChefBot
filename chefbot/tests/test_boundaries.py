@@ -47,7 +47,7 @@ def violations(layer: str, forbidden: tuple[str, ...], allow_under: str | tuple[
 
 
 def test_layers_exist():
-    for layer in ("agent", "agents", "robot", "interface", "environments", "onboard", "embodiments", "runtime", "tasks", "setups", "suites"):
+    for layer in ("agent", "agents", "tools", "robot", "interface", "environments", "onboard", "embodiments", "runtime", "tasks", "setups", "suites"):
         assert modules_under(layer), layer
 
 
@@ -76,6 +76,12 @@ def test_agent_knows_only_the_interface():
 def test_agent_definitions_know_only_the_agent_layer():
     # chefbot/agents: data and its loader, on the agent layer's config and harnesses.
     assert violations("agents", SIM_AND_HARDWARE + ("chefbot.robot", "chefbot.runtime", "chefbot.embodiments")) == []
+
+
+def test_tool_definitions_know_only_the_interface():
+    # chefbot/tools: data and its loader; the handlers are the harness's, named by entry.
+    assert violations("tools", SIM_AND_HARDWARE + ("chefbot.agent", "chefbot.agents", "chefbot.robot", "chefbot.runtime",
+                                                   "chefbot.embodiments", "chefbot.skills")) == []  # fmt: skip
 
 
 def test_interface_depends_on_no_other_layer():

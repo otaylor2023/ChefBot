@@ -3,7 +3,9 @@
 The workflow the descriptions teach:
     go_to -> detect -> align -> pick -> go_to -> detect -> align -> place
 
-Constructed with a RobotAPI and a Detector; it never knows which env is behind them.
+Constructed with a RobotAPI and a Detector; it never knows which env is behind them. The tools that do
+not move the robot (detect, wait, the plan's and time's) are defined in chefbot/tools; the ones that do
+are here, until they are skills.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
+from chefbot import tools as toolbox
 from chefbot.agent.config import AgentConfig
 from chefbot.agent.tools.manip import HandheldTools, KitchenTools, ManipTools
 from chefbot.agent.tools.nav import NavTools
@@ -72,30 +75,8 @@ TOOL_SCHEMAS: list[dict] = [
         },
         ["place"],
     ),
-    _tool(
-        "detect",
-        "Look through the robot's camera from where it stands and find instances of the given "
-        "classes (parts and loose objects such as burners, handles, pans). Returns an id for each "
-        'instance found, nearest first, e.g. "burner_1". An empty list means none are in view '
-        "from here. Each call replaces the results of the previous one, so ids from an earlier "
-        "detect are no longer valid. Call it after go_to, and again whenever the robot has "
-        "moved or turned.",
-        {
-            "classes": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": 'What to look for, e.g. ["burner", "pan"]. Omit to use the default kitchen vocabulary.',
-            }
-        },
-    ),
-    _tool(
-        "nearby",
-        "List what is around the robot right now, nearest first, without looking again. "
-        '"visible" items were seen by the last detect and can be passed to align. "not_visible" '
-        "items are on the map and close by but were not seen (behind the robot, hidden, for "
-        "example inside a closed fridge, or missed): go_to them first, then detect again. Also "
-        "says what the gripper is holding.",
-    ),
+    toolbox.schema("detect"),
+    toolbox.schema("nearby"),
     _tool(
         "align",
         "Fine positioning: move the base so the arm can reach one specific item. Do this before "
@@ -122,13 +103,9 @@ TOOL_SCHEMAS: list[dict] = [
             }
         },
     ),
-    _tool("get_status", "Report the status of the current or last motion without waiting."),
-    _tool(
-        "stop",
-        "Stop the base and the arm immediately. Works at any time, including in the middle of a "
-        "motion that was started with wait=false. An object in the gripper stays in the gripper.",
-    ),
-    _tool("get_pose", "Return the robot base's current position (meters) and heading (degrees)."),
+    toolbox.schema("get_status"),
+    toolbox.schema("stop"),
+    toolbox.schema("get_pose"),
     _tool(
         "pick",
         "Pick up one visible object with the gripper and lift it. Align to the object first: pick "
@@ -197,7 +174,7 @@ TOOL_SCHEMAS: list[dict] = [
         {"id": {"type": "string", "description": 'A visible id, e.g. "burner_2".'}, "wait": _WAIT_PARAM},
         ["id"],
     ),
-    _tool("holding", "Say what the gripper is holding, if anything."),
+    toolbox.schema("holding"),
 ]
 
 
@@ -244,10 +221,10 @@ HANDHELD_SCHEMAS: list[dict] = [
     ),
 ]
 
-# The robot capabilities each tool needs (interface.robot_api); tools not listed need none.
+# The robot capabilities each tool here needs (interface.robot_api); not listed, none. chefbot/tools' say theirs.
 TOOL_NEEDS: dict[str, frozenset[str]] = {
     "go_to": frozenset({BASE}), "align": frozenset({BASE}),
-    "pick": frozenset({GRASP}), "place": frozenset({GRASP}), "holding": frozenset({GRASP}),
+    "pick": frozenset({GRASP}), "place": frozenset({GRASP}),
     "open": frozenset({ARTICULATE}), "close": frozenset({ARTICULATE}),
     "turn_on": frozenset({APPLIANCES}), "turn_off": frozenset({APPLIANCES}),
     "lower_into": frozenset({HANDHELD_TOOLS}), "lift_out": frozenset({HANDHELD_TOOLS}),
@@ -256,98 +233,17 @@ TOOL_NEEDS: dict[str, frozenset[str]] = {
     "pour": frozenset({POUR}),
 }  # fmt: skip
 
-_STEP_ID = {"type": "string", "description": 'A step id from the plan, e.g. "s3".'}
-
-# The agent loop's tools (AGENT_SPEC §7), added with ToolRegistry.add_loop_tools.
-LOOP_SCHEMAS: list[dict] = [
-    _tool(
-        "wait",
-        "Let time pass. Returns on the first of: the current motion ends, an event arrives (a "
-        "timer is up, a watched step's check passed or timed out, a safety event), or timeout_s "
-        "seconds pass. Use it instead of polling while food cooks or a timer runs. Fails with "
-        "nothing_to_wait_for if nothing is moving, no timer or monitor is running and no "
-        "timeout_s is given.",
-        {"timeout_s": {"type": "number", "description": "Seconds to wait at most."}},
-    ),
-    _tool(
-        "complete",
-        "Mark a step done. Checks the step's done_when against the kitchen first: on a pass the "
-        "step is done (your last note on it becomes its log line); on a fail it stays as it is "
-        "and you get check_failed with the reason. The only way to mark a step done.",
-        {"step_id": _STEP_ID},
-        ["step_id"],
-    ),
-    _tool(
-        "set_status",
-        "Change a step's status: active (working on it now; one step at a time, and its "
-        "depends_on must be done), waiting (progressing without you, e.g. cooking), pausing "
-        "(winding it down to do something else), paused (stopped partway: note says what is "
-        "left and where things are), failed (note says why). Use complete for done and "
-        "skip_step for skipped.",
-        {
-            "step_id": _STEP_ID,
-            "status": {"type": "string", "enum": ["active", "waiting", "pausing", "paused", "failed"]},
-            "note": {"type": "string", "description": "Resume note (paused) or reason (failed); optional otherwise."},
-        },
-        ["step_id", "status"],
-    ),
-    _tool(
-        "add_step",
-        "Add a step the plan is missing (e.g. clear a burner that is in use). Say why.",
-        {
-            "goal": {"type": "string"},
-            "done_when": {"type": "string", "description": "What must be true in the kitchen for it to be done."},
-            "reason": {"type": "string"},
-            "after": {"type": "string", "description": "Insert after this step id (default: at the end)."},
-            "depends_on": {"type": "array", "items": {"type": "string"}},
-        },
-        ["goal", "done_when", "reason"],
-    ),
-    _tool(
-        "skip_step",
-        "Skip a step that is not needed, with the reason.",
-        {"step_id": _STEP_ID, "reason": {"type": "string"}},
-        ["step_id", "reason"],
-    ),
-    _tool(
-        "request_replan",
-        "Ask for a new plan when this one cannot work (an ingredient is missing, the dish has to "
-        "change). Do not improvise a different dish.",
-        {"reason": {"type": "string"}},
-        ["reason"],
-    ),
-    _tool(
-        "finish",
-        "End the run with a summary. Allowed once every step is done, skipped or failed; "
-        "abandon=true ends it anyway.",
-        {"summary": {"type": "string"}, "abandon": {"type": "boolean"}},
-        ["summary"],
-    ),
-    _tool(
-        "set_timer",
-        "Start a timer that sends an event after `seconds`. Setting a running timer again restarts it.",
-        {
-            "name": {"type": "string", "description": 'e.g. "egg"'},
-            "seconds": {"type": "number"},
-            "step_id": {"type": "string", "description": "The step it belongs to (shown on the plan)."},
-        },
-        ["name", "seconds"],
-    ),
-    _tool("cancel_timer", "Cancel a running timer.", {"name": {"type": "string"}}, ["name"]),
-    _tool(
-        "watch",
-        "Check a step's done_when every every_s seconds until it holds (event: monitor passed; "
-        "then call complete) or timeout_s passes (event: monitor timed out). For things that "
-        "finish on their own, like cooking.",
-        {"step_id": _STEP_ID, "every_s": {"type": "number"}, "timeout_s": {"type": "number"}},
-        ["step_id", "every_s", "timeout_s"],
-    ),
-]
+# The agent loop's tools (AGENT_SPEC §7, defined in chefbot/tools), added with ToolRegistry.add_loop_tools.
+# `wait` here is the loop's: it replaces the motion-only one above and also wakes on events.
+LOOP_TOOLS = ("wait", "complete", "set_status", "add_step", "skip_step", "request_replan", "finish",
+              "set_timer", "cancel_timer", "watch")  # fmt: skip
+LOOP_SCHEMAS: list[dict] = [toolbox.schema(name) for name in LOOP_TOOLS]
 
 
 class ToolRegistry:
     """The tools the agent gets: those the robot's capabilities allow, minus `exclude`,
-    and only those in `only` when it is given (task files and agent.yaml set these)."""
+    and only those in `only` when it is given (task files and agent.yaml set these). Of chefbot/tools' tools,
+    only those in `agent_tools` when it is given (the agent's agent.yaml `tools:`)."""
 
     def __init__(
         self,
@@ -357,6 +253,7 @@ class ToolRegistry:
         config: AgentConfig,
         exclude: tuple[str, ...] = (),
         only: tuple[str, ...] | None = None,
+        agent_tools: tuple[str, ...] | None = None,
     ):
         self.tools = NavTools(robot, detector, world_map, config)
         self.manip = ManipTools(robot, self.tools)
@@ -364,18 +261,31 @@ class ToolRegistry:
         self.handheld = HandheldTools(robot, self.tools)
         self._capabilities = frozenset(robot.capabilities())
         self._exclude, self._only = set(exclude), (set(only) if only is not None else None)
+        self._agent_tools = set(agent_tools) if agent_tools is not None else None
+        self._owners = {"nav": self.tools, "manip": self.manip}
         self._schemas: dict[str, dict] = {}
         self._handlers = {}
         for schema in TOOL_SCHEMAS + HANDHELD_SCHEMAS:
             name = schema["function"]["name"]
             if self.allowed(name):
-                owner = next(o for o in (self.manip, self.kitchen, self.handheld, self.tools) if hasattr(o, name))
-                self._add(schema, getattr(owner, name))
+                self._add(schema, self._handler(name))
 
     def allowed(self, name: str) -> bool:
         if name in self._exclude or (self._only is not None and name not in self._only):
             return False
-        return TOOL_NEEDS.get(name, frozenset()) <= self._capabilities
+        registered = name in toolbox.names()
+        if registered and self._agent_tools is not None and name not in self._agent_tools:
+            return False
+        needs = toolbox.get(name).needs if registered else TOOL_NEEDS.get(name, frozenset())
+        return needs <= self._capabilities
+
+    def _handler(self, name: str):
+        """A chefbot/tools tool's handler is its entry; one defined here is the method of its name."""
+        if name in toolbox.names():
+            owner, method = toolbox.get(name).entry
+            return getattr(self._owners[owner], method)
+        owner = next(o for o in (self.manip, self.kitchen, self.handheld, self.tools) if hasattr(o, name))
+        return getattr(owner, name)
 
     def has(self, name: str) -> bool:
         return name in self._handlers
@@ -398,13 +308,11 @@ class ToolRegistry:
         """The agent loop's tools; `wait` keeps its handler but wakes on events."""
         self.tools.time = time_tools
         time_tools.on_motion_end = self.tools._finish
+        self._owners.update(plan=plan_tools, time=time_tools)
         for schema in LOOP_SCHEMAS:
             name = schema["function"]["name"]
-            if not self.allowed(name):
-                continue
-            owner = next((o for o in (plan_tools, time_tools) if hasattr(o, name)), None)
-            handler = self._handlers.get(name) if name == "wait" else getattr(owner, name)
-            self._add(schema, handler)
+            if self.allowed(name):
+                self._add(schema, self._handler(name))
 
     def _add(self, schema: dict, handler) -> None:
         name = schema["function"]["name"]

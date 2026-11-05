@@ -1,0 +1,20 @@
+name: set_timer
+description: >-
+  Start a timer that sends an event after `seconds`. Setting a running timer again restarts it.
+parameters:
+  name:
+    type: string
+    description: e.g. "egg"
+  seconds:
+    type: number
+  step_id:
+    type: string
+    description: The step it belongs to (shown on the plan).
+required:
+- name
+- seconds
+entry: time.set_timer
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

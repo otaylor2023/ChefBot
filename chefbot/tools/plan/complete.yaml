@@ -1,0 +1,16 @@
+name: complete
+description: >-
+  Mark a step done. Checks the step's done_when against the kitchen first: on a pass the step is done
+  (your last note on it becomes its log line); on a fail it stays as it is and you get check_failed with
+  the reason. The only way to mark a step done.
+parameters:
+  step_id:
+    type: string
+    description: A step id from the plan, e.g. "s3".
+required:
+- step_id
+entry: plan.complete
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

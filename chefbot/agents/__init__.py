@@ -1,8 +1,10 @@
 """Agents: one folder per agent (agent.yaml, prompts/), loaded by name. An agent names the harness it runs in
-(agent/harnesses), the robot APIs it runs with, its prompts, its tools' settings and its loop's settings.
+(agent/harnesses), the robot APIs it runs with, its prompts, the tools it gets (chefbot/tools), its tools'
+settings and its loop's settings.
 
     agent = agents.load("kitchen_planner")
-    agent.harness.AgentSession.build(..., agent_config=agent.settings, prompts_dir=agent.prompts_dir)
+    agent.harness.AgentSession.build(..., agent_config=agent.settings, prompts_dir=agent.prompts_dir,
+                                     agent_tools=agent.tools)
     agent.loop_config(model="...")      # LoopConfig, with run-time overrides
 
 Today's cooking agent is kitchen_planner (DEFAULT), the only one so far.
@@ -16,13 +18,14 @@ from types import ModuleType
 
 import yaml
 
+from chefbot import tools as toolbox
 from chefbot.agent import harnesses
 from chefbot.agent.config import AgentConfig, LoopConfig
+from chefbot.interface import INTERFACES
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT = "kitchen_planner"
-INTERFACES = ("robot-api-v1", "chefbot-v1")  # robot-api-v1: interface/robot_api.py; chefbot-v1: interface/skill_api.py
-KEYS = {"name", "harness", "interfaces", "prompts", "settings", "loop"}
+KEYS = {"name", "harness", "interfaces", "prompts", "tools", "settings", "loop"}
 
 
 def names() -> list[str]:
@@ -66,6 +69,10 @@ class Agent:
         return self.dir / self.manifest.get("prompts", "prompts")
 
     @property
+    def tools(self) -> tuple[str, ...]:
+        return tuple(self.manifest.get("tools") or ())
+
+    @property
     def settings(self) -> AgentConfig:
         return AgentConfig.load(self.path)
 
@@ -84,6 +91,15 @@ class Agent:
         interfaces = m.get("interfaces") or []
         if not interfaces or set(interfaces) - set(INTERFACES):
             problems.append(f"interfaces must be some of {list(INTERFACES)}, not {interfaces!r}")
+        listed = m.get("tools") or []
+        unknown_tools = [t for t in listed if t not in toolbox.names()]
+        if unknown_tools:
+            problems.append(f"no tools {unknown_tools} in chefbot/tools (tools: {', '.join(toolbox.names())})")
+        no_interface = [t for t in listed if t in toolbox.names() and not set(toolbox.get(t).interfaces) & set(interfaces)]
+        if no_interface:
+            problems.append(f"tools {no_interface} work with none of its interfaces {interfaces!r}")
+        if len(set(listed)) != len(listed):
+            problems.append("a tool is listed twice")
         if not (self.prompts_dir / "system.md").exists():
             problems.append(f"no system.md in {self.prompts_dir}")
         if problems:
