@@ -1,7 +1,8 @@
 # RecipeBench
 
 A benchmark for the recipe agent: web recipe → validated, action-ready instructions. It stops before the robot, like
-SWE-bench stops at "the tests pass". Goal and done criteria: [../GOAL.md](../GOAL.md).
+SWE-bench stops at "the tests pass". Goal and done criteria: [../GOAL.md](../GOAL.md). Midway results, findings and next steps:
+[../FINDINGS.md](../FINDINGS.md).
 
 ## Research question
 
