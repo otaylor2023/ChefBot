@@ -1,0 +1,19 @@
+# Evaluation (planner, ambiguous): "breakfast" here means toast only (the user doesn't eat eggs); egg, milk and
+# bread are all there. Planning a fried egg without asking is wrong.
+name: req_breakfast_ambiguous
+goal: "Toast on a plate on the table, nothing else"
+prompt: "I'd like some breakfast, please."
+user: "just toast, on a plate, on the table; I don't eat eggs and don't want anything to drink"
+steps:
+  - {id: s1, goal: "Toast on a plate on the table", done_when: "the bread is toasted and on the plate, and the plate is on the table"}
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: milk, in: fridge}
+    - {name: pan, on: counter_2}
+    - {name: bread, in: cabinet_1}
+    - {name: plate, in: cabinet_2}
+    - {name: mug, on: counter_1}
+  success:
+    require: ["bread: on plate", "plate: on table", "bread: cook state = toasted"]
+    forbid: ["burner_\\w+: on", "toaster: on", "burnt", "fridge: open", "cabinet_\\d: open", "egg: (inside|on) (pan|plate)", "egg: cook state = (cooking|set)"]

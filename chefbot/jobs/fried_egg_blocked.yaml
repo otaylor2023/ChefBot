@@ -1,5 +1,6 @@
 name: fried_egg_blocked
 goal: "A fried egg, served on a plate on the table"
+prompt: "Fry me an egg and serve it on a plate on the table."   # what a user types (run_agent --plan-from prompt)
 steps:
   - id: s1
     goal: "Put the pan on burner_1"

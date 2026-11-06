@@ -181,6 +181,14 @@ class PlanStore:
                 "dependencies_not_met", f"Step {step.id} depends on {', '.join(unmet)}, not done yet."
             )
 
+    def replace(self, plan: Plan, reason: str, reference: bool = False) -> None:
+        """A new plan from the planner: it becomes the live plan (a replan keeps the done and skipped steps in it).
+        reference: also the reference plan (the first plan of a run planned from a request)."""
+        self.live = plan.copy()
+        if reference:
+            self.reference = plan.copy()
+        self._edit(None, f"new plan: {len(plan.steps)} steps", reason)
+
     def _edit(self, step_id: str | None, change: str, reason: str | None) -> None:
         edit = Edit(self._now(), step_id, change, reason)
         self.edits.append(edit)

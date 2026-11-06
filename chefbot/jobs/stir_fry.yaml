@@ -1,5 +1,6 @@
 name: stir_fry
 goal: "Stir-fried tomato and corn, served in the pan off the heat"
+prompt: "Stir-fry the tomato and the corn, and leave it in the pan with the heat off."   # what a user types (run_agent --plan-from prompt)
 limits: {max_turns: 220, max_llm_cost_usd: 4.0}
 steps:
   - id: s1

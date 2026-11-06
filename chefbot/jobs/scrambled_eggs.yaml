@@ -1,5 +1,6 @@
 name: scrambled_eggs
 goal: "Scrambled eggs (two eggs, beaten, scrambled in the pan) served on a plate on the table"
+prompt: "Make me scrambled eggs with two eggs, served on a plate on the table."   # what a user types (run_agent --plan-from prompt)
 limits: {max_turns: 250, max_llm_cost_usd: 5.0}   # a long task
 steps:
   - id: s1

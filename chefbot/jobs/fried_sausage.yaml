@@ -1,5 +1,6 @@
 name: fried_sausage
 goal: "A fried sausage, served on the plate"
+prompt: "Can you fry the sausage and put it on the plate?"   # what a user types (run_agent --plan-from prompt)
 limits: {max_turns: 150}
 steps:
   - id: s1

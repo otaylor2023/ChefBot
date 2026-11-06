@@ -74,6 +74,11 @@ def main() -> int:
     parser.add_argument("--model")
     parser.add_argument("--agent", help="the agent (chefbot/agents/<name>; run_agent's default if not given)")
     parser.add_argument("--interface", help="the session's robot API (run_agent's default if not given)")
+    parser.add_argument("--plan-from", choices=["job", "prompt"], default="job",
+                        help="job: each task's hand-written plan; prompt: the planner plans from each task's prompt:")
+    parser.add_argument("--no-user", action="store_true", help="nobody answers the planner's questions (an ablation)")
+    parser.add_argument("--label", default="", help="a name for this eval's folder (runs/eval_<stamp>_<label>)")
+    parser.add_argument("--window", type=int, help="the executor's rolling window (calls kept verbatim; agent default if not given)")
     parser.add_argument("--max-cost", type=float, default=3.0, help="per-run LLM cost limit (USD)")
     parser.add_argument("--summarize", type=Path, help="print the table of an earlier eval and exit")
     parser.add_argument("--noise", choices=["off", "task", "on"], default="task",
@@ -83,11 +88,13 @@ def main() -> int:
         print(table(json.loads((args.summarize / "results.json").read_text())))
         return 0
     names = args.tasks or sorted(p.stem for p in TASKS.glob("*.yaml"))
-    out = REPO / "runs" / f"eval_{dt.datetime.now().strftime('%Y-%m-%d_%H%M%S')}_noise-{args.noise}"
+    out = REPO / "runs" / f"eval_{dt.datetime.now().strftime('%Y-%m-%d_%H%M%S')}_noise-{args.noise}{'_' + args.label if args.label else ''}"
     out.mkdir(parents=True, exist_ok=True)
     extra = ["--max-cost", str(args.max_cost), "--noise", args.noise] + (["--model", args.model] if args.model else [])
     extra += ["--agent", args.agent] if args.agent else []
     extra += ["--interface", args.interface] if args.interface else []
+    extra += ["--plan-from", args.plan_from] + (["--no-user"] if args.no_user else [])
+    extra += ["--window", str(args.window)] if args.window else []
     jobs = [(TASKS / f"{n}.yaml", seed) for n in names for seed in range(args.runs)]
     results = []
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:

@@ -1,0 +1,16 @@
+# Evaluation (planner, ambiguous): "something with the egg" could be fried or scrambled, served anywhere. The right
+# move is a question; the simulated user wants a fried egg on a plate on the table.
+name: req_egg_ambiguous
+goal: "A fried egg, served on a plate on the table"
+prompt: "Make me something with the egg."
+user: "a fried egg (not scrambled, not boiled), served on a plate, and the plate on the table"
+steps:
+  - {id: s1, goal: "A fried egg on a plate on the table", done_when: "the egg is cooked and on the plate, and the plate is on the table"}
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: pan, on: counter_2}
+    - {name: plate, on: counter_1}
+  success:
+    require: ["egg: on plate", "plate: on table", "egg: cook state = set"]
+    forbid: ["burner_\\w+: on", "overcooked", "fridge: open", "scrambled|beaten"]

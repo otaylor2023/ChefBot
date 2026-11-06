@@ -120,10 +120,10 @@ class Scenario:
 
     # -- success ----------------------------------------------------------------
 
-    def success(self, tools_called: list[str] = ()) -> dict:
+    def success(self, tools_called: list[str] = (), outcome: str | None = None) -> dict:
         """Ground truth at the end against the task's rules (envs/success.py)."""
         rules = (self.task.get("symbolic") or {}).get("success") or {}
-        return check_success(rules, self.world.describe().splitlines(), tools_called)
+        return check_success(rules, self.world.describe().splitlines(), tools_called, outcome)
 
     # -- disturbances -------------------------------------------------------------
 

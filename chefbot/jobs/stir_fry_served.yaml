@@ -1,5 +1,6 @@
 name: stir_fry_served
 goal: "Stir-fried tomato and mushroom, poured from the pan into a serving bowl"
+prompt: "Stir-fry the tomato and the mushroom and serve it in a bowl."   # what a user types (run_agent --plan-from prompt)
 limits: {max_turns: 260, max_llm_cost_usd: 5.0}
 steps:
   - id: s1

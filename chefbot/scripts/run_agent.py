@@ -54,9 +54,15 @@ def run(
     agent: str = agents.DEFAULT,
     interface: str | None = None,
     env_options: dict | None = None,
+    plan_from: str = "job",
+    prompt: str | None = None,
+    planner_llm=None,
+    user=None,
 ) -> dict:
     """env_options: the real robot's (--env real): dry_run, confirm, url, speed, model_usd; env (a stand-in for
-    RealEnv, for tests)."""
+    RealEnv, for tests). plan_from: "job" (the task file's plan) or "prompt" (the planner plans from the request:
+    `prompt`, else the task file's `prompt:`; request_replan then calls the planner again). user(question) -> answer:
+    who answers the planner's questions (None: nobody)."""
     from chefbot.agents.session import Session
     from chefbot.scripts.envs import ENVS
 
@@ -82,6 +88,17 @@ def run(
         OpenRouterClient(config.judge_model, provider=config.provider), config.judge_model, config.judge_temperature
     )
     tools = world.task.get("tools") or {}  # a task can withhold tools: {exclude: [...], only: [...]}
+    holder: dict = {}
+    planning = None
+    if plan_from == "prompt" and user is None and world.task.get("user"):  # the task's simulated user answers the planner
+        from chefbot.agent.plan.simulated_user import SimulatedUser
+
+        user = SimulatedUser(OpenRouterClient(config.judge_model, provider=config.provider), prompt or world.task.get("prompt"),
+                             world.task["user"])  # fmt: skip
+    if plan_from == "prompt":
+        planning = Planning(prompt or world.task.get("prompt"), planner_llm or OpenRouterClient(config.model, temperature=config.temperature,
+                            provider=config.provider), agent_def.prompts_dir / "planner.md", user, holder, run_dir)  # fmt: skip
+        operator = planning.operator
     try:
         skill_tools = []  # chefbot-v1 skills: one sandboxed episode per call (runtime/agent_skills.py)
         if world.skills is not None:
@@ -93,7 +110,11 @@ def run(
             tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
             prompts_dir=agent_def.prompts_dir, agent_tools=run_session.tools,
             robot_skills=[s for s in run_session.skills if not s.sandboxed], skill_tools=skill_tools,
+            reload=(lambda: None) if planning is not None else None,
         )  # fmt: skip
+        holder["session"] = session
+        if planning is not None:
+            plan = planning.first_plan(session) or plan
     except BaseException:
         world.close()  # the real robot: let go of it
         raise
@@ -157,7 +178,7 @@ def run(
         from chefbot.agent.logging.run_log import read_timeline
 
         called = [r["tool"] for r in read_timeline(run_dir) if r["kind"] == "action" and r["result"]["success"]]
-        verdict = world.success(called)
+        verdict = world.success(called, outcome=outcome[0]) if env == "symbolic" else world.success(called)
         if recorder is not None:
             recorder.caption = (f"{outcome[0]}: {_short(outcome[1], 100)}",
                                 f"ground truth: {'SUCCESS' if verdict['success'] else 'FAILURE'}")  # fmt: skip
@@ -180,7 +201,75 @@ def run(
               + (f" · missing {verdict['missing']}" if verdict["missing"] else "")
               + (f" · forbidden {verdict['forbidden_present']}" if verdict["forbidden_present"] else ""))  # fmt: skip
         print(f"report: {run_dir / 'report.html'}" + (f"\nvideo: {run_dir / 'video.mp4'}" if recorder else ""))
-    return {"run_dir": str(run_dir), "outcome": outcome[0], "summary_text": text, **verdict, "totals": end.get("totals", {})}
+    extra = {"plan_from": plan_from}
+    if planning is not None:
+        extra["planner"] = planning.summary()
+    return {"run_dir": str(run_dir), "outcome": outcome[0], "summary_text": text, **verdict, "totals": end.get("totals", {}), **extra}
+
+
+class Planning:
+    """A run planned from a request: the planner writes the first plan and answers request_replan
+    (agent/plan/planner.py). Its calls are logged to <run>/planner.json and its cost counts in the run's."""
+
+    EXECUTOR_ONLY = {"complete", "set_status", "add_step", "skip_step", "request_replan", "finish", "set_timer",
+                     "cancel_timer", "watch", "wait", "get_status", "stop", "get_pose", "holding", "nearby"}  # fmt: skip
+
+    def __init__(self, request: str | None, llm, prompt: Path, user, holder: dict, run_dir: Path):
+        from chefbot.agent.plan.planner import Planner
+
+        if not request:
+            raise SystemExit("--plan-from prompt needs a request: --prompt, or `prompt:` in the task file")
+        self.request, self.holder, self.run_dir = request, holder, run_dir
+        self.planner = Planner(llm, prompt, user)
+        self.calls: list[dict] = []
+
+    def _context(self):
+        from chefbot.agent.plan.planner import skills_text
+
+        s = self.holder["session"]
+        return s, s.task_state.kitchen_text(), skills_text(s.registry.schemas, self.EXECUTOR_ONLY)
+
+    def _log(self, kind: str, result, reason: str | None = None) -> None:
+        s = self.holder["session"]
+        s.totals.cost_usd += result.cost_usd
+        entry = {"kind": kind, "reason": reason, "turn": s.turn, **result.to_dict(), "transcript": result.transcript}
+        self.calls.append(entry)
+        (self.run_dir / "planner.json").write_text(json.dumps({"request": self.request, "calls": self.calls}, indent=1, default=str))
+        s.log.record("planner", s.turn, call=kind, accepted=result.plan is not None, refused=result.refused,
+                     questions=result.questions, rejected=len(result.rejected), cost_usd=round(result.cost_usd, 5))  # fmt: skip
+
+    def first_plan(self, session) -> Plan | None:
+        s, kitchen, skills = self._context()
+        result = self.planner.plan(self.request, kitchen, skills)
+        self._log("plan", result)
+        if result.plan is None:
+            s.plan_tools.outcome = ("refused", f"the planner can't plan it: {result.refused}")
+            return None
+        s.store.replace(result.plan, "planned from the request", reference=True)
+        return result.plan
+
+    def operator(self, reason: str) -> str:
+        """request_replan's answer: the planner's new plan ("reload"), or it says the request can't be done ("abort")."""
+        s, kitchen, skills = self._context()
+        result = self.planner.replan(self.request, reason, s.store.live, kitchen, skills)
+        self._log("replan", result, reason)
+        if result.plan is None:
+            return "abort"
+        s.store.replace(result.plan, f"replanned: {reason}")
+        return "reload"
+
+    def summary(self) -> dict:
+        return {"calls": len(self.calls), "questions": sum(len(c["questions"]) for c in self.calls),
+                "rejected": sum(len(c["rejected"]) for c in self.calls), "refused": next((c["refused"] for c in self.calls if c["refused"]), None),
+                "cost_usd": round(sum(c["cost_usd"] for c in self.calls), 5)}  # fmt: skip
+
+
+def _nobody(question: str) -> str:
+    return ""  # the planner is then told nobody can answer
+
+
+def _ask_in_terminal(question: str) -> str:
+    return input(f"\nThe planner asks: {question}\n> ").strip()
 
 
 def main() -> int:
@@ -193,6 +282,11 @@ def main() -> int:
     parser.add_argument("--confirm", action="store_true", help="real: Enter before each move")
     parser.add_argument("--url", help="real: the onboard server (default: environments/real/config.yaml)")
     parser.add_argument("--speed", default="slow", help="real: speed profile (default slow; clipped to the robot's real limits)")
+    parser.add_argument("--plan-from", choices=["job", "prompt"], default="job",
+                        help="job: the task file's plan; prompt: the planner plans from the request (--prompt or the task's prompt:)")
+    parser.add_argument("--prompt", help="the user's request (with --plan-from prompt)")
+    parser.add_argument("--no-user", action="store_true", help="nobody answers the planner's questions (an ablation)")
+    parser.add_argument("--window", type=int, help="calls kept verbatim in the executor's context (the agent's loop.window_n)")
     parser.add_argument("--interface", choices=INTERFACES, help="the robot API of the session (default: the agent's first)")
     parser.add_argument("--video", action="store_true", help="record the run (robocasa): runs/<run>/video.mp4")
     parser.add_argument("--seed", type=int, default=0)
@@ -207,12 +301,13 @@ def main() -> int:
     parser.add_argument("--operator", choices=["terminal", "continue", "abort"], default="terminal",
                         help="answer to request_replan (non-interactive runs: continue or abort)")  # fmt: skip
     args = parser.parse_args()
-    config = agents.load(args.agent).loop_config(model=args.model, judge_model=args.judge_model, max_turns=args.max_turns,
+    config = agents.load(args.agent).loop_config(model=args.model, judge_model=args.judge_model, max_turns=args.max_turns, window_n=args.window,
                                                  max_llm_cost_usd=args.max_llm_cost_usd)  # fmt: skip
     operator = terminal_operator if args.operator == "terminal" else (lambda reason, a=args.operator: a)
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
                  env=args.env, video=args.video, agent=args.agent, interface=args.interface,
-                 env_options={"dry_run": args.dry_run, "confirm": args.confirm, "url": args.url, "speed": args.speed})  # fmt: skip
+                 env_options={"dry_run": args.dry_run, "confirm": args.confirm, "url": args.url, "speed": args.speed},
+                 plan_from=args.plan_from, prompt=args.prompt, user=_nobody if args.no_user else (None if args.quiet else _ask_in_terminal))  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
     if result["success"] is None:  # not judged (the real robot): the agent's own word

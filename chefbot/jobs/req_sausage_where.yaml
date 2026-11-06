@@ -1,0 +1,15 @@
+# Evaluation (planner, ambiguous): "serve it" doesn't say where. The user wants it on the plate, the plate on the table.
+name: req_sausage_where
+goal: "A fried sausage on the plate, the plate on the table"
+prompt: "Fry the sausage and serve it."
+user: "on the plate, and the plate on the table"
+steps:
+  - {id: s1, goal: "The sausage fried, on the plate, on the table", done_when: "the sausage is cooked and on the plate, and the plate is on the table"}
+symbolic:
+  objects:
+    - {name: sausage, on: counter_2}
+    - {name: pan, on: counter_2}
+    - {name: plate, on: counter_1}
+  success:
+    require: ["sausage: on plate", "plate: on table", "sausage: cook state = cooked"]
+    forbid: ["burner_\\w+: on", "burnt", "fridge: open"]

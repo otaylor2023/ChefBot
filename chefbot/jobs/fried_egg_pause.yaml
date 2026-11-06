@@ -1,5 +1,6 @@
 name: fried_egg_pause
 goal: "A fried egg served on a plate on the table, and the table cleared of the dishes onto counter_2"
+prompt: "Fry me an egg and serve it on a plate on the table. And clear the dishes off the table onto counter_2."   # what a user types (run_agent --plan-from prompt)
 steps:
   - id: s1
     goal: "Put the pan on a burner"

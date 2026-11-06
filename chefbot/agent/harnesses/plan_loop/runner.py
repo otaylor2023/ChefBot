@@ -91,6 +91,7 @@ class AgentSession:
         agent_tools: tuple[str, ...] | None = None,
         robot_skills: list | None = None,
         skill_tools: list = (),
+        reload: Callable[[], None] | None = None,
     ) -> "AgentSession":
         config = config or LoopConfig.load()
         log = RunLog(run_dir, clock, observer, config.log_full_requests)
@@ -118,7 +119,7 @@ class AgentSession:
             agent_tools=agent_tools, robot_skills=robot_skills,
         )  # fmt: skip
         time_tools = TimeTools(robot, bus, clock, store)
-        plan_tools = PlanTools(store, check, bus, operator)
+        plan_tools = PlanTools(store, check, bus, operator, reload)
         registry.add_loop_tools(plan_tools, time_tools)
         for schema, handler in skill_tools:  # chefbot-v1 skills: (schema, handler running an episode)
             registry.add_tool(schema, handler)
@@ -163,7 +164,7 @@ class AgentRunner:
     def run(self) -> tuple[str, str]:
         """Turns until finish, abort or a limit. Returns (outcome, summary)."""
         s = self.s
-        outcome: tuple[str, str] | None = None
+        outcome: tuple[str, str] | None = s.plan_tools.outcome  # already set: the run ends before a turn (refused)
         try:
             while outcome is None:
                 limit = self._limit_reached()

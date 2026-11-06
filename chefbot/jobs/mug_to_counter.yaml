@@ -1,5 +1,6 @@
 name: mug_to_counter
 goal: "The mug on counter_2"
+prompt: "Put the mug on counter_2."   # what a user types (run_agent --plan-from prompt)
 steps:
   - id: s1
     goal: "Move the mug from counter_1 to counter_2"

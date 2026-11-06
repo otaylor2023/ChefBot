@@ -1,5 +1,6 @@
 name: egg_to_pan
 goal: "The egg in the pan, the fridge closed"
+prompt: "Take the egg out of the fridge and put it in the pan, please."   # what a user types (run_agent --plan-from prompt)
 steps:
   - id: s1
     goal: "Get the egg out of the fridge"

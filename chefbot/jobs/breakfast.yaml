@@ -1,5 +1,6 @@
 name: breakfast
 goal: "Breakfast on the table: a fried egg and toast on a plate, a mug next to it; everything off and closed"
+prompt: "Make me breakfast: a fried egg and some toast on a plate, with a mug, on the table. Leave the kitchen tidy."   # what a user types (run_agent --plan-from prompt)
 steps:
   - id: s1
     goal: "Put the pan on a burner"

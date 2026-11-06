@@ -1,5 +1,6 @@
 name: mixed_grill
 goal: "A mixed grill: a sausage and a steak, each fried in its own pan, both served on the plate"
+prompt: "Make a mixed grill: fry the sausage and the steak, each in its own pan, and serve both on the plate."   # what a user types (run_agent --plan-from prompt)
 limits: {max_turns: 220, max_llm_cost_usd: 4.0}
 steps:
   - id: s1

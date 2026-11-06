@@ -178,6 +178,10 @@ class TaskState:
 
     # -- KITCHEN: the map as a list of places and what is on / in them ---------------
 
+    def kitchen_text(self) -> str:
+        """The KITCHEN block alone: what the robot knows about the kitchen (for the planner)."""
+        return "\n".join(self._kitchen_lines())
+
     def _kitchen_lines(self) -> list[str]:
         nav, belief, now = self._nav, self._nav.kitchen, self._clock.now()
         gone = nav.missing()
