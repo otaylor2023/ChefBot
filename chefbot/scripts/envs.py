@@ -123,6 +123,14 @@ def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: boo
     task = load_yaml(task_path)
     M.load_env(REPO / ".env")
     robot = embodiments.load("tidybot_fr3")
+    missing = []  # what a skill needs and this machine lacks: refused before the robot is touched
+    for s in skills:
+        try:
+            s.check(robot.name, os.environ.get("VISION_URL"))
+        except Exception as e:  # skills.MissingRequirement
+            missing.append(str(e))
+    if missing:
+        raise SystemExit("can't run on the real robot: " + "; ".join(missing))
     wanted = [s.cameras for s in skills]
     cameras = None if any(c is True for c in wanted) else sorted({n for c in wanted if isinstance(c, list) for n in c})
     out = Path(tempfile.mkdtemp(prefix="chefbot_real_"))  # run_agent points it into the run's folder

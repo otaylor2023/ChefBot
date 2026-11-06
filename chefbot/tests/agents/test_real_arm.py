@@ -56,8 +56,20 @@ def _run(tmp_path, calls, **options):
     return llm, fake, result, Path(result["run_dir"])
 
 
+@pytest.fixture(scope="module", autouse=True)
+def a_gemini_key():
+    """pick_up/gemini_v1 needs one to be offered; no test here reaches Gemini (the fake robot has no camera)."""
+    import os
+
+    before = os.environ.get("GEMINI_API_KEY")
+    os.environ["GEMINI_API_KEY"] = before or "not-a-real-key"
+    yield
+    if before is None:
+        del os.environ["GEMINI_API_KEY"]
+
+
 @pytest.fixture(scope="module")
-def pick_run(tmp_path_factory):
+def pick_run(tmp_path_factory, a_gemini_key):
     calls = [("set_status", {"step_id": "s1", "status": "active"}), ("bringup", {"lift_m": 0.03}), ("pick_up", {}),
              ("pick_up", {"object": "apple"}), ("complete", {"step_id": "s1"}), ("finish", {"summary": "scripted"})]  # fmt: skip
     return _run(tmp_path_factory.mktemp("real"), calls)
@@ -104,6 +116,16 @@ def test_a_dry_run_sends_nothing_to_the_arm(tmp_path):
     assert llm.results[0]["success"]  # the skill saw its moves made
     assert fake.sent["arm"] == 0 and fake.sent["gripper"] == 0 and fake.sent["moves"] == 0
     assert json.loads((run_dir / "start.json").read_text())["dry_run"] is True
+
+
+def test_a_skill_this_machine_cant_serve_is_refused_before_the_robot_is_touched(tmp_path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY")
+    monkeypatch.setattr("chefbot.runtime.models.load_env", lambda path: None)  # not the repo's .env either
+    fake = FakeRobot()
+    with pytest.raises(SystemExit, match="needs GEMINI_API_KEY"):
+        run_agent.run(JOB, 0, tmp_path, llm=Scripted([]), quiet=True, env="real", agent="real_arm",
+                      env_options={"env": fake, "confirm": False})  # fmt: skip
+    assert fake.sent == {"arm": 0, "base": 0, "gripper": 0, "moves": 0}
 
 
 def test_the_runner_runs_only_sandboxed_skills():
