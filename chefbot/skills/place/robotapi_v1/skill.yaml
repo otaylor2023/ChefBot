@@ -1,0 +1,29 @@
+name: place
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- grasp
+description: >-
+  Set the held object down on a visible surface or into a visible container: a counter, a burner, a pan,
+  a plate, a cutting board. The id names where it goes, not the object. Align to that id first: place
+  does not move the base. Fails with unknown_id, not_visible, not_holding, no_placement (no free spot
+  there), unreachable (align to it first), collision (the arm touched something and stopped; the object
+  is still held), stopped or timeout.
+args:
+  id:
+    type: string
+    description: 'Where to put it: a visible id, e.g. "counter_1", "burner_2", "pan".'
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's place tool (agent/tools/manip.py ManipTools.place), registered as a skill 2026-11-05

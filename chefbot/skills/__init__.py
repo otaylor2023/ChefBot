@@ -19,6 +19,7 @@ which of the two it is. A manifest that says otherwise, or has a key the loader 
 
 from __future__ import annotations
 
+import importlib.util
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,12 +27,13 @@ from pathlib import Path
 import yaml
 
 from chefbot.interface import INTERFACES
+from chefbot.interface.robot_api import ALL_CAPABILITIES
 
 ROOT = Path(__file__).resolve().parent
 ENVS = ("symbolic", "robocasa", "mujoco_kitchen", "real")  # where a skill could run (chefbot/environments)
 IMPORTED_INTERFACES = ("wholebody-v2",)  # agentic-skills-exploration's robot API: kept as lab starting points, never run
-KEYS = {"name", "version", "entry", "interface", "envs", "sandboxed", "robot", "arm_only", "cameras", "args", "speed",
-        "models", "assumes", "privileged", "provenance", "imported_from"}  # fmt: skip
+KEYS = {"name", "version", "entry", "interface", "envs", "sandboxed", "robot", "needs", "description", "arm_only", "cameras",
+        "args", "speed", "models", "assumes", "privileged", "provenance", "imported_from"}  # fmt: skip
 ARG_TYPES = {"string", "number", "integer", "boolean"}
 
 
@@ -66,6 +68,48 @@ class Skill:
     def runnable(self) -> bool:
         """False for an imported skill whose robot API no session speaks."""
         return self.interface in INTERFACES
+
+    @property
+    def needs(self) -> frozenset[str]:
+        """The robot capabilities it needs (interface/robot_api.py); a robot-api-v1 skill is offered only with them."""
+        return frozenset(self.manifest.get("needs") or ())
+
+    @property
+    def description(self) -> str | None:
+        """What the LLM reads about it."""
+        return self.manifest.get("description")
+
+    @property
+    def schema(self) -> dict:
+        """The function-calling schema an agent sees: its name, description and args (an arg without a default is
+        required)."""
+        properties = {}
+        for arg, spec in self.args.items():
+            properties[arg] = {"type": spec["type"], "description": spec.get("description") or spec.get("doc", "")}
+            properties[arg].update({k: spec[k] for k in ("items", "enum") if k in spec})
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description or "",
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": [arg for arg, spec in self.args.items() if "default" not in spec],
+                    "additionalProperties": False,
+                },
+            },
+        }
+
+    def function(self):
+        """A robot-api-v1 skill's entry, to call in the agent's process: run(ctx, **args)."""
+        if self.sandboxed:
+            raise ValueError(f"skill {self.path} is sandboxed: it runs as its own process (runtime/episode.py)")
+        file, _, func = self.manifest["entry"].partition(":")
+        spec = importlib.util.spec_from_file_location(f"chefbot_skill.{self.name}.{self.dir.name}", self.dir / file)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return getattr(module, func)
 
     @property
     def robot(self) -> str:
@@ -126,6 +170,11 @@ class Skill:
         for arg, spec in self.args.items():
             if not isinstance(spec, dict) or spec.get("type") not in ARG_TYPES:
                 problems.append(f"arg {arg!r} must have a type, one of {sorted(ARG_TYPES)}")
+        bad_needs = set(m.get("needs") or ()) - set(ALL_CAPABILITIES)
+        if bad_needs:
+            problems.append(f"needs {sorted(bad_needs)} are not robot capabilities")
+        if self.interface == "robot-api-v1" and not (isinstance(m.get("description"), str) and m["description"].strip()):
+            problems.append("a robot-api-v1 skill is offered to the LLM as is: it needs a description")
         if problems:
             raise ValueError(f"skill {self.path}: " + "; ".join(problems))
 

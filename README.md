@@ -161,7 +161,8 @@ A skill's `skill.yaml` says which robot API it is written against (`interface`:
 `chefbot-v1`, a sandboxed process; `robot-api-v1`, a function in the agent's process,
 never sandboxed; `wholebody-v2`, imported from agentic-skills-exploration and not run),
 where it could run (`envs`: symbolic, robocasa, mujoco_kitchen, real) and `sandboxed`.
-`skills.load` refuses a manifest that contradicts itself or has a key it does not know;
+A robot-api-v1 skill also has the `description` the LLM reads and the robot capabilities it
+`needs`. `skills.load` refuses a manifest that contradicts itself or has a key it does not know;
 `skills.catalog(env=..., interface=...)` lists the skills that could run there.
 
 **Generator labs** (`chefbot/autoresearch/generator_lab`, labs with `kind: generator`) work the same way, but the
@@ -246,8 +247,11 @@ its `loop:` settings. Today's agent is `kitchen_planner`, the default; `run_agen
 complete, set_status, add_step, skip_step, request_replan, finish; time: set_timer,
 cancel_timer, watch). A file holds the schema the LLM sees, its handler (`entry`), the
 robot capabilities it `needs` and the robot APIs it works with (`interfaces`). An agent
-lists the ones it gets; the tools that move the robot are still defined in
-`agent/tools/registry.py`.
+lists the ones it gets. The 14 that move the robot (go_to, align, pick, place, open,
+close, turn_on, turn_off, lower_into, lift_out, squeeze, release, stir, pour) are skills,
+`skills/<name>/robotapi_v1/`: robot-api-v1, not sandboxed, `envs: [symbolic, robocasa]`, a
+`main.py` whose `run(ctx, ...)` calls the agent's tool code (`agent/tools/`) on the session's
+RobotAPI.
 
 **Handheld tools** go through one `RobotAPI` call, `use_tool(action, target,
 seconds)`: `lower_into` a container, `lift_out`, `squeeze` / `release` the

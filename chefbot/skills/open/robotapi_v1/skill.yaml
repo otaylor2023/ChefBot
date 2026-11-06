@@ -1,0 +1,30 @@
+name: open
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- articulate
+description: >-
+  Open a fixture: a fridge, microwave, dishwasher, oven, cabinet or drawer, named by its own id or the
+  id of its handle. Align to the fixture or its handle first. Opening is scripted for now (the result
+  says "scripted": true): the door moves by itself, and the robot steps back out of its way if it has
+  to, so detect again afterwards. An open door blocks the floor in front of it until it is closed. Fails
+  with unknown_id, not_visible, unreachable (align to it first), unsupported (the id is not something
+  that opens), blocked or stopped.
+args:
+  id:
+    type: string
+    description: A visible id, e.g. "fridge" or "fridge handle_1".
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's open tool (agent/tools/manip.py ManipTools.open), registered as a skill 2026-11-05

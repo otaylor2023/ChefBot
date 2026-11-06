@@ -1,0 +1,27 @@
+name: pour
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- pour
+description: >-
+  Pour what is in the held container (a bowl, a pan) into a visible container or onto a plate. Align to
+  the target first. Fails with not_holding, unknown_id, not_visible, unreachable or no_placement (it does
+  not go there).
+args:
+  id:
+    type: string
+    description: Where it goes, e.g. "pan_1" or "plate".
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's pour tool (agent/tools/manip.py HandheldTools.pour), registered as a skill 2026-11-05

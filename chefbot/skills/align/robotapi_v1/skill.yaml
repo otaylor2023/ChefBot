@@ -1,0 +1,29 @@
+name: align
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- base
+description: >-
+  Fine positioning: move the base so the arm can reach one specific item. Do this before pick, place,
+  open or close. The id must be a visible item from nearby() (which includes everything the last detect
+  returned). Fails with unknown_id (the message lists what is nearby), not_visible (go_to it first), too_far
+  (go_to first), unreachable (no place to stand from which the arm reaches it), no_path, blocked, timeout
+  or stopped.
+args:
+  id:
+    type: string
+    description: A visible id from nearby(), e.g. "burner_1".
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's align tool (agent/tools/nav.py NavTools.align), registered as a skill 2026-11-05

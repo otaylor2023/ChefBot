@@ -8,8 +8,11 @@ import yaml
 
 from chefbot import skills
 
-REGISTERED = ["bringup/v1", "pick_up/astra_v19", "pick_up/chefbot_v30", "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1",
+ROBOT = [f"{n}/robotapi_v1" for n in ("align", "close", "go_to", "lift_out", "lower_into", "open", "pick", "place", "pour",
+                                     "release", "squeeze", "stir", "turn_off", "turn_on")]  # the agent's, robot-api-v1  # fmt: skip
+LAB = ["bringup/v1", "pick_up/astra_v19", "pick_up/chefbot_v30", "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1",
               "pick_up/run1_v32", "tongs_lift/mujoco_tongs1_v34", "tongs_lift/mujoco_tongs2_v17", "tongs_lift/mujoco_tongs3_v59"]  # fmt: skip
+REGISTERED = sorted(LAB + ROBOT)
 IMPORTED = {"pick_up/astra_v19", "pick_up/run1_v32"}  # wholebody-v2, from agentic-skills-exploration
 
 
@@ -17,14 +20,14 @@ def test_every_registered_skill_loads():
     assert skills.names() == REGISTERED
     for path in REGISTERED:
         s = skills.load(path)
-        assert s.sandboxed  # all of today's run as their own process
+        assert s.sandboxed == (path in LAB)  # the lab's run as their own process; the agent's in its process
         assert s.runnable == (path not in IMPORTED)
 
 
 def test_the_catalog_lists_by_interface():
-    assert [s.path for s in skills.catalog(interface="chefbot-v1")] == [p for p in REGISTERED if p not in IMPORTED]
-    assert skills.catalog(interface="robot-api-v1") == []  # the agent's tools become these in step 5
-    assert len(skills.catalog()) == 9
+    assert [s.path for s in skills.catalog(interface="chefbot-v1")] == [p for p in LAB if p not in IMPORTED]
+    assert [s.path for s in skills.catalog(interface="robot-api-v1")] == ROBOT
+    assert len(skills.catalog()) == 23
 
 
 def test_the_catalog_lists_by_env():
@@ -38,8 +41,8 @@ def test_each_skill_says_where_it_could_run():
     def at(env):
         return [s.path for s in skills.catalog(env=env)]
 
-    assert at("symbolic") == []  # the agent's tools join here in step 5
-    assert at("robocasa") == ["bringup/v1", "pick_up/chefbot_v30"]
+    assert at("symbolic") == ROBOT
+    assert at("robocasa") == sorted(["bringup/v1", "pick_up/chefbot_v30"] + ROBOT)
     assert at("mujoco_kitchen") == ["bringup/v1", "tongs_lift/mujoco_tongs1_v34", "tongs_lift/mujoco_tongs2_v17",
                                     "tongs_lift/mujoco_tongs3_v59"]  # fmt: skip
     assert at("real") == ["bringup/v1", "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1"]
@@ -54,7 +57,7 @@ def test_a_skills_envs_match_its_labs_suite():
     assert envs_of(C.load("chefbot/labs/robocasa_pick.yaml")) == ["robocasa"]
     assert envs_of(C.load("chefbot/labs/mujoco_tongs.yaml")) == ["mujoco_kitchen"]
     assert skills.load("pick_up/chefbot_v30").envs == ("robocasa",)
-    assert all(skills.load(p).envs == ("mujoco_kitchen",) for p in REGISTERED if p.startswith("tongs_lift/"))
+    assert all(skills.load(p).envs == ("mujoco_kitchen",) for p in LAB if p.startswith("tongs_lift/"))
 
 
 def test_the_catalog_refuses_what_it_does_not_know():
@@ -100,7 +103,7 @@ def test_a_broken_manifest_is_refused(tmp_path, edit, message):
 
 
 def test_a_robot_api_skill_is_never_sandboxed(tmp_path):
-    s = skills.load(str(_copy(tmp_path, lambda m: m.update(interface="robot-api-v1", sandboxed=False))))
+    s = skills.load(str(_copy(tmp_path, lambda m: m.update(interface="robot-api-v1", sandboxed=False, description="Lift."))))
     assert not s.sandboxed and s.runnable
 
 
