@@ -36,20 +36,26 @@ successes / runs. Commits on branch `harness-memory-planner`; the baseline is `a
 | 2-3 | 05abeb7 | step record keeps failed attempts; complete blocked after 2 refusals until the kitchen changes; SEARCHING only what was asked for | RoboCasa mixed_grill: 5 complete calls in a row against the check |
 | 4-5 | 782ad2e | LEARNED BY DOING (what failed on what, what fixed it, whole run); kitchen memory across runs (`--memory`) | MessyMem: interaction-derived, persistent memory |
 | 6 | 0f29f82 | finish refused once while a door the robot opened is open | every remaining finding failure was a cabinet left open |
+| 1d | 84b8b3a | planner's ROBOT list keeps each skill's first sentence whole (it was cut at a colon: "align: Fine positioning:", "open: Open a fixture:") | found reading the planner's input for the demo page |
 
 ### Results
 
-| Set | Baseline | Step 1 | Step 1b | Steps 2-3 | Steps 4-5 | Step 6 | Step 1c (final) |
-|---|---|---|---|---|---|---|---|
-| Cooking, hand-written plans (17 × 2) | **33/34**, $15.38 | | | | | | |
-| Requests, planned from the prompt (21 × 2) | | 29/42, $17.62 | 32/42, $19.86 | | | | **39/42**, $19.30 |
-| of which ambiguous, with a simulated user (3 × 2) | | 2/6 | 3/6 | | | | **6/6** |
-| of which impossible, refused (1 × 2) | | 2/2 | 2/2 | | | | **2/2** |
-| Ambiguous requests without a user (3 × 2) | | 0/6 | | | | | |
-| Recovery, failure noise on (7 × 3) | 20/21, 3.6 err/run | | | 20/21, 3.5 | 21/21, 3.0 | **21/21**, 3.5 | |
-| Finding, stale map (4 × 3) | 8/12, $3.06 | | | 10/12, $2.57 | 11/12, $2.50 | **12/12**, $2.43 | |
-| Memory sequences, B with A's memory (3 × 3) | | | | | 9/9, 18.3 turns, 5.8 finding calls, $0.75 | **9/9, 17.2 turns, 4.9 finding, $0.69** | |
-| Memory sequences, B without memory (3 × 3) | | | | | 7/9, 34.2 turns, 18.8 finding, $1.54 | 9/9, 31.1 turns, 13.6 finding, $1.37 | |
+| Set | Baseline | Step 1 | Step 1b | Steps 2-3 | Steps 4-5 | Step 6 | Step 1c | Step 1d (final) |
+|---|---|---|---|---|---|---|---|---|
+| Cooking, hand-written plans (17 × 2) | **33/34**, $15.38 | | | | | | | |
+| Requests, planned from the prompt (21 × 2) | | 29/42, $17.62 | 32/42, $19.86 | | | | 39/42, $19.30 | **41/42**, $19.83 |
+| of which ambiguous, with a simulated user (3 × 2) | | 2/6 | 3/6 | | | | 6/6 | **6/6** |
+| of which impossible, refused (1 × 2) | | 2/2 | 2/2 | | | | 2/2 | **2/2** |
+| Ambiguous requests without a user (3 × 2) | | 0/6 | | | | | | |
+| Recovery, failure noise on (7 × 3) | 20/21, 3.6 err/run | | | 20/21, 3.5 | 21/21, 3.0 | **21/21**, 3.5 | | |
+| Finding, stale map (4 × 3) | 8/12, $3.06 | | | 10/12, $2.57 | 11/12, $2.50 | **12/12**, $2.43 | | |
+| Memory sequences, B with A's memory (3 × 3) | | | | | 9/9, 18.3 turns, 5.8 finding calls, $0.75 | **9/9, 17.2 turns, 4.9 finding, $0.69** | | |
+| Memory sequences, B without memory (3 × 3) | | | | | 7/9, 34.2 turns, 18.8 finding, $1.54 | 9/9, 31.1 turns, 13.6 finding, $1.37 | | |
+
+Step 1d against 1c: 41/42 against 39/42. Every failure in both is a scrambled egg at the 30-minute limit or not
+scrambled (1c: 3, in different jobs and seeds; 1d: scrambled_eggs seed 1, 183 turns, the fridge left open), and the
+scrambled runs flip both ways between the two, so the 2 runs are within the run-to-run spread, not the fix's doing.
+The other 36 runs succeed in both with about the same turns.
 
 Requests at step 1c, the 17 cooking jobs alone: 31/34 planned from the request, against 33/34 from the hand-written
 plans (baseline). The 3 failures are scrambled eggs (two at the 30-minute limit, one not scrambled): the planned
@@ -88,7 +94,7 @@ inside it 16 times: the window wasn't what failed.
 
 ### Cost
 
-About $150 in total for every evaluation above (about 300 runs), plus $1.78 for the RoboCasa videos.
+About $170 in total for every evaluation above (about 340 runs), plus $1.78 for the RoboCasa videos.
 
 ## Where the runs are
 
