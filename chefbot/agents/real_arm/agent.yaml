@@ -7,8 +7,9 @@ harness: plan_loop          # agent/harnesses/plan_loop: the loop it runs in
 interfaces: [chefbot-v1]    # its skills are sandboxed programs on the skill API (interface/skill_api.py)
 prompts: prompts
 skills:
-  include: ["pick_up/gemini_v1"]   # envs: real; one pick_up only (the LLM calls a skill by its name). The wrist camera
-                                   # only: bringup/v1 (all cameras) is left out while the pole D455 isn't detected
+  include: ["ready/v1", "pick_up/gemini_v1"]  # envs: real; one pick_up only (the LLM calls a skill by its name). The
+                                               # wrist camera only: bringup/v1 (all cameras) is left out while the
+                                               # pole D455 isn't detected
 tools:                      # chefbot/tools: the plan's (no timers yet)
   - complete
   - set_status

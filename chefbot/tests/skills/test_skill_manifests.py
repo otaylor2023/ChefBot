@@ -11,7 +11,8 @@ from chefbot import skills
 ROBOT = [f"{n}/robotapi_v1" for n in ("align", "close", "go_to", "lift_out", "lower_into", "open", "pick_up", "place", "pour",
                                      "release", "squeeze", "stir", "turn_off", "turn_on")]  # the agent's, robot-api-v1  # fmt: skip
 LAB = ["bringup/v1", "pick_up/astra_v19", "pick_up/chefbot_v30", "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1",
-              "pick_up/run1_v32", "tongs_lift/mujoco_tongs1_v34", "tongs_lift/mujoco_tongs2_v17", "tongs_lift/mujoco_tongs3_v59"]  # fmt: skip
+              "pick_up/run1_v32", "ready/v1", "tongs_lift/mujoco_tongs1_v34", "tongs_lift/mujoco_tongs2_v17",
+              "tongs_lift/mujoco_tongs3_v59"]  # fmt: skip
 REGISTERED = sorted(LAB + ROBOT)
 IMPORTED = {"pick_up/astra_v19", "pick_up/run1_v32"}  # wholebody-v2, from agentic-skills-exploration
 
@@ -27,7 +28,7 @@ def test_every_registered_skill_loads():
 def test_the_catalog_lists_by_interface():
     assert [s.path for s in skills.catalog(interface="chefbot-v1")] == [p for p in LAB if p not in IMPORTED]
     assert [s.path for s in skills.catalog(interface="robot-api-v1")] == ROBOT
-    assert len(skills.catalog()) == 23
+    assert len(skills.catalog()) == 24
 
 
 def test_the_catalog_lists_by_env():
@@ -43,9 +44,9 @@ def test_each_skill_says_where_it_could_run():
 
     assert at("symbolic") == ROBOT
     assert at("robocasa") == sorted(["bringup/v1", "pick_up/chefbot_v30"] + ROBOT)
-    assert at("mujoco_kitchen") == ["bringup/v1", "tongs_lift/mujoco_tongs1_v34", "tongs_lift/mujoco_tongs2_v17",
+    assert at("mujoco_kitchen") == ["bringup/v1", "ready/v1", "tongs_lift/mujoco_tongs1_v34", "tongs_lift/mujoco_tongs2_v17",
                                     "tongs_lift/mujoco_tongs3_v59"]  # fmt: skip
-    assert at("real") == ["bringup/v1", "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1"]
+    assert at("real") == ["bringup/v1", "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1", "ready/v1"]
     for path in IMPORTED:
         assert skills.load(path).envs == ()  # runs nowhere here
 

@@ -22,14 +22,15 @@ PLAN_TOOLS = ("complete", "set_status", "add_step", "skip_step", "request_replan
 def test_its_session_on_the_real_robot():
     s = Session.open(agents.load("real_arm"), env="real")
     assert s.interface == "chefbot-v1"
-    assert [x.path for x in s.skills] == ["pick_up/gemini_v1"]  # the wrist camera only
+    assert [x.path for x in s.skills] == ["pick_up/gemini_v1", "ready/v1"]  # the wrist camera only
     assert s.tools == PLAN_TOOLS
     assert all(x.description for x in s.skills)  # what the LLM reads about them
 
 
-def test_in_the_sims_it_gets_nothing():
-    for env in ("symbolic", "robocasa", "mujoco_kitchen"):
+def test_in_the_sims_it_gets_only_ready_in_the_fr3s_twin():
+    for env in ("symbolic", "robocasa"):
         assert Session.open(agents.load("real_arm"), env=env).skills == []
+    assert [x.path for x in Session.open(agents.load("real_arm"), env="mujoco_kitchen").skills] == ["ready/v1"]
 
 
 class Scripted:
@@ -58,7 +59,7 @@ def with_bringup(tmp_path) -> str:
     d = tmp_path / "agent" / "real_arm"
     shutil.copytree(agents.ROOT / "real_arm", d)
     m = yaml.safe_load((d / "agent.yaml").read_text())
-    m["skills"]["include"] = ["bringup/v1", "pick_up/gemini_v1"]
+    m["skills"]["include"] = ["bringup/v1", "pick_up/gemini_v1", "ready/v1"]
     (d / "agent.yaml").write_text(yaml.safe_dump(m))
     return str(d)
 
@@ -99,7 +100,7 @@ def pick_run(tmp_path_factory, a_gemini_key):
 
 def test_the_agent_is_offered_its_skills_and_the_plans_tools(pick_run):
     llm, _, _, run_dir = pick_run
-    assert llm.tools == list(PLAN_TOOLS) + ["bringup", "pick_up"]
+    assert llm.tools == list(PLAN_TOOLS) + ["bringup", "pick_up", "ready"]
     start = json.loads((run_dir / "start.json").read_text())
     assert start["env"] == "real" and start["session"]["interface"] == "chefbot-v1" and start["dry_run"] is False
 
@@ -163,3 +164,25 @@ def test_the_cli_offers_the_real_robot():
 
     out = subprocess.run([sys.executable, "-m", "chefbot.scripts.run_agent", "--help"], cwd=REPO, capture_output=True, text=True)
     assert "{symbolic,robocasa,real}" in out.stdout and "--dry-run" in out.stdout and "real_arm" in out.stdout
+
+
+def test_ready_takes_the_arm_around_the_pole_from_where_the_real_arm_stood(tmp_path):
+    # The real arm on 2026-11-05: pick_up's straight move home from here grazed the pole camera's keep-out and was
+    # refused. ready gives the controller the pose instead, and every one of its joint targets passes the guard.
+    import numpy as np
+
+    from chefbot import embodiments
+    from chefbot.environments.real.host import HOME
+    from chefbot.robot.control.constraints import for_robot, path_violation
+
+    stood = np.radians([0.1, -76.5, -0.1, -115.2, 0.5, 92.0, 44.2])
+    body = embodiments.load("tidybot_fr3").body
+    assert path_violation(for_robot(body), body.hand_m, [stood, np.asarray(HOME)]) is not None  # the straight way
+    calls = [("ready", {}), ("finish", {"summary": "ready", "abandon": True})]
+    llm, fake = Scripted(calls), FakeRobot()
+    fake.q = stood.copy()
+    run_agent.run(JOB, 0, tmp_path, llm=llm, operator=lambda r: "abort", quiet=True, env="real", agent="real_arm",
+                  env_options={"env": fake, "confirm": False})  # fmt: skip
+    assert llm.results[0]["success"] and llm.results[0]["data"]["returned"]["reason"] == "at the ready pose"
+    assert np.degrees(np.abs(fake.q - np.asarray(HOME)).max()) < 5  # pick_up's own move home is then a few degrees
+    assert path_violation(for_robot(body), body.hand_m, [fake.q, np.asarray(HOME)]) is None
