@@ -117,6 +117,9 @@ REPAIR_HINTS = {
 
 
 def _hint(x) -> str:
+    import os
+    if os.environ.get("RECIPE_REPAIR_HINTS", "1") == "0":   # ablation: validator findings without fix instructions
+        return ""
     code = x.code
     if code == "state_precondition" and ".heat requires" in x.message:
         code = "heat_state_required"

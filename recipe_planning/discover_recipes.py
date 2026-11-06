@@ -96,12 +96,16 @@ def saved_urls(out: Path) -> set[str]:
     return urls
 
 
-def save(doc, url: str, out: Path) -> Path:
+def save(doc, url: str, out: Path, page: str | None = None) -> Path:
     name = slug(doc.text.split("\n", 1)[0])
     path, n = out / f"{name}.txt", 2
     while path.exists():
         path, n = out / f"{name}_{n}.txt", n + 1
     path.write_text(doc.text, encoding="utf-8")
+    if page is not None:   # raw snapshot: lets the page -> text step be benchmarked later, offline
+        snap = out / "html"
+        snap.mkdir(exist_ok=True)
+        (snap / f"{path.stem}.html").write_text(page, encoding="utf-8")
     (out / f"{path.stem}.meta.json").write_text(json.dumps({"url": url, **doc.structured_hints}, indent=1))
     return path
 
@@ -116,6 +120,7 @@ def main(argv=None):
     ap.add_argument("--delay", type=float, default=2.0, help="seconds between page requests to one site")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--save-html", action="store_true", help="also keep the raw page in <out>/html/ (offline benchmark of ingestion)")
     a = ap.parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -160,7 +165,7 @@ def main(argv=None):
                 skipped += 1
             else:
                 doc.structured_hints["url"] = url
-                p = save(doc, url, out)
+                p = save(doc, url, out, page if a.save_html else None)
                 have.add(url)
                 saved += 1
                 log(f"  saved {p.name} ({len(doc.text)} chars)")
