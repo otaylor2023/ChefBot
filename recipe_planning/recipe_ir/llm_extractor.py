@@ -6,6 +6,7 @@ Another provider is one more BaseExtractor subclass with a _call(system, user) -
 from __future__ import annotations
 from .config import DEFAULT_RECIPE_MODEL, DEFAULT_REASONING_EFFORT
 import os
+import re
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -170,8 +171,13 @@ class BaseExtractor:
 
     @staticmethod
     def _parse(raw: str, usage: Usage) -> LLMCall:
+        # JSON mode without a schema grammar (Claude via OpenRouter) sometimes wraps the object in a markdown fence.
+        # The content is still the answer, so unwrap it; result.json keeps the raw text, so fencing stays countable.
+        body = raw.strip()
+        if body.startswith("```"):
+            body = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", body)
         try:
-            return LLMCall(Recipe.model_validate_json(raw), raw, usage)
+            return LLMCall(Recipe.model_validate_json(body), raw, usage)
         except Exception as e:  # schema-invalid output is a result to report, not a crash
             return LLMCall(None, raw, usage, f"schema_error: {e}")
 

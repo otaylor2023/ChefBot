@@ -248,3 +248,10 @@ def test_eval_models_end_to_end(fake_server, tmp_path):
     assert b["valid"] == 1.0 and b["silver_strict_step_f1"] == 1.0 and b["gold_strict_step_f1"] == 1.0
     assert b["robot_supported_share"] is not None and b["cost_usd"] == 0.0
     assert (batch / "matrix.md").exists() and (batch / "cells.csv").exists()
+
+
+def test_fenced_json_is_unwrapped():
+    from recipe_ir.llm_extractor import BaseExtractor, Usage
+    raw = (HERE / "recipes" / "gold" / "onion_egg.gold.json").read_text()
+    call = BaseExtractor._parse("```json\n" + raw + "\n```", Usage("x"))
+    assert call.recipe is not None and call.error is None and call.raw.startswith("```")
