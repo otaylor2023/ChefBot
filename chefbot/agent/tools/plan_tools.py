@@ -38,12 +38,15 @@ class PlanTools:
         bus: EventBus | None = None,
         operator: Operator = terminal_operator,
         reload: Callable[[], None] | None = None,
+        open_doors: Callable[[], list[str]] | None = None,
     ):
         self._store = store
         self._check = check
         self._bus = bus
         self._operator = operator
         self._reload = reload
+        self._open_doors = open_doors  # doors the robot opened and hasn't closed (the kitchen belief)
+        self._warned_open = False
         self.outcome: tuple[str, str] | None = None  # (outcome, summary) once the run should end
         # complete refused by the check, in a row, per step, and whether the kitchen changed since the last refusal
         self._refused: dict[str, int] = {}
@@ -124,6 +127,13 @@ class PlanTools:
         return ToolResult(True, None, "The operator says to continue with the current plan.", {"answer": "continue"})
 
     def finish(self, summary: str, abandon: bool = False) -> ToolResult:
+        doors = self._open_doors() if self._open_doors is not None else []
+        if doors and not self._warned_open:  # once: a door that won't close can't trap the run
+            self._warned_open = True
+            return ToolResult(False, "doors_open",
+                              f"You opened {', '.join(doors)} and left {'it' if len(doors) == 1 else 'them'} open. Close "
+                              f"{'it' if len(doors) == 1 else 'them'} before you finish (an open door blocks the floor, and "
+                              "a kitchen is left as it was found).", {"open": doors})  # fmt: skip
         remaining = [s for s in self._store.live.steps if s.status not in FINISHED]
         if remaining and not abandon:
             listed = ", ".join(f"{s.id} ({s.status})" for s in remaining)

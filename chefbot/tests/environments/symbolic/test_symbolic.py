@@ -316,8 +316,8 @@ def test_the_agent_keeps_track_of_the_egg_in_the_held_cracker(tmp_path):
     ]  # fmt: skip
     sc, session, _ = run_task("scrambled_eggs", script, {}, tmp_path)
     errors = [(r["turn"], r["tool"], r["result"]["message"]) for r in read_timeline(session.log.dir)
-              if r["kind"] == "action" and not r["result"]["success"]]  # fmt: skip
-    assert errors == []
+              if r["kind"] == "action" and not r["result"]["success"] and r["result"]["error"] != "doors_open"]  # fmt: skip
+    assert errors == []  # (the script leaves the fridge open: finish reminds it once, which isn't what this tests)
     state = session.task_state.render([])
     assert "holding: egg_cracker · inside: egg (you put it here" in state
     assert "egg (in the gripper)" in state  # perception

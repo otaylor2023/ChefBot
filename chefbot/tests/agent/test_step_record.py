@@ -93,3 +93,14 @@ def test_searching_lists_only_what_was_asked_for_by_name():
     assert registry.tools.searched == {}
     registry.dispatch("detect", {"classes": ["whisk"]})
     assert "whisk" in registry.tools.searched and "knife" not in registry.tools.searched
+
+
+def test_finish_with_a_door_the_robot_left_open_is_refused_once():
+    store = PlanStore(Plan("g", [Step("s1", "x", "y", status="done")]))
+    open_now = ["cabinet_2"]
+    pt = PlanTools(store, lambda s, c: CheckResult(True, "ok"), operator=lambda r: "abort", open_doors=lambda: list(open_now))
+    first = pt.finish("done")
+    assert first.error == "doors_open" and "cabinet_2" in first.message and pt.outcome is None
+    assert pt.finish("done").success  # the second time it lets the run end (a door that won't close)
+    pt2 = PlanTools(store, lambda s, c: CheckResult(True, "ok"), operator=lambda r: "abort", open_doors=lambda: [])
+    assert pt2.finish("done").success

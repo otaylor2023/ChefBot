@@ -119,7 +119,11 @@ class AgentSession:
             agent_tools=agent_tools, robot_skills=robot_skills,
         )  # fmt: skip
         time_tools = TimeTools(robot, bus, clock, store)
-        plan_tools = PlanTools(store, check, bus, operator, reload)
+        def open_doors() -> list[str]:
+            states = registry.tools.kitchen.states
+            return sorted(n for n, f in states.items() if f.value == "open" and f.source == "you")
+
+        plan_tools = PlanTools(store, check, bus, operator, reload, open_doors)
         registry.add_loop_tools(plan_tools, time_tools)
         for schema, handler in skill_tools:  # chefbot-v1 skills: (schema, handler running an episode)
             registry.add_tool(schema, handler)
