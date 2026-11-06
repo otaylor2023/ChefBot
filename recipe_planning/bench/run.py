@@ -118,6 +118,7 @@ def main(argv=None):
                 "repair": res.repair_decision, "calls": u["calls"], "input_tokens": u["input_tokens"],
                 "output_tokens": u["output_tokens"], "latency_s": u["latency_s"], "cost_usd": run_cost(res),
                 "truncated": sum(1 for at in res.attempts if (at.call.error or "").startswith("truncated")),
+                "adaptations": sorted(getattr(ex, "adaptations", set())),
                 "run_dir": str(run_dir)}
 
     jobs = [(i, k) for k in range(a.runs) for i in instances if (i["id"], k) not in done]

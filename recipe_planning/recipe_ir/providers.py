@@ -64,6 +64,33 @@ class OpenRouterExtractor(CappedExtractor):
         self.max_output_tokens, self.retry_temperature, self.cap = max_output_tokens, retry_temperature, max_output_tokens
         self.response_format = {"type": "json_schema",
                                 "json_schema": {"name": "Recipe", "strict": True, "schema": recipe_schema()}}
+        self.adaptations: set[str] = set()
+
+    def _create(self, system, user, extra, kwargs):
+        """Vendor limits, handled once per extractor and recorded in self.adaptations:
+        - no endpoint accepts `temperature` (some Claude models): drop it
+        - the strict schema is too big for the provider's grammar compiler (Anthropic: >16 union-typed fields):
+          send the schema non-strict; our parser + retry still reject anything that doesn't validate"""
+        import openai
+        while True:
+            try:
+                return self.client.chat.completions.create(
+                    model=self.remote_model, messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    response_format=self.response_format, max_tokens=self.cap, extra_body=extra, **kwargs)
+            except openai.NotFoundError as e:
+                if "temperature" in kwargs and "No endpoints found" in str(e):
+                    kwargs.pop("temperature")
+                    self.temperature = None
+                    self.adaptations.add("no temperature")
+                    continue
+                raise
+            except openai.BadRequestError as e:
+                msg = str(e)
+                if self.response_format["json_schema"]["strict"] and ("grammar is too large" in msg or "union types" in msg):
+                    self.response_format = {"type": "json_schema", "json_schema": {**self.response_format["json_schema"], "strict": False}}
+                    self.adaptations.add("schema not enforced (provider grammar limit)")
+                    continue
+                raise
 
     def _call(self, system, user):
         t = time.perf_counter()
@@ -73,9 +100,7 @@ class OpenRouterExtractor(CappedExtractor):
         kwargs = {}
         if self.temperature is not None:
             kwargs["temperature"] = self.retry_temperature if self.retrying else self.temperature
-        resp = self.client.chat.completions.create(
-            model=self.remote_model, messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            response_format=self.response_format, max_tokens=self.cap, extra_body=extra, **kwargs)
+        resp = self._create(system, user, extra, kwargs)
         u = resp.usage
         details = getattr(u, "completion_tokens_details", None) if u else None
         cost = getattr(u, "cost", None) if u else None
