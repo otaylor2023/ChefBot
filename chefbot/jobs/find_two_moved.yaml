@@ -1,0 +1,17 @@
+# Evaluation (finding, after MessyMem's Finding family): the map is stale; objects are not where it says.
+name: find_two_moved
+goal: "The bread and the plate on the table"
+prompt: "Put the bread and a plate on the table."
+steps:
+  - {id: s1, goal: "Put the plate on the table", done_when: "the plate is on the table"}
+  - {id: s2, goal: "Put the bread on the table", done_when: "the bread is on the table"}
+symbolic:
+  objects:
+    - {name: bread, on: counter_1}
+    - {name: plate, on: counter_1}
+  disturbances:
+    - {at: start, do: move, object: bread, to: {in: cabinet_1}, note: "the bread is in cabinet_1 (the map says counter_1)"}
+    - {at: start, do: move, object: plate, to: {in: cabinet_2}, note: "the plate is in cabinet_2 (the map says counter_1)"}
+  success:
+    require: ["bread: on table", "plate: on table"]
+    forbid: ["cabinet_\\d: open"]

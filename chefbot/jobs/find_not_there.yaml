@@ -1,0 +1,15 @@
+# Evaluation (finding, after MessyMem's Finding family): the map is stale; objects are not where it says.
+name: find_not_there
+goal: "The jam on the table (there is no jam)"
+prompt: "Put the jam on the table."
+steps:
+  - {id: s1, goal: "Put the jam on the table", done_when: "the jam is on the table"}
+symbolic:
+  objects:
+    - {name: jam, on: counter_1}
+    - {name: plate, on: counter_1}
+  disturbances:
+    - {at: start, do: remove, object: jam, note: "the jam is gone (the map still says counter_1)"}
+  success:
+    expect_tools: [request_replan]
+    forbid: ["cabinet_\\d: open", "fridge: open"]

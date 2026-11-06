@@ -1,0 +1,14 @@
+# Evaluation (finding, after MessyMem's Finding family): the map is stale; objects are not where it says.
+name: find_mug_moved
+goal: "The mug on counter_2"
+prompt: "Put the mug on counter_2."
+steps:
+  - {id: s1, goal: "Put the mug on counter_2", done_when: "the mug is on counter_2"}
+symbolic:
+  objects:
+    - {name: mug, on: counter_1}
+  disturbances:
+    - {at: start, do: move, object: mug, to: {in: cabinet_2}, note: "someone put the mug away in cabinet_2 (the map still says counter_1)"}
+  success:
+    require: ["mug: on counter_2"]
+    forbid: ["cabinet_\\d: open"]

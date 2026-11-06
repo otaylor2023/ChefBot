@@ -1,0 +1,15 @@
+# Evaluation (finding, after MessyMem's Finding family): the map is stale; objects are not where it says.
+name: find_egg_moved
+goal: "The egg in the pan, the fridge and cabinets closed"
+prompt: "Take the egg and put it in the pan, please."
+steps:
+  - {id: s1, goal: "Put the egg in the pan", done_when: "the egg is inside the pan"}
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: pan, on: counter_2}
+  disturbances:
+    - {at: start, do: move, object: egg, to: {in: cabinet_1}, note: "the egg is in cabinet_1, not the fridge (the map says fridge)"}
+  success:
+    require: ["egg: inside pan"]
+    forbid: ["cabinet_\\d: open", "fridge: open"]
