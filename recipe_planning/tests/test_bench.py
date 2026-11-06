@@ -90,3 +90,30 @@ def test_doneness_temperature_counts_for_units():
     vv = validate(r, from_text((HERE / "recipes" / "scrambled_eggs.txt").read_text()))
     out = check({"expect": {"kind": "temperature", "expected_c": [49], "tolerance_c": 3}}, vv, v)
     assert out["metrics"]["temps_c"] == [49.0]
+
+
+# ------------------------------------------------------------------ recipe chooser (proactive step)
+def _toy_corpus():
+    return {
+        "tomato_egg": "Tomato Egg\n\nIngredients\n- 4 eggs\n- 2 tomatoes\n- 1 scallion\n- 1 tsp sugar\n- salt\n\n"
+                      "Instructions\n1. Heat a wok. Scramble the eggs. Add tomatoes and sugar and cook 2 minutes.\n",
+        "pb_toast": "PB Toast\n\nIngredients\n- 2 slices bread\n- 2 tbsp peanut butter\n\nInstructions\n1. Toast the bread. Spread the peanut butter.\n",
+        "chicken_rice": "Chicken Rice\n\nIngredients\n- 1 lb chicken thighs\n- 1 cup rice\n- 2 tomatoes\n\n"
+                        "Instructions\n1. Dice the chicken. Cook the rice. Add the chicken and simmer 10 minutes.\n",
+    }
+
+
+def test_chooser_ranks_reports_missing_and_keeps_constraints():
+    from recipe_ir.choose import Prefs, assess, choose, have
+    from recipe_ir.actions import load_skills
+    sk = load_skills("chefbot_sim")
+    c = _toy_corpus()
+    top = choose(c, ["eggs", "tomato", "green onions", "sugar", "rice"], Prefs(), sk)
+    assert top[0]["name"] == "tomato_egg" and top[0]["missing"] == []          # synonym: green onion = scallion
+    assert have(["butter"], "peanut butter") is None                            # compounds don't match their head noun
+    a = assess("pb_toast", c["pb_toast"], ["bread", "butter"], Prefs(), sk)
+    assert a["missing"] == ["2 tbsp peanut butter"]                              # reported, never bought
+    veg = choose(c, ["chicken", "rice", "tomato", "eggs"], Prefs(diet="vegetarian"), sk)
+    assert "chicken_rice" not in [x["name"] for x in veg]                        # hard constraint, not a preference
+    strict = choose(c, ["chicken", "rice", "tomato"], Prefs(robot="strict"), sk)
+    assert "chicken_rice" not in [x["name"] for x in strict]                     # needs a knife: robot can't
