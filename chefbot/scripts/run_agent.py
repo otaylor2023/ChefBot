@@ -60,11 +60,13 @@ def run(
     planner_llm=None,
     user=None,
     memory: Path | None = None,
+    narrate: bool = False,
 ) -> dict:
     """env_options: the real robot's (--env real): dry_run, confirm, url, speed, model_usd; env (a stand-in for
     RealEnv, for tests). plan_from: "job" (the task file's plan) or "prompt" (the planner plans from the request:
     `prompt`, else the task file's `prompt:`; request_replan then calls the planner again). user(question) -> answer:
-    who answers the planner's questions (None: nobody)."""
+    who answers the planner's questions (None: nobody). narrate: the planner and the executor say what they are doing
+    and why before each call (prompts narrate.md, planner_narrate.md; scripts/chat.py)."""
     from chefbot.agents.session import Session
     from chefbot.scripts.envs import ENVS
 
@@ -102,7 +104,7 @@ def run(
                              world.task["user"])  # fmt: skip
     if plan_from == "prompt":
         planning = Planning(prompt or world.task.get("prompt"), planner_llm or OpenRouterClient(config.model, temperature=config.temperature,
-                            provider=config.provider), agent_def.prompts_dir / "planner.md", user, holder, run_dir)  # fmt: skip
+                            provider=config.provider), agent_def.prompts_dir / "planner.md", user, holder, run_dir, narrate)  # fmt: skip
         operator = planning.operator
     try:
         skill_tools = []  # chefbot-v1 skills: one sandboxed episode per call (runtime/agent_skills.py)
@@ -115,7 +117,7 @@ def run(
             tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
             prompts_dir=agent_def.prompts_dir, agent_tools=run_session.tools,
             robot_skills=[s for s in run_session.skills if not s.sandboxed], skill_tools=skill_tools,
-            reload=(lambda: None) if planning is not None else None,
+            reload=(lambda: None) if planning is not None else None, narrate=narrate,
         )  # fmt: skip
         holder["session"] = session
         if planning is not None:
@@ -225,13 +227,14 @@ class Planning:
     EXECUTOR_ONLY = {"complete", "set_status", "add_step", "skip_step", "request_replan", "finish", "set_timer",
                      "cancel_timer", "watch", "wait", "get_status", "stop", "get_pose", "holding", "nearby"}  # fmt: skip
 
-    def __init__(self, request: str | None, llm, prompt: Path, user, holder: dict, run_dir: Path):
+    def __init__(self, request: str | None, llm, prompt: Path, user, holder: dict, run_dir: Path, narrate: bool = False):
         from chefbot.agent.plan.planner import Planner
 
         if not request:
             raise SystemExit("--plan-from prompt needs a request: --prompt, or `prompt:` in the task file")
         self.request, self.holder, self.run_dir = request, holder, run_dir
-        self.planner = Planner(llm, prompt, user)
+        text = prompt.read_text() + ((prompt.parent / "planner_narrate.md").read_text() if narrate else "")
+        self.planner = Planner(llm, text, user)
         self.calls: list[dict] = []
 
     def _context(self):
@@ -297,6 +300,7 @@ def main() -> int:
     parser.add_argument("--plan-from", choices=["job", "prompt"], default="job",
                         help="job: the task file's plan; prompt: the planner plans from the request (--prompt or the task's prompt:)")
     parser.add_argument("--prompt", help="the user's request (with --plan-from prompt)")
+    parser.add_argument("--narrate", action="store_true", help="the planner and the executor say what they do and why before each call")
     parser.add_argument("--memory", type=Path, help="the kitchen memory: loaded at the start if it exists, saved at the end")
     parser.add_argument("--no-user", action="store_true", help="nobody answers the planner's questions (an ablation)")
     parser.add_argument("--window", type=int, help="calls kept verbatim in the executor's context (the agent's loop.window_n)")
@@ -320,7 +324,7 @@ def main() -> int:
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
                  env=args.env, video=args.video, agent=args.agent, interface=args.interface,
                  env_options={"dry_run": args.dry_run, "confirm": args.confirm, "url": args.url, "speed": args.speed},
-                 plan_from=args.plan_from, prompt=args.prompt, memory=args.memory, user=_nobody if args.no_user else (None if args.quiet else _ask_in_terminal))  # fmt: skip
+                 plan_from=args.plan_from, prompt=args.prompt, memory=args.memory, narrate=args.narrate, user=_nobody if args.no_user else (None if args.quiet else _ask_in_terminal))  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
     if result["success"] is None:  # not judged (the real robot): the agent's own word

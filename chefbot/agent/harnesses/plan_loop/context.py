@@ -28,12 +28,15 @@ PROMPTS_DIR = Path(__file__).resolve().parents[3] / "agents" / "kitchen_planner"
 PROMPT_SECTIONS = {"stir": "handheld.md", "pour": "handheld.md", "squeeze": "trigger_tools.md"}
 
 
-def system_prompt(tool_names: set[str], prompts_dir: Path | None = None) -> str:
-    """The system prompt for a run: the base (system.md) plus a section for each kind of tool offered."""
+def system_prompt(tool_names: set[str], prompts_dir: Path | None = None, narrate: bool = False) -> str:
+    """The system prompt for a run: the base (system.md) plus a section for each kind of tool offered, and with
+    `narrate` narrate.md (say what you are doing and why before each call: for someone watching the run)."""
     prompts_dir = Path(prompts_dir or PROMPTS_DIR)
     text = (prompts_dir / "system.md").read_text()
     for name in dict.fromkeys(f for tool, f in PROMPT_SECTIONS.items() if tool in tool_names):
         text += (prompts_dir / name).read_text()
+    if narrate:
+        text += (prompts_dir / "narrate.md").read_text()
     return text
 REPROMPT = "Respond with exactly one tool call."
 

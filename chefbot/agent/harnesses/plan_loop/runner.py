@@ -92,6 +92,7 @@ class AgentSession:
         robot_skills: list | None = None,
         skill_tools: list = (),
         reload: Callable[[], None] | None = None,
+        narrate: bool = False,
     ) -> "AgentSession":
         config = config or LoopConfig.load()
         log = RunLog(run_dir, clock, observer, config.log_full_requests)
@@ -133,7 +134,7 @@ class AgentSession:
             config.clear_move_m, config.clear_turn_deg,
         ))  # fmt: skip
         task_state = TaskState(store, bus, perception, registry.tools, robot, world_map, clock, time_tools)
-        prompt = system_prompt if system_prompt is not None else build_system_prompt({s["function"]["name"] for s in registry.schemas}, prompts_dir)
+        prompt = system_prompt if system_prompt is not None else build_system_prompt({s["function"]["name"] for s in registry.schemas}, prompts_dir, narrate)
         context = ContextBuilder(prompt, config.window_n)
         session = cls(registry, store, bus, time_tools, plan_tools, perception, task_state, context, robot, clock, log, config)
         holder["session"] = session
