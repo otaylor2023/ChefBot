@@ -5,7 +5,7 @@
 
 Prints what the robot reports, and checks the arm's frames: our FR3 kinematics give the flange
 from the measured joints, the arm's controller reports the pose of the point it moves; the offset
-between them must be robot_real.yaml's arm `driver.control_point`, or every pose target misses by
+between them must be the arm's `driver.control_point` (embodiments/arms/), or every pose target misses by
 the difference. --frames saves one frame per camera under runs/real_check/.
 """
 
@@ -20,9 +20,12 @@ import numpy as np
 
 from chefbot.environments.real.env import CONFIG, RealEnv
 from chefbot.robot.arm.ik import ArmIK, rotation_angle
-from chefbot.robot.config import REAL_PATH, RobotConfig
+from chefbot import embodiments
+from chefbot.robot.config import CONFIG_DIR, RobotConfig
 
 REPO = Path(__file__).resolve().parents[3]
+ROBOT = "tidybot_fr3"  # the real robot's embodiment
+DEFAULT_ROBOT_CONFIG = CONFIG_DIR / embodiments.load(ROBOT).raw["robot_config"]
 POS_TOLERANCE, ROT_TOLERANCE = 0.005, math.radians(2.0)
 
 
@@ -39,7 +42,7 @@ def control_offset(cfg: RobotConfig) -> np.ndarray:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", default=str(CONFIG))
-    parser.add_argument("--robot-config", default=str(REAL_PATH))
+    parser.add_argument("--robot-config", default=str(DEFAULT_ROBOT_CONFIG))
     parser.add_argument("--url")
     parser.add_argument("--frames", action="store_true", help="save one frame from each camera")
     args = parser.parse_args()
@@ -58,8 +61,9 @@ def main() -> None:
         else:
             print("  base: no pose (is the hb1 driver up?)")
         limit = env.server_limits.get("base_max_vel_xy")
-        if limit is not None and cfg.max_lin_vel > limit + 1e-9:
-            print(f"  note: robot config max_lin_vel {cfg.max_lin_vel} > the base driver's {limit}; the driver's wins")
+        ours = embodiments.load(ROBOT).on_real(embodiments.load(ROBOT).speed("fast")).base_max_vel[0]  # the most it asks
+        if limit is not None and ours > limit + 1e-9:
+            print(f"  note: the real host's base limit {ours} > the base driver's {limit}; the driver's wins")
 
         print("\nArm frames:")
         if s["arm_q"] is None:

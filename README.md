@@ -20,7 +20,9 @@ onboard (chefbot/onboard) on the robot computer: the drivers' state and commands
 ```
 
 The arm and gripper are config (`embodiments/arms/`, `embodiments/grippers/`), picked in
-`config/robot.yaml` (`hardware:`); `config/robot_real.yaml` is the real robot.
+`config/robot.yaml` (`hardware:`). The real robot is `embodiments/tidybot_fr3` (its config
+`config/robot_tidybot_fr3.yaml`); on the robot, the real host clips every speed profile to its
+`control.real_limits` (base 0.125 m/s, 0.4 rad/s; arm 5 cm/s, joints 0.5 rad/s) until the base is measured.
 
 Skills and the labs that make them follow agentic-skills-exploration's split, one folder per concept:
 

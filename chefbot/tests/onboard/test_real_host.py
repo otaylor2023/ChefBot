@@ -229,3 +229,32 @@ def test_a_low_tilted_grasp_past_an_elbow_limit_is_reached(robot, tmp_path):
         assert abs(fake.q[0]) < np.radians(20)  # no swing round: joint 1 stays near forward
     finally:
         h.close()
+
+
+def test_the_real_host_never_goes_above_the_real_limits(robot, tmp_path):
+    # tidybot_fr3's control.real_limits (config/robot_real.yaml's, until the base is measured), whatever the run asks.
+    logged = []
+    h = RealHost(robot, robot.speed("fast"), tmp_path, confirm=False, env=FakeRobot(), log=logged.append)
+    assert h.speed.base_max_vel == (0.125, 0.125, 0.4) and h.speed.arm_lin == 0.05 and h.speed.joint == 0.5
+    assert h.ctl.speed == h.speed  # what the controller runs at
+    assert any("clipped to the real robot's limits" in m for m in logged)
+
+
+def test_a_profile_under_the_real_limits_is_left_alone(robot, tmp_path):
+    logged = []
+    h = RealHost(robot, robot.speed("slow"), tmp_path, confirm=False, env=FakeRobot(), log=logged.append)
+    assert h.speed == robot.speed("slow") and not any("clipped" in m for m in logged)
+
+
+def test_the_sims_are_not_slowed(robot):
+    assert robot.speed("fast").base_max_vel == (0.5, 0.5, 1.0) and robot.speed("fast").arm_lin == 0.4
+    panda = embodiments.load("panda_franka")  # no real_limits: on_real changes nothing
+    assert panda.on_real(panda.speed("fast")) == panda.speed("fast")
+
+
+def test_the_frame_check_reads_the_real_robots_embodiment():
+    from chefbot.environments.real import check
+    from chefbot.robot.config import CONFIG_DIR
+
+    assert check.DEFAULT_ROBOT_CONFIG == CONFIG_DIR / "robot_tidybot_fr3.yaml"
+    assert not (CONFIG_DIR / "robot_real.yaml").exists()

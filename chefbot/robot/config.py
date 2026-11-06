@@ -16,7 +16,6 @@ import yaml
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 EMBODIMENTS_DIR = CONFIG_DIR.parent / "embodiments"  # arms/ and grippers/: the hardware, as config
 DEFAULT_PATH = CONFIG_DIR / "robot.yaml"
-REAL_PATH = CONFIG_DIR / "robot_real.yaml"
 
 
 @dataclass(frozen=True)

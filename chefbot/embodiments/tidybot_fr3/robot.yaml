@@ -35,6 +35,10 @@ control:
   speed: normal
   limits:
     base_max_vel: [0.5, 0.5, 1.0]
+  real_limits:             # on the real robot only (the real host clips every speed profile to these): slow until
+    base_max_vel: [0.125, 0.125, 0.4]  # the TidyBot++ footprint and the arm's place on it are measured (was
+    arm_lin: 0.05                      # config/robot_real.yaml's limits: max_lin_vel, max_ang_vel, cart_speed,
+    joint: 0.5                         # max_joint_vel)
 
 # The robot's own fixed parts the arm must keep clear of, in the arm base frame (x forward, y left, z up from the
 # arm's plate), as measured on the real robot (2026-11-03). One definition for all: the controller's IK steers around

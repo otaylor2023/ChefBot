@@ -100,3 +100,11 @@ class Robot:
         lim = self.raw["control"].get("limits", {})
         base = np.minimum(p["base_max_vel"], lim.get("base_max_vel", p["base_max_vel"]))
         return Speed(name, tuple(float(v) for v in base), float(p["arm_lin"]), float(p["arm_ang"]), float(p["joint"]))
+
+    def on_real(self, speed: Speed) -> Speed:
+        """`speed` clipped to the robot's real-only limits (robot.yaml control.real_limits), which the real host
+        applies to every run on the robot; the sims are not slowed."""
+        lim = self.raw["control"].get("real_limits") or {}
+        base = np.minimum(speed.base_max_vel, lim.get("base_max_vel", speed.base_max_vel))
+        return Speed(speed.name, tuple(float(v) for v in base), *(float(min(getattr(speed, k), lim.get(k, getattr(speed, k))))
+                                                                 for k in ("arm_lin", "arm_ang", "joint")))  # fmt: skip

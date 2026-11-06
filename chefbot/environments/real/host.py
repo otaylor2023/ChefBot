@@ -199,7 +199,11 @@ class RealHost:
         if keep is not None:
             keep(list(env.camera_mounts) if cameras is None else list(cameras))
         self.env = GuardedEnv(self.raw_env, robot, base=base, dry_run=dry_run, flange_z_min=flange_z_min)
-        self.ctl = WholeBodyController(self.env, robot, speed)
+        self.speed = robot.on_real(speed)  # never above the robot's real-only limits, whatever the run asked
+        if self.speed != speed:
+            log(f"[real] speed {speed.name} clipped to the real robot's limits: base {self.speed.base_max_vel}, "
+                f"arm {self.speed.arm_lin} m/s, joints {self.speed.joint} rad/s")
+        self.ctl = WholeBodyController(self.env, robot, self.speed)
         self.hz = self.ctl.hz
         self.cond = threading.Condition()
         self.step_count, self.frames, self.fault = 0, [], None
