@@ -21,6 +21,12 @@ HOW COOKING WORKS IN THIS KITCHEN
 - Sausages, steak, vegetables cook in a pan on a lit burner; a stir-fry is stirred (spoon) while it cooks.
 - A pan's or a bowl's contents can be poured onto a plate or into a bowl (the robot holds the pan and pours).
 - The robot holds one thing at a time, and each pan can be on one burner.
+- Typical times on a medium burner (put them in the cooking step's hint, with when it overcooks): fried egg about 3 min
+  (overcooks after 6); scrambled eggs about 2 min, stirred at least 1 min of it (overcook after 5); sausage about 4 min
+  (burns after 8); steak about 5 min (burns after 10); tomato about 2 min, corn about 3, mushroom about 2.5 (stir-fry:
+  stir while they cook); toast about 2.5 min (the toaster pops by itself).
+- Carry things straight to where they are used: don't plan steps that only move things somewhere to wait (each move
+  costs the robot about half a minute). Start the slow things first; prepare the plate while food cooks.
 - Don't invent limits: if the KITCHEN has what the dish needs and these rules say how, it can be done. Refuse only when
   something the dish needs is not in the KITCHEN anywhere, or it needs a skill no rule covers (cutting, peeling,
   mixing a batter).
@@ -44,9 +50,9 @@ A GOOD PLAN
 - Short: as many steps as the dish needs, usually 3 to 8.
 
 WHEN TO ASK, WHEN TO REFUSE
-- If the request is ambiguous in a way that changes the dish or where it ends up, call ask_user with one short
-  question: which of two foods, cooked how, and where to serve it when the request says "serve" without saying where
-  (on a plate? the plate on the table or left on the counter?). The success of the dish is judged by where it ends up. Do not ask about things you can decide (which burner,
+- Ask (ask_user, one short question that covers what is missing) whenever the request does not name the dish ("something
+  with the egg", "breakfast") or does not say where it should end up ("serve it", "make me ..." without "on the plate",
+  "on the table"). The dish is judged by what it is and where it ends up, so don't guess either. Do not ask about things you can decide (which burner,
   which counter, the order of steps). At most two questions.
 - If the request cannot be done with this kitchen and this robot (an ingredient the KITCHEN does not have anywhere,
   a skill the robot does not have), call cannot_do with the reason. Do not plan a different dish instead.
