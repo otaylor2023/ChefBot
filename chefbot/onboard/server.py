@@ -31,15 +31,21 @@ class OnboardServer:
         self.cameras = cameras
         self.state_hz = float(config["server"]["state_hz"])
         self.watchdog_s = float(config["server"]["watchdog_s"])
-        from chefbot.interface.limits import base_cap
+        from chefbot.interface.limits import base_cap, base_stop
 
-        cap = base_cap(config.get("embodiment", "tidybot_fr3"))["vel"]  # told to the client: it checks its speeds against them
-        self.limits = {"base_max_vel_xy": cap[0], "base_max_vel_yaw": cap[2]}
+        embodiment = config.get("embodiment", "tidybot_fr3")
+        cap = base_cap(embodiment)  # told to the client: it checks its speeds against them
+        self.limits = {"base_max_vel_xy": cap["vel"][0], "base_max_vel_yaw": cap["vel"][2], **base_stop(embodiment)}
+        if cap["accel"] is not None:  # the client sizes its carrot by it (robot/nav/speed.py lookahead_for)
+            self.limits["base_max_accel_xy"] = cap["accel"][0]
         self._server = serve(self._handle, config["server"]["host"], int(config["server"]["port"]), max_size=None)
         self._thread: threading.Thread | None = None
         self._client_lock = threading.Lock()
         self._client: ServerConnection | None = None
         self.halts = 0  # how many times the watchdog or a halt stopped the robot
+        # A command went to the drivers since the last halt. Disconnects and shutdown halt only then: a client
+        # that only watched (state, frames, heartbeats) leaves the drivers' goals as they were.
+        self.commanded = False
 
     @property
     def url(self) -> str:
@@ -104,7 +110,8 @@ class OnboardServer:
             done.set()
             frames.put(None)
             self.cameras.kept = set()  # the client's cameras idle out again
-            self._halt(None, "the client disconnected")
+            if self.commanded:
+                self._halt(None, "the client disconnected")
             with self._client_lock:
                 self._client = None
 
@@ -122,10 +129,14 @@ class OnboardServer:
                 self.robot.gripper_grasp(float(m["speed"]), float(m["force"]))
             elif op == P.BASE_TARGET:
                 self.robot.base_target(m["pose"], m["max_vel"])
+            elif op == P.BASE_TARGET_ODOM:
+                self.robot.base_target_odom(m["pose"], m["max_vel"])
             elif op == P.BASE_HOLD:
                 self.robot.base_hold()
             elif op == P.HALT:
                 self._halt(send, m.get("reason", "the client asked"))
+            if op != P.HALT:
+                self.commanded = True
             return True
         except Exception as exc:  # a bad command must not take the server down
             traceback.print_exc()
@@ -137,6 +148,7 @@ class OnboardServer:
             self.robot.halt()
         except Exception:
             traceback.print_exc()
+        self.commanded = False
         self.halts += 1
         print(f"[onboard] halted: {reason}", flush=True)
         if send is not None:
@@ -204,7 +216,8 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        server.robot.halt()
+        if server.commanded:
+            server.robot.halt()
         server.shutdown()
 
 

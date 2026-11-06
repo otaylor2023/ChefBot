@@ -1,0 +1,10 @@
+[solved] spin: base centre wanders  rms 1.4 mm, max 3.6 mm
+[config now (0, [0,0])] spin: base centre wanders  rms 69.4 mm, max 91.0 mm
+[solved] forward: travel   -2.72 deg, base heading+move   -2.72 deg -> error +0.00 deg
+[config now (0, [0,0])] forward: travel   -2.34 deg, base heading+move    0.41 deg -> error -2.76 deg
+[solved] left   : travel   85.12 deg, base heading+move   85.67 deg -> error -0.55 deg
+[config now (0, [0,0])] left   : travel   85.11 deg, base heading+move   88.81 deg -> error -3.69 deg
+[solved] back   : travel  178.88 deg, base heading+move  178.72 deg -> error +0.16 deg
+[config now (0, [0,0])] back   : travel  178.82 deg, base heading+move -178.14 deg -> error -3.04 deg
+[solved] right  : travel  -96.38 deg, base heading+move  -96.44 deg -> error +0.06 deg
+[config now (0, [0,0])] right  : travel  -96.38 deg, base heading+move  -93.30 deg -> error -3.08 deg

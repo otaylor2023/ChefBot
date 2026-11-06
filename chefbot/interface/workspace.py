@@ -53,6 +53,7 @@ class Body:
     plate_clear: float
     cylinders: tuple = ()  # (name, (x, y), radius, top)
     capsules: tuple = ()  # (name, a, b, radius)
+    link_radius: float = 0.08  # m: the arm's links about their centerline (grow less the spare)
 
     @classmethod
     def from_config(cls, c: dict) -> "Body":
@@ -69,7 +70,7 @@ class Body:
         if float(c["spare_m"]) < MIN_SPARE_M:
             raise ValueError(f"body spare_m {c['spare_m']} m: at least {MIN_SPARE_M} m (an inch) past the parts and the links")
         return cls(float(c["hand_m"]), float(c["link_radius_m"]) + float(c["spare_m"]), float(c["plate_height_m"]), tuple(c["plate"]["x"]),
-                   tuple(c["plate"]["y"]), float(c["plate_clear_m"]), tuple(cyl), tuple(cap))  # fmt: skip
+                   tuple(c["plate"]["y"]), float(c["plate_clear_m"]), tuple(cyl), tuple(cap), float(c["link_radius_m"]))  # fmt: skip
 
     def clearance(self, p, margin: float = 0.0):
         """For points (N x 3): how far each is outside the keep-out grown by margin (m; negative: inside), the unit
@@ -104,11 +105,83 @@ class Body:
         """Which points (N x 3) are in the keep-out grown by margin."""
         return self.clearance(p, margin)[0] < 0.0
 
+    @property
+    def base_xy(self) -> tuple[float, float]:
+        """The base's centre (the frame odometry, mocap and navigation use: x forward, y left) in the arm base frame:
+        the plate's centre, ~18 cm behind the arm. ASSUMED: the base turns about its plate's centre (TidyBot++'s four
+        casters sit symmetric under it); not measured against the arm."""
+        return ((self.plate_x[0] + self.plate_x[1]) / 2, (self.plate_y[0] + self.plate_y[1]) / 2)
+
+    def to_base(self, p) -> np.ndarray:
+        """Points (N x 3) from the arm base frame to the base frame on the floor (x forward, y left, z up from the floor)."""
+        p = np.atleast_2d(np.asarray(p, dtype=float))
+        cx, cy = self.base_xy
+        return p + np.array([-cx, -cy, self.plate_height])
+
+    def footprint(self, q=None, below: float | None = None) -> "Footprint":
+        """The robot seen from above, in the base frame: the plate's outline (the base under it, floor to
+        plate_height), plus discs of link_radius about the arm's points for joints `q` (none: the plate alone). With
+        `below` (m above the floor), only the arm's points whose underside is lower count: the rest pass over
+        obstacles that low."""
+        cx, cy = self.base_xy
+        rect = (self.plate_x[0] - cx, self.plate_x[1] - cx, self.plate_y[0] - cy, self.plate_y[1] - cy)
+        discs = np.zeros((0, 3))
+        if q is not None:
+            pts = self.to_base(arm_points(np.asarray(q, dtype=float), self.hand_m))
+            if below is not None:
+                pts = pts[pts[:, 2] - self.link_radius < below]
+            discs = np.column_stack([pts[:, :2], np.full(len(pts), self.link_radius)])
+        return Footprint(rect, discs)
+
     def over_plate(self, p) -> np.ndarray:
         """Which points (N x 3) are over the base's plate (in its outline, at any height)."""
         p = np.atleast_2d(np.asarray(p, dtype=float))
         return ((p[:, 0] > self.plate_x[0]) & (p[:, 0] < self.plate_x[1]) & (p[:, 1] > self.plate_y[0]) &
                 (p[:, 1] < self.plate_y[1]))  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Footprint:
+    """The robot seen from above, in the base frame (x forward, y left, origin the base's centre): a rectangle (the
+    plate: x_min, x_max, y_min, y_max) and discs (N x 3: x, y, radius; the arm). Body.footprint makes it."""
+
+    rect: tuple[float, float, float, float]
+    discs: np.ndarray
+
+    def distance(self, xy) -> np.ndarray:
+        """How far points (N x 2, base frame) are from the footprint (m; 0 inside it)."""
+        xy = np.atleast_2d(np.asarray(xy, dtype=float))
+        x0, x1, y0, y1 = self.rect
+        dx = np.maximum.reduce([x0 - xy[:, 0], np.zeros(len(xy)), xy[:, 0] - x1])
+        dy = np.maximum.reduce([y0 - xy[:, 1], np.zeros(len(xy)), xy[:, 1] - y1])
+        d = np.hypot(dx, dy)
+        if len(self.discs):
+            to_disc = np.linalg.norm(xy[:, None, :] - self.discs[None, :, :2], axis=2) - self.discs[None, :, 2]
+            d = np.minimum(d, np.maximum(to_disc.min(axis=1), 0.0))
+        return d
+
+    @property
+    def radius(self) -> float:
+        """The farthest the footprint reaches from the base's centre (m)."""
+        x0, x1, y0, y1 = self.rect
+        r = max(np.hypot(x, y) for x in (x0, x1) for y in (y0, y1))
+        if len(self.discs):
+            r = max(r, float((np.linalg.norm(self.discs[:, :2], axis=1) + self.discs[:, 2]).max()))
+        return float(r)
+
+    def reach(self, direction_deg: float = 0.0) -> float:
+        """How far it reaches along a direction from the base's centre (m; 0 deg: forward)."""
+        u = np.array([np.cos(np.radians(direction_deg)), np.sin(np.radians(direction_deg))])
+        x0, x1, y0, y1 = self.rect
+        r = max(np.array([x, y]) @ u for x in (x0, x1) for y in (y0, y1))
+        if len(self.discs):
+            r = max(r, float((self.discs[:, :2] @ u + self.discs[:, 2]).max()))
+        return float(r)
+
+    def summary(self) -> dict:
+        x0, x1, y0, y1 = self.rect
+        return {"plate": {"x": [round(x0, 4), round(x1, 4)], "y": [round(y0, 4), round(y1, 4)]}, "arm_discs": len(self.discs),
+                "radius_m": round(self.radius, 4), "reach_ahead_m": round(self.reach(0.0), 4)}  # fmt: skip
 
 
 def load_body(embodiment: str = "tidybot_fr3") -> Body:

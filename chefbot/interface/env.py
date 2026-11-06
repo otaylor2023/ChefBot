@@ -16,11 +16,11 @@ class Env(ABC):
 
     @abstractmethod
     def set_base_velocity(self, vx: float, vy: float, vyaw: float, frame: str = "world") -> None:
-        """Command a base velocity (m/s, m/s, rad/s). `frame` is "world" or "base".
+        """Command a base velocity (m/s, m/s, rad/s). `frame` is "world" (base_pose's frame: odometry) or "base".
         The command holds until the next call."""
 
     def set_base_target(self, pose: Pose2D, max_vel: tuple[float, float, float]) -> bool:
-        """Drive the base toward `pose` (world frame) within `max_vel` (m/s, m/s, rad/s), if the
+        """Drive the base toward `pose` (in base_pose's frame: odometry) within `max_vel` (m/s, m/s, rad/s), if the
         base does that itself (a real base with its own trajectory controller). Returns False
         when it does not: the robot layer then drives it with `set_base_velocity`."""
         return False

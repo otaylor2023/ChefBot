@@ -6,9 +6,12 @@ rate and get_state returns the latest; commands go out without waiting. While no
 sent, a heartbeat keeps the server's watchdog from holding the robot.
 
 Frames: arm targets go out in the frame the arm's controller uses (its point, in the arm base
-frame: `flange_to_control`), so the server passes them through. Base poses are in the world
-(mocap) frame; the server ties that to the base's odometry. Camera poses come from their mounts
-here (`cameras`), as the server sends images only.
+frame: `flange_to_control`), so the server passes them through. get_state's base pose is the base
+driver's odometry, and mocap is its own reading (EnvState.localization): the robot layer ties the
+two (robot/localization.py), sends base targets in odometry, and refuses to drive without mocap.
+Camera poses come from their mounts here (`cameras`), in odometry like the base, as the server
+sends images only. set_base_target_world / localization() are the scripts' world-frame view (the
+server ties odometry to mocap and refuses world targets without it).
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ import logging
 import math
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -28,7 +32,7 @@ from websockets.sync.client import connect
 from chefbot.interface.env import Env
 from chefbot.interface.transport import onboard as P
 from chefbot.interface.transport.protocol import pack, unpack
-from chefbot.interface.types import RGBD, EnvState, Pose2D
+from chefbot.interface.types import RGBD, EnvState, LocalizationReading, Pose2D
 
 log = logging.getLogger(__name__)
 CONFIG = Path(__file__).resolve().parent / "config.yaml"
@@ -48,6 +52,32 @@ def planar(x: float, y: float, yaw: float, z: float = 0.0) -> np.ndarray:
 
 class RobotHalted(RuntimeError):
     """The onboard server held the robot (watchdog, or a halt)."""
+
+
+@dataclass(frozen=True)
+class Localization:
+    """Where the base is and how much to trust it, from the latest state (RealEnv.localization).
+
+    `mocap_pose` is the base pose from mocap alone, None unless the publisher is live (`mocap_fresh`) and
+    tracking (`mocap_valid`). `base_pose` is the base driver's odometry carried into the mocap world through
+    the latest live mocap sample (`localized`), or plain odometry if there never was one; None without the
+    base driver. `state_age_s`: how old this state message is; `state_current`: within RealEnv's max_state_age_s.
+    """
+
+    mocap_pose: Pose2D | None
+    mocap_valid: bool
+    mocap_fresh: bool
+    mocap_age_s: float | None
+    base_pose: Pose2D | None
+    localized: bool
+    state_age_s: float
+    state_current: bool
+    seq: int
+
+    @property
+    def live(self) -> bool:
+        """A pose to act on: mocap tracking now, in a state that is itself current."""
+        return self.mocap_pose is not None and self.state_current
 
 
 class RealEnv(Env):
@@ -94,6 +124,7 @@ class RealEnv(Env):
         self._ids = itertools.count()
         self._closed = threading.Event()
         self.halted: str | None = None  # why the server last held the robot
+        self.require_arm = True  # get_state refuses without joint readings (False: base-only runs; arm_q is then None)
         self.errors: list[str] = []
         self._gripper_closed: bool | None = None
         self._base_holding = False
@@ -129,20 +160,48 @@ class RealEnv(Env):
         """Seconds since the last state message arrived (a camera frame on the link delays them)."""
         return time.monotonic() - self._state_at
 
+    def localization(self) -> Localization:
+        """The base's pose and the mocap's status. Needs no arm or base driver: mocap alone is enough."""
+        s = self.raw_state()
+
+        def pose(v) -> Pose2D | None:
+            return None if v is None else Pose2D(*(float(x) for x in v))
+
+        age = s.get("mocap_age_s")
+        state_age = time.monotonic() - self._state_at
+        return Localization(
+            mocap_pose=pose(s.get("mocap_pose")),
+            mocap_valid=bool(s.get("mocap_valid")),
+            mocap_fresh=bool(s.get("mocap_fresh")),
+            mocap_age_s=None if age is None else float(age),
+            base_pose=pose(s.get("base_pose")),
+            localized=bool(s.get("localized")),
+            state_age_s=state_age,
+            state_current=state_age <= self.max_state_age_s,
+            seq=int(s.get("seq", -1)),
+        )
+
     def get_state(self) -> EnvState:
         s = self.raw_state()
         age = time.monotonic() - self._state_at
         if age > self.max_state_age_s:
             raise RuntimeError(f"the robot's state is {age:.2f} s old: lost the onboard server?")
-        if s["base_pose"] is None or s["arm_q"] is None:
-            raise RuntimeError("the robot reports no base pose or no joints: are the base and arm drivers up?")
-        n = len(s["arm_q"])
+        odom = s.get("odom_pose")
+        if odom is None:
+            raise RuntimeError("the robot reports no base odometry: is the base driver up?")
+        if s["arm_q"] is None and self.require_arm:
+            raise RuntimeError("the robot reports no joints: is the arm driver up?")
+        n = 7 if s["arm_q"] is None else len(s["arm_q"])
+        mocap = s.get("mocap_pose")
+        mocap_age = s.get("mocap_age_s")
         return EnvState(
-            base_pose=Pose2D(*(float(v) for v in s["base_pose"])),
-            base_velocity=np.zeros(3) if s["base_velocity"] is None else np.asarray(s["base_velocity"], dtype=float),
+            base_pose=Pose2D(*(float(v) for v in odom)),
+            base_velocity=np.zeros(3) if s.get("odom_velocity") is None else np.asarray(s["odom_velocity"], dtype=float),
+            localization=LocalizationReading(None if mocap is None else Pose2D(*(float(v) for v in mocap)),
+                                             float(mocap_age) if mocap_age is not None else math.inf),  # fmt: skip
             base_in_contact=False,  # not sensed
             time=time.monotonic() - self._t0,
-            arm_q=np.asarray(s["arm_q"], dtype=float),
+            arm_q=None if s["arm_q"] is None else np.asarray(s["arm_q"], dtype=float),
             arm_qd=np.zeros(n) if s["arm_qd"] is None else np.asarray(s["arm_qd"], dtype=float),
             gripper_width=float(s["gripper_width"] or 0.0),
             gripper_closed_cmd=bool(self._gripper_closed),
@@ -169,9 +228,15 @@ class RealEnv(Env):
         self.set_base_target(target, (math.hypot(vx, vy), math.hypot(vx, vy), abs(vyaw)))
 
     def set_base_target(self, pose: Pose2D, max_vel) -> bool:
-        self._send({"op": P.BASE_TARGET, "pose": [pose.x, pose.y, pose.yaw], "max_vel": [float(v) for v in max_vel]})
+        """A target in the base driver's odometry (get_state's frame)."""
+        self._send({"op": P.BASE_TARGET_ODOM, "pose": [pose.x, pose.y, pose.yaw], "max_vel": [float(v) for v in max_vel]})
         self._base_holding = False
         return True
+
+    def set_base_target_world(self, pose: Pose2D, max_vel) -> None:
+        """A target in the mocap world: the server ties it to odometry itself, and refuses it without live mocap."""
+        self._send({"op": P.BASE_TARGET, "pose": [pose.x, pose.y, pose.yaw], "max_vel": [float(v) for v in max_vel]})
+        self._base_holding = False
 
     def set_arm_joint_targets(self, q: np.ndarray) -> None:
         self._send({"op": P.ARM_JOINTS, "q": np.asarray(q, dtype=float)})

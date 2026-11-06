@@ -1,0 +1,20 @@
+speed profile teleop: 0.250 m/s, 0.800 rad/s
+Park for 8 target(s), one after another, by A* on maps/src_counter. Floor clear and e-stop in hand? Enter to drive, Ctrl-C to cancel: footprint: plate [-0.2795, 0.2795] x [-0.241, 0.241] m about the base centre (arm from the last joint readings in Redis (driver not running)); reach 0.69 m, 0.68 m ahead
+stop model: tau 0.333 s, brake 0.25 m/s^2 (208 mm from 0.250 m/s); driver accel 0.25 m/s^2
+[1/8] target (1.176, 1.729): south side, 0.149 m in, stance (1.176, 1.130, 90.0 deg) 0.45 m out
+    reached in 12.2 s, 0.2 mm, -0.03 deg; turned +90 (asked +90); out 0.450 m, target -0 mm off centre, +0.03 deg off square
+[2/8] target (0.496, 2.166): west side, 0.136 m in, stance (-0.090, 2.166, 0.0 deg) 0.45 m out
+    reached in 12.4 s, 0.5 mm, -0.03 deg; turned -90 (asked -90); out 0.450 m, target -0 mm off centre, +0.03 deg off square
+[3/8] target (1.003, 1.683): south side, 0.103 m in, stance (1.003, 1.130, 90.0 deg) 0.45 m out
+    reached in 11.4 s, 0.0 mm, +0.01 deg; turned +90 (asked +90); out 0.450 m, target +0 mm off centre, -0.01 deg off square
+[4/8] target (1.841, 2.401): north side, 0.139 m in, stance (1.841, 2.990, -90.0 deg) 0.45 m out
+    reached in 23.5 s, 0.2 mm, +0.01 deg; turned -180 (asked -180); out 0.450 m, target -0 mm off centre, -0.01 deg off square
+[5/8] target (0.486, 2.151): west side, 0.126 m in, stance (-0.090, 2.151, 0.0 deg) 0.45 m out
+    reached in 13.7 s, 1.2 mm, +0.06 deg; turned +90 (asked +90); out 0.451 m, target -0 mm off centre, -0.06 deg off square
+[6/8] target (1.226, 2.415): north side, 0.125 m in, stance (1.226, 2.990, -90.0 deg) 0.45 m out
+    reached in 11.1 s, 0.0 mm, -0.02 deg; turned -90 (asked -90); out 0.450 m, target +0 mm off centre, +0.02 deg off square
+[7/8] target (2.479, 2.182): east side, 0.141 m in, stance (3.070, 2.182, -180.0 deg) 0.45 m out
+    reached in 14.7 s, 0.3 mm, -0.08 deg; turned -90 (asked -90); out 0.450 m, target +0 mm off centre, +0.08 deg off square
+[8/8] target (1.659, 2.429): north side, 0.111 m in, stance (1.659, 2.990, -90.0 deg) 0.45 m out
+    reached in 12.8 s, 0.9 mm, +0.10 deg; turned +90 (asked +90); out 0.451 m, target -0 mm off centre, -0.10 deg off square
+session: /Users/jack/Documents/Stanford/cs329z-engineering-ai-agents/FINAL_PROJECT/Claude_Code/mac_chefbot-movement/runs/real_park/20261105_112719

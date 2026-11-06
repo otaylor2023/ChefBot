@@ -26,6 +26,11 @@ class BaseController:
         self._cmd = np.zeros(3)
 
     @property
+    def length(self) -> float:
+        """The path's length (m)."""
+        return float(self._cum[-1])
+
+    @property
     def goal(self) -> Pose2D:
         return self._path[-1]
 
@@ -80,14 +85,21 @@ class BaseController:
         carrot = self._point_at(s)
         return Pose2D(float(carrot[0]), float(carrot[1]), self._yaw_at(s))
 
-    def step(self, pose: Pose2D, dt: float) -> tuple[float, float, float]:
-        """World-frame (vx, vy, vyaw) for this tick."""
+    def target_at(self, pose: Pose2D, lookahead: float) -> Pose2D:
+        """`target` with its own lookahead (a faster base needs its carrot further ahead)."""
+        self._project(pose.xy)
+        s = self._progress + lookahead
+        carrot = self._point_at(s)
+        return Pose2D(float(carrot[0]), float(carrot[1]), self._yaw_at(s))
+
+    def step(self, pose: Pose2D, dt: float, lookahead: float | None = None) -> tuple[float, float, float]:
+        """World-frame (vx, vy, vyaw) for this tick, toward the carrot `lookahead` ahead (default the config's)."""
         cfg = self._cfg
         pos = pose.xy
         self._project(pos)
         total = self._cum[-1]
 
-        carrot = self._point_at(self._progress + cfg.lookahead)
+        carrot = self._point_at(self._progress + (cfg.lookahead if lookahead is None else lookahead))
         to_carrot = carrot - pos
         dist = float(np.linalg.norm(to_carrot))
         remaining = self._deviation + (total - self._progress)

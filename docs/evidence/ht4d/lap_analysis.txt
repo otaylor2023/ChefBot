@@ -1,0 +1,14 @@
+station lap, robot-side: 19488 samples, 199 s, 11.30 m
+base centre to the counter: min 0.396 m -> base body gap min 0.066 m
+peak speed 0.208 m/s (99th pct 0.154)
+square at each station (robot-side, 1 s average once at rest):
+  counter_south  heading +0.54 deg from square, 3.2 mm from the station (+2.8 mm along the edge)
+  counter_east   heading -0.20 deg from square, 1.6 mm from the station (+0.4 mm along the edge)
+  counter_north  heading -0.21 deg from square, 4.0 mm from the station (-2.9 mm along the edge)
+  counter_west   heading -0.03 deg from square, 1.7 mm from the station (-1.3 mm along the edge)
+largest pauses in the laptop's control loop: 
+laptop control loop (20 Hz) during the lap, worst legs:
+  largest gap between samples 63 ms, oldest state seen 32 ms   20261103_172005_hug_a/leg00.jsonl
+  largest gap between samples 62 ms, oldest state seen 277 ms   20261103_171859_counter_west/leg00.jsonl
+  largest gap between samples 61 ms, oldest state seen 21 ms   20261103_171959_counter_west/leg01.jsonl
+  largest gap between samples 61 ms, oldest state seen 21 ms   20261103_171959_counter_west/leg00.jsonl

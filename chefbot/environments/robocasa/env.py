@@ -27,7 +27,7 @@ from chefbot.environments.robocasa.config import RoboCasaConfig
 from chefbot.environments.robocasa.gripper import sim_gripper
 from chefbot.environments.robocasa.spawn import TASK_NAME, place_objects, restore_generated_physics
 from chefbot.interface.env import Env
-from chefbot.interface.types import RGBD, EnvState, Pose2D, wrap_angle
+from chefbot.interface.types import RGBD, EnvState, LocalizationReading, Pose2D, wrap_angle
 
 _ROBOT_PREFIXES = ("robot0_", "mobilebase0_", "gripper0_")
 _BASE_BODY = "mobilebase0_base"
@@ -184,6 +184,9 @@ class RoboCasaEnv(Env):
         self.grip_site = model.site(_GRIPPER_PREFIX + "grip_site").id
         self._arm_target = self.data.qpos[self._arm_qpos].copy()  # hold the starting pose
         self._gripper_closed = False
+        # The sim's stand-in for mocap: its ground-truth base pose as EnvState.localization. False models losing it
+        # (as the real robot does when Motive loses the body): the robot layer then does not drive the base.
+        self.localization_available = True
         # Objects with an adaptive handle (utensils): once the closed gripper has
         # them between both pads they lock to it, as a form-fit or magnetic
         # handle would, until it opens. Root body ids; the lock is (body, pose in
@@ -241,6 +244,7 @@ class RoboCasaEnv(Env):
                 gripper_width=self._gripper_width(),
                 gripper_closed_cmd=self._gripper_closed,
                 arm_in_contact=arm_contact,
+                localization=LocalizationReading(pose if self.localization_available else None),
             )
 
     def set_base_velocity(self, vx: float, vy: float, vyaw: float, frame: str = "world") -> None:

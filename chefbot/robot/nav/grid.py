@@ -2,6 +2,11 @@
 
 `occupied[row, col]` with row along +y and col along +x. `origin` is the world
 position of the outer corner of cell (0, 0). Anything outside the grid is occupied.
+
+`heights[row, col]`: each occupied cell's top above the floor (m; inf for walls and
+anything the robot can never reach over; 0 for free cells). On disk, `heights.npy`
+next to `grid.npy`, sharing `grid.yaml` (maps/README.md). A map without it: every
+obstacle is a wall.
 """
 
 from __future__ import annotations
@@ -13,13 +18,19 @@ import numpy as np
 import yaml
 
 Cell = tuple[int, int]  # (row, col)
+GRID_FILE, HEIGHTS_FILE = "grid.npy", "heights.npy"
 
 
 class OccupancyGrid:
-    def __init__(self, occupied: np.ndarray, resolution: float, origin: tuple[float, float]):
+    def __init__(self, occupied: np.ndarray, resolution: float, origin: tuple[float, float], heights: np.ndarray | None = None):
         self.occupied = np.asarray(occupied, dtype=bool)
         self.resolution = float(resolution)
         self.origin = (float(origin[0]), float(origin[1]))
+        if heights is None:
+            heights = np.where(self.occupied, np.inf, 0.0)
+        self.heights = np.where(self.occupied, np.asarray(heights, dtype=float), 0.0)
+        if self.heights.shape != self.occupied.shape:
+            raise ValueError(f"heights {self.heights.shape} and occupied {self.occupied.shape} differ")
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -27,15 +38,29 @@ class OccupancyGrid:
 
     @classmethod
     def load(cls, npy_path: str | Path, yaml_path: str | Path | None = None) -> "OccupancyGrid":
+        """grid.npy (+ grid.yaml beside it, and heights.npy if there)."""
         npy_path = Path(npy_path)
         meta = yaml.safe_load(Path(yaml_path or npy_path.with_suffix(".yaml")).read_text())
-        return cls(np.load(npy_path), meta["resolution"], tuple(meta["origin"]))
+        heights_path = npy_path.with_name(HEIGHTS_FILE)
+        heights = np.load(heights_path) if npy_path.name == GRID_FILE and heights_path.exists() else None
+        return cls(np.load(npy_path), meta["resolution"], tuple(meta["origin"]), heights)
 
     def save(self, npy_path: str | Path, yaml_path: str | Path | None = None) -> None:
         npy_path = Path(npy_path)
         np.save(npy_path, self.occupied)
+        if npy_path.name == GRID_FILE:
+            np.save(npy_path.with_name(HEIGHTS_FILE), self.heights)
         meta = {"resolution": self.resolution, "origin": list(self.origin), "frame": "world"}
         Path(yaml_path or npy_path.with_suffix(".yaml")).write_text(yaml.safe_dump(meta))
+
+    def tops(self) -> list[float]:
+        """The distinct obstacle tops on the map (m, inf last)."""
+        return sorted(set(np.unique(self.heights[self.occupied]).tolist()))
+
+    def only_top(self, top: float) -> "OccupancyGrid":
+        """The obstacles whose top is `top` (the others free)."""
+        mask = self.occupied & (self.heights == top)
+        return OccupancyGrid(mask, self.resolution, self.origin, np.where(mask, top, 0.0))
 
     def world_to_cell(self, x: float, y: float) -> Cell:
         return (

@@ -1,0 +1,100 @@
+counter_east:
+  approach_m: 0.25
+  x: 3.07
+  y: 2.06
+  yaw_deg: -180.0
+counter_north:
+  approach_m: 0.25
+  x: 1.49
+  y: 2.99
+  yaw_deg: -90.0
+counter_south:
+  approach_m: 0.25
+  x: 1.49
+  y: 1.1300000000000001
+  yaw_deg: 90.0
+counter_west:
+  approach_m: 0.25
+  x: -0.08999999999999986
+  y: 2.06
+  yaw_deg: -0.0
+far_counter_east:
+  approach_m: 0.25
+  x: 4.930022052497058
+  y: 0.5221487826088286
+  yaw_deg: 177.04
+far_counter_north:
+  approach_m: 0.25
+  x: 4.306338136543899
+  y: 2.655200908784214
+  yaw_deg: -92.96
+far_counter_south:
+  approach_m: 0.25
+  x: 4.089661863456102
+  y: -1.5352009087842138
+  yaw_deg: 87.04
+far_counter_west:
+  approach_m: 0.25
+  x: 3.465977947502942
+  y: 0.5978512173911715
+  yaw_deg: -2.96
+island_east:
+  approach_m: 0.25
+  x: 2.8649160245571696
+  y: -2.1676597565689084
+  yaw_deg: 177.04
+island_north:
+  approach_m: 0.25
+  x: 1.3530498741916577
+  y: -1.1577414463185365
+  yaw_deg: -92.96
+island_south:
+  approach_m: 0.25
+  x: 1.2569501258083422
+  y: -3.016258553681464
+  yaw_deg: 87.04
+island_west:
+  approach_m: 0.25
+  x: -0.2549160245571698
+  y: -2.006340243431092
+  yaw_deg: -2.96
+side_counter_east:
+  approach_m: 0.25
+  x: 4.580978024846858
+  y: -3.5955552967553035
+  yaw_deg: 177.04
+side_counter_north:
+  approach_m: 0.25
+  x: 3.9163599467936447
+  y: -1.6150929617625742
+  yaw_deg: -92.96
+side_counter_south:
+  approach_m: 0.25
+  x: 3.715640053206355
+  y: -5.496907038237426
+  yaw_deg: 87.04
+side_counter_west:
+  approach_m: 0.25
+  x: 3.0510219751531418
+  y: -3.5164447032446966
+  yaw_deg: -2.96
+stove_counter_east:
+  approach_m: 0.25
+  x: 4.295847353411391
+  y: -4.760022410225564
+  yaw_deg: 177.04
+stove_counter_north:
+  approach_m: 0.25
+  x: 1.9755552967553032
+  y: -3.873021975153142
+  yaw_deg: -92.96
+stove_counter_south:
+  approach_m: 0.25
+  x: 1.8964447032446967
+  y: -5.402978024846858
+  yaw_deg: 87.04
+stove_counter_west:
+  approach_m: 0.25
+  x: -0.4238473534113907
+  y: -4.515977589774436
+  yaw_deg: -2.96

@@ -1,0 +1,7 @@
+robot-side samples (live, with odometry): 31122 over 317 s (98 Hz)
+true peak base speed 0.167 m/s (99th pct 0.110); peak yaw rate 27.1 deg/s
+motion segments found: 55 (expected 52 legs)
+wheel odometry / true distance (straight legs): mean 0.9983, std 0.0061, n 32
+wheel odometry / true rotation (turns in place): mean 0.8836, std 0.4889, n 16
+base centre drift during turns in place: mean 5.5 mm, max 14.9 mm, n 16
+odometry vs mocap, untied, over the session: final gap 42 mm, max 42 mm; yaw gap +2.70 deg

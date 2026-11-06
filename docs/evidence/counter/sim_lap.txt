@@ -1,0 +1,8 @@
+simulated lap of the counter (maps/src_counter, provisional bounds), start (-0.61, 0.67, 155 deg)
+far_side   reached   A* path 3.83 m in 6 segment(s)   final 0.0 mm  (6 legs logged)
+east_end   reached   A* path 2.40 m in 5 segment(s)   final 0.0 mm  (5 legs logged)
+near_side  reached   A* path 2.42 m in 5 segment(s)   final 0.0 mm  (5 legs logged)
+west_end   reached   A* path 2.40 m in 5 segment(s)   final 0.0 mm  (5 legs logged)
+far_side   reached   A* path 2.38 m in 5 segment(s)   final 0.0 mm  (5 legs logged)
+1394 logged poses: base centre at least 0.458 m from the counter box (footprint 0.33 + margin 0.10 = 0.43);
+  stayed within x -0.61..3.13, y 0.67..3.05 (provisional bounds x -1.40..3.60, y 0.10..3.60, keep 0.43 inside)

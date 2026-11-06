@@ -29,16 +29,20 @@ from chefbot.interface.robot_api import (
     STIR,
     RobotAPI,
 )
-from chefbot.interface.types import Detection, HeldObject, MotionResult, MotionStatus, Pose2D
+from chefbot.interface.types import Detection, HeldObject, MotionResult, MotionStatus, Pose2D, wrap_angle
+from chefbot.interface.workspace import Footprint
 from chefbot.robot.arm.arm_controller import ArmController, ArmResult
 from chefbot.robot.arm.gripper import Gripper
 from chefbot.robot.config import RobotConfig
+from chefbot.robot.localization import Localizer
 from chefbot.robot.motion import MotionManager
 from chefbot.robot.nav.astar import AStarPlanner, NoPath, with_yaw
 from chefbot.robot.nav.base_controller import BaseController
 from chefbot.robot.nav.goal import Reachability, select_standoff, snap_to_free, standoff_candidates
+from chefbot.robot.nav.footprint import FootprintSpace
 from chefbot.robot.nav.grid import OccupancyGrid
-from chefbot.robot.safety import base_at_rest, require_base_at_rest, tuck_arm_for_driving
+from chefbot.robot.nav.heading_plan import PathStyle, escape_start, headings, plan_at_headings, subdivide
+from chefbot.robot.safety import BaseGuard, base_at_rest, require_base_at_rest, tuck_arm_for_driving
 from chefbot.robot.skills.common import ArmStack
 from chefbot.robot.skills.pick import run_pick
 from chefbot.robot.skills.place import run_place
@@ -53,7 +57,8 @@ _MAX_SETTLE_TICKS = 20
 _RETREAT_RADIUS = 2.0
 _FIXTURE_SETTLE_TICKS = 10
 
-_NEAR_SIDE = (0.05, 0.10)  # m: align retries this far toward the robot when nothing reaches the target
+_NEAR_SIDE = (0.05, 0.10)
+_ARM_MOVED_RAD = 0.05  # with tuck_arm=False: a joint moving more than this while the base drives stops it  # m: align retries this far toward the robot when nothing reaches the target
 
 
 class Robot(RobotAPI):
@@ -66,7 +71,20 @@ class Robot(RobotAPI):
         grasp_proposer: GraspProposer | None = None,
         placement_proposer: PlacementProposer | None = None,
         fixture_actuator: FixtureActuator | None = None,
+        footprint_below: Callable | None = None,
+        stop_model=None,
+        base_accel: float = 0.1,
+        centre_limit: OccupancyGrid | None = None,
+        tuck_arm: bool = True,
+        drive_log: Callable[[dict], None] | None = None,
     ):
+        """footprint_below(top) -> interface/workspace.py Footprint: what of the robot is lower than an obstacle's top
+        (inf: all of it), seen from above in the base frame (default: a circle of the config's footprint_radius).
+        stop_model (robot/nav/speed.py StopModel, the base's measured stop) and base_accel: the speed limit by the free
+        space ahead and the carrot sized for it (none: full speed, the config's lookahead). centre_limit: cells the
+        base's centre may not enter (a fence). tuck_arm=False: the base drives with the arm as it is (its footprint
+        covers it; the arm moving stops the drive) instead of first moving it to its driving posture. drive_log: called
+        with a dict per control tick while the base drives (and as it comes to rest)."""
         from chefbot.robot.kinematics.collision import ArmCollisionModel
         from chefbot.robot.kinematics.reachability import ReachabilityChecker
 
@@ -87,12 +105,54 @@ class Robot(RobotAPI):
         self._placement_proposer = placement_proposer
         self._fixture_actuator = fixture_actuator
         self._held_object: HeldObject | None = None
+        self._loc = Localizer()  # odometry tied to the world by the env's localization (mocap), if it has one
+        if footprint_below is None:
+            radius = self._cfg.footprint_radius
+            footprint_below = lambda top=math.inf: Footprint((0.0, 0.0, 0.0, 0.0), np.array([[0.0, 0.0, radius]]))  # noqa: E731
+        self._footprint_below = footprint_below
+        self._stop_model, self._base_accel = stop_model, float(base_accel)
+        self._centre_limit = centre_limit
+        self._tuck_arm = tuck_arm
+        self.drive_log = drive_log
+        self._space = self._build_space()
         self._motion = MotionManager(self.get_base_pose)
 
     # -- RobotAPI ---------------------------------------------------------
 
-    def go_to_pose(self, goal: Pose2D) -> None:
-        self._motion.start(lambda preempt: self._run_go_to_pose(goal, preempt))
+    def go_to_pose(self, goal: Pose2D, approach_m: float = 0.0) -> None:
+        """approach_m > 0: a square finish, the last approach_m straight in along the goal's heading (a station facing
+        a counter), after a stop at its start."""
+        self._motion.start(lambda preempt: self._run_go_to_pose(goal, preempt, approach_m))
+
+    def go_through(self, via: list[Pose2D], goal: Pose2D) -> None:
+        """Through the `via` poses (each at its own heading) to `goal` as one smooth drive: each stretch planned as
+        go_to_pose plans (clear for the footprint at the headings along it), the stretches joined into one path the
+        follower rounds the corners of, with no stop at the via poses."""
+        self._motion.start(lambda preempt: self._run_go_through(list(via), goal, preempt))
+
+    def _run_go_through(self, via: list[Pose2D], goal: Pose2D, preempt: threading.Event) -> MotionResult:
+        lost = self._loc.why_not_live(self._env.get_state())
+        if lost is not None:
+            return self._result(MotionStatus.NOT_LOCALIZED, lost)
+        pose = self.get_base_pose()
+        body, plan = self._space, self._space.with_margin(self._cfg.safety_margin)
+        if not body.is_free(pose.x, pose.y, pose.yaw):
+            return self._result(MotionStatus.NO_PATH, "base is in collision on the map")
+        begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
+        if begin is None:
+            return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
+        path, start = [], pose
+        for k, target in enumerate(via + [goal]):
+            points, why = plan_at_headings(plan, body, start, begin, target, target.yaw, style=self._style())
+            if points is None:
+                return self._result(MotionStatus.NO_PATH, f"stretch {k + 1} of {len(via) + 1}: {why}")
+            stretch = headings(start, subdivide(points, 1.0), target.yaw, self._style(), body)
+            path += stretch if not path else stretch[1:]
+            start, begin = target, (target.x, target.y)
+        path_m = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(path, path[1:]))
+        result = self._drive(path, preempt)
+        result.data.update(path=[(p.x, p.y) for p in path], path_m=path_m)
+        return result
 
     def align_to_point(self, target: np.ndarray) -> None:
         target = np.asarray(target, dtype=float).reshape(3)
@@ -143,7 +203,10 @@ class Robot(RobotAPI):
             self._arm.arm.hold()
 
     def get_base_pose(self) -> Pose2D:
-        return self._env.get_state().base_pose
+        """Where the base is in the world: its odometry, tied to the world by the env's localization (if it has one)."""
+        state = self._env.get_state()
+        self._loc.update(state)
+        return self._loc.world(state.base_pose)
 
     @property
     def _held(self) -> HeldObject | None:
@@ -169,15 +232,19 @@ class Robot(RobotAPI):
 
     # -- Base motions (run on the motion thread) ------------------------------
 
-    def _run_go_to_pose(self, goal: Pose2D, preempt: threading.Event) -> MotionResult:
-        grid, cfg = self._planner.grid, self._cfg
-        snapped = snap_to_free(grid, goal, cfg.snap_radius)
-        if snapped is None:
-            return self._result(
-                MotionStatus.NO_PATH,
-                f"goal is in collision and no free space within {cfg.snap_radius:.2f} m",
-            )
-        return self._plan_and_drive(snapped, preempt)
+    def _run_go_to_pose(self, goal: Pose2D, preempt: threading.Event, approach_m: float = 0.0) -> MotionResult:
+        cfg = self._cfg
+        plan = self._space.with_margin(cfg.safety_margin)
+        if not plan.is_free(goal.x, goal.y, goal.yaw):
+            grid = plan.at(goal.yaw)
+            cell = grid.nearest_free_cell(goal.x, goal.y, cfg.snap_radius) if cfg.snap_radius > 0 else None
+            if cell is None:
+                return self._result(
+                    MotionStatus.NO_PATH,
+                    f"goal is in collision and no free space within {cfg.snap_radius:.2f} m",
+                )
+            goal = Pose2D(*grid.cell_to_world(cell), goal.yaw)
+        return self._plan_and_drive(goal, preempt, approach_m)
 
     def _run_align(self, target: np.ndarray, preempt: threading.Event) -> MotionResult:
         cfg = self._cfg
@@ -222,39 +289,86 @@ class Robot(RobotAPI):
     def _free_start(self, pose: Pose2D) -> Pose2D | None:
         return snap_to_free(self._planner.grid, pose, self._cfg.snap_radius)
 
-    def _plan_and_drive(self, goal: Pose2D, preempt: threading.Event) -> MotionResult:
+    def _plan_and_drive(self, goal: Pose2D, preempt: threading.Event, approach_m: float = 0.0) -> MotionResult:
+        """Plan a path clear for the footprint at the heading the base will have along it (robot/nav/heading_plan.py),
+        keeping the config's safety margin, then drive it (and the straight approach, if any)."""
+        lost = self._loc.why_not_live(self._env.get_state())
+        if lost is not None:
+            return self._result(MotionStatus.NOT_LOCALIZED, lost)
         pose = self.get_base_pose()
-        start = self._free_start(pose)
-        if start is None:
+        body, plan = self._space, self._space.with_margin(self._cfg.safety_margin)
+        if not body.is_free(pose.x, pose.y, pose.yaw):
             return self._result(MotionStatus.NO_PATH, "base is in collision on the map")
-        try:
-            points = self._planner.plan_xy((start.x, start.y), (goal.x, goal.y))
-        except NoPath as exc:
-            blocking = self._doors_in_the_way(lambda planner: _has_path(planner, start, goal))
-            return self._result(MotionStatus.NO_PATH, str(exc) + blocking)
-        if start is not pose:
-            # The base sits inside the inflated margin: leave it in a straight line first.
-            points = [(pose.x, pose.y)] + points
-        # Interlock: the arm is tucked (carrying, if it holds something) before the base moves.
-        tucked = tuck_arm_for_driving(self._arm.arm, self._cfg, self._held, preempt)
-        if not tucked.ok:
-            return self._from_arm(tucked)
-        return self._drive(with_yaw(points, pose.yaw, goal.yaw), preempt)
+        pre = Pose2D(goal.x - approach_m * math.cos(goal.yaw), goal.y - approach_m * math.sin(goal.yaw), goal.yaw)
+        if approach_m > 0 and not body.at(goal.yaw).segment_free((pre.x, pre.y), (goal.x, goal.y)):
+            return self._result(MotionStatus.NO_PATH, "the straight approach to the goal is not clear")
+        begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
+        if begin is None:
+            return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
+        points, why = None, None
+        last = getattr(self, "_last_plan", None)
+        if last is not None and approach_m == 0:  # choose_stance just planned this: reuse it if the base hasn't moved
+            (sx, sy, syaw), (gx, gy, gyaw), lbegin, lpoints = last
+            if math.hypot(pose.x - sx, pose.y - sy) < 0.02 and abs(wrap_angle(pose.yaw - syaw)) < math.radians(1) \
+                    and math.hypot(goal.x - gx, goal.y - gy) < 1e-6 and abs(wrap_angle(goal.yaw - gyaw)) < 1e-6:
+                points = lpoints
+        self._last_plan = None
+        if points is None:
+            points, why = plan_at_headings(plan, body, pose, begin, pre, goal.yaw, style=self._style())
+        if points is None:
+            blocking = self._doors_in_the_way(lambda planner: _has_path(planner, pose, goal))
+            return self._result(MotionStatus.NO_PATH, why + blocking)
+        path = headings(pose, subdivide(points, 1.0), goal.yaw, self._style(), body)
+        if self._tuck_arm:
+            # Interlock: the arm is tucked (carrying, if it holds something) before the base moves.
+            tucked = tuck_arm_for_driving(self._arm.arm, self._cfg, self._held, preempt)
+            if not tucked.ok:
+                return self._from_arm(tucked)
+        path_m = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(path, path[1:]))
+        result = self._drive(path, preempt) if len(path) >= 2 else self._result(MotionStatus.SUCCESS, "already there")
+        if result.status == MotionStatus.SUCCESS and approach_m > 0:
+            result = self._drive([pre, goal], preempt, leg=1)
+        result.data.update(path=[(p.x, p.y) for p in path] + ([(goal.x, goal.y)] if approach_m > 0 else []),
+                           path_m=path_m + approach_m)  # fmt: skip
+        return result
 
-    def _drive(self, path: list[Pose2D], preempt: threading.Event) -> MotionResult:
+    def guard(self) -> BaseGuard:
+        """The base's stops and speed limit for a drive (robot/safety.py), on this robot's map and footprint."""
+        return BaseGuard(self._space, self._loc, self._stop_model, self._base_accel,
+                         arm_moved_rad=None if self._tuck_arm else _ARM_MOVED_RAD, centre_limit=self._centre_limit,
+                         plan_space=self._space.with_margin(self._cfg.safety_margin))  # fmt: skip
+
+    def _drive(self, path: list[Pose2D], preempt: threading.Event, leg: int = 0) -> MotionResult:
         env, cfg = self._env, self._cfg
         controller = BaseController(path, cfg)
+        guard = self.guard()
         dt = cfg.control_dt
+        goal = path[-1]
+        straight = len(path) == 2
+        turn = abs(wrap_angle(goal.yaw - path[0].yaw))
+        expected = max(controller.length / max(cfg.max_lin_vel, 1e-6), turn / max(cfg.max_ang_vel, 1e-6))
+        timeout = min(cfg.motion_timeout_s, 10.0 + 3.0 * expected)
         start_time: float | None = None
+        settled_since: float | None = None
+        best = math.inf
+        guard.begin(env.get_state())
+        hold = None  # cfg.arrive_hold: the odometry pose held once inside the tolerances
         try:
             while True:
                 if preempt.is_set():
                     status, message = MotionStatus.STOPPED, "motion was stopped"
                     break
                 state = env.get_state()
+                self._loc.update(state)
+                pose = self._loc.world(state.base_pose)
                 if start_time is None:
                     start_time = state.time
                 elapsed = state.time - start_time
+                stop = guard.stop_reason(state, pose)
+                if stop is not None:
+                    status = MotionStatus.NOT_LOCALIZED if "localization" in stop else MotionStatus.BLOCKED
+                    message = stop
+                    break
                 if state.base_in_contact and elapsed > _CONTACT_GRACE_S:
                     status, message = MotionStatus.BLOCKED, "base is in contact with an obstacle"
                     break
@@ -266,34 +380,132 @@ class Robot(RobotAPI):
                     status = MotionStatus.GRASP_FAILED
                     message = f"the {label} slipped out of the gripper while driving; it may have dropped"
                     break
-                if controller.at_goal(state.base_pose):
-                    status, message = MotionStatus.SUCCESS, "reached the goal"
+                speed = math.hypot(*state.base_velocity[:2])
+                still = cfg.arrive_still_mps is None or speed < cfg.arrive_still_mps
+                inside = controller.at_goal(pose)
+                if cfg.arrive_hold and (inside or hold is not None):
+                    if hold is None:  # first tick inside the tolerances: the goal frozen in odometry, never re-tied
+                        hold = self._loc.to_odom(goal)
+                    if still:
+                        settled_since = elapsed if settled_since is None else settled_since
+                        if elapsed - settled_since >= cfg.arrive_settle_s:
+                            status, message = MotionStatus.SUCCESS, "reached the goal (held inside the tolerances)"
+                            break
+                    else:
+                        settled_since = None
+                    if elapsed > timeout:
+                        status, message = MotionStatus.TIMEOUT, f"motion timed out after {timeout:.0f} s"
+                        break
+                    self._log(leg, "hold", elapsed, state, pose, goal)
+                    env.set_base_target(hold, (0.05, 0.05, cfg.max_ang_vel))
+                    env.wait_for_next_tick(dt)
+                    continue
+                if controller.at_goal(pose) and still:
+                    settled_since = elapsed if settled_since is None else settled_since
+                    if elapsed - settled_since >= cfg.arrive_settle_s:
+                        status, message = MotionStatus.SUCCESS, "reached the goal"
+                        break
+                else:
+                    settled_since = None
+                if elapsed > timeout:
+                    status, message = MotionStatus.TIMEOUT, f"motion timed out after {timeout:.0f} s"
                     break
-                if elapsed > cfg.motion_timeout_s:
-                    status, message = MotionStatus.TIMEOUT, "motion timed out"
+                dist = pose.distance_to(goal)
+                best = min(best, dist)
+                if straight and dist > best + cfg.moving_away_m:
+                    status, message = MotionStatus.BLOCKED, f"moving away from the goal ({dist:.2f} m, best {best:.2f} m)"
                     break
                 # A base that drives to a pose itself gets the carrot; any other, a velocity.
-                target = controller.target(state.base_pose)
+                target, look = guard.carrot(controller, pose, cfg.max_lin_vel, cfg.lookahead)
                 if controller.deviation > cfg.deviation_threshold:
                     status = MotionStatus.BLOCKED
                     message = f"base is {controller.deviation:.2f} m off the planned path"
                     break
-                if not env.set_base_target(target, (cfg.max_lin_vel, cfg.max_lin_vel, cfg.max_ang_vel)):
-                    env.set_base_velocity(*controller.step(state.base_pose, dt), frame="world")
+                bv = state.base_velocity  # in odometry: the way it is moving, turned into the world
+                c, s = math.cos(self._loc.world_from_odom.yaw), math.sin(self._loc.world_from_odom.yaw)
+                way = (c * bv[0] - s * bv[1], s * bv[0] + c * bv[1]) if speed > 0.02 else (target.x - pose.x, target.y - pose.y)
+                v_cap, free = guard.speed_cap(pose, way, cfg.max_lin_vel)
+                self._log(leg, "drive", elapsed, state, pose, goal, controller.deviation, target, look, v_cap, free)
+                creep = max(v_cap, 0.02)  # never 0: a base that plans to rest at its target still creeps on
+                if not env.set_base_target(self._loc.to_odom(target), (creep, creep, cfg.max_ang_vel)):
+                    vx, vy, vyaw = controller.step(pose, dt, look)
+                    n = math.hypot(vx, vy)
+                    if n > v_cap:
+                        vx, vy = vx * v_cap / n, vy * v_cap / n
+                    env.set_base_velocity(*self._loc.velocity_to_odom(vx, vy), vyaw, frame="world")
                 env.wait_for_next_tick(dt)
         finally:
             # Velocity is zeroed on every exit, including exceptions.
             env.set_base_velocity(0.0, 0.0, 0.0)
-        self._settle(dt)
+        self._settle(dt, leg, goal)
         return self._result(status, message)
 
-    def _settle(self, dt: float) -> None:
+    def _log(self, leg, phase, t, state, pose, goal, deviation=None, target=None, look=None, v_cap=None, free=None):
+        if self.drive_log is None:
+            return
+        r = state.localization
+        row = {"leg": leg, "t": t, "phase": phase, "pose": [pose.x, pose.y, pose.yaw],
+               "odom": [state.base_pose.x, state.base_pose.y, state.base_pose.yaw],
+               "base_velocity": [float(v) for v in state.base_velocity],
+               "dist": pose.distance_to(goal), "yaw_err_deg": math.degrees(wrap_angle(goal.yaw - pose.yaw)),
+               "localization_age_s": None if r is None else r.age_s, "off_line": deviation}  # fmt: skip
+        if target is not None:
+            row.update(carrot=[target.x, target.y, target.yaw], lookahead=look, v_cap=v_cap, free_m=free)
+        self.drive_log(row)
+
+    def _settle(self, dt: float, leg: int = 0, goal: Pose2D | None = None) -> None:
         """Tick with a zero command until the base has come to rest, so the
         reported pose is where the robot actually ends up."""
         for _ in range(_MAX_SETTLE_TICKS):
             self._env.wait_for_next_tick(dt)
+            if self.drive_log is not None and goal is not None:
+                try:
+                    state = self._env.get_state()
+                    self._log(leg, "hold", state.time, state, self._loc.world(state.base_pose), goal)
+                except Exception:  # the env may be gone (a stop test): the log is best-effort
+                    pass
             if base_at_rest(self._env):
                 break
+
+    def choose_stance(self, candidates: list[Pose2D]) -> tuple[Pose2D | None, str]:
+        """Of base poses (each at its own heading), the one clear for the footprint with the margin and cheapest to
+        reach by A* from where the base is: (pose, "") or (None, why not)."""
+        plan, body = self._space.with_margin(self._cfg.safety_margin), self._space
+        clear = [c for c in candidates if plan.is_free(c.x, c.y, c.yaw)]
+        if not clear:
+            return None, f"no stance clear for the footprint ({len(candidates)} candidates, all blocked)"
+        pose = self.get_base_pose()
+        begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
+        if begin is None:
+            return None, "the base is inside the margin with no clear way out"
+        yaws = [y for c in clear for y in plan.sweep(pose.yaw, c.yaw)]
+        planner = AStarPlanner(plan.blocked_for_all(yaws))
+        costs = planner.cost_to(begin, {planner.grid.world_to_cell(c.x, c.y) for c in clear})
+        ranked = sorted((costs[cell], i) for i, c in enumerate(clear) if (cell := planner.grid.world_to_cell(c.x, c.y)) in costs)
+        for _, i in ranked:
+            c = clear[i]
+            found = plan_at_headings(plan, body, pose, begin, c, c.yaw, style=self._style())[0]
+            if found is not None:
+                self._last_plan = ((pose.x, pose.y, pose.yaw), (c.x, c.y, c.yaw), begin, found)
+                return c, ""
+        return None, "no stance reachable from here"
+
+    def _build_space(self) -> FootprintSpace:
+        grid = self._grid_with(list(self._extra_obstacles.values()))
+        space = FootprintSpace.by_height(grid, self._footprint_below)
+        space.heading_zones = list(getattr(self, "heading_zones", []))
+        return space
+
+    def _style(self) -> PathStyle | None:
+        c = self._cfg
+        if c.path_clearance_m <= 0 and not c.turn_in_room:
+            return None
+        return PathStyle(clearance_m=c.path_clearance_m, turn_in_room=c.turn_in_room, need_m=0.369 + c.safety_margin)
+
+    def set_heading_zones(self, zones) -> None:
+        """Where the base may only face some ways: [(cells grid, [(yaw rad, tolerance rad), ...])] (FootprintSpace)."""
+        self.heading_zones = list(zones)
+        self._space = self._build_space()
 
     # -- Arm skills (run on the motion thread) --------------------------------
 
@@ -376,12 +588,14 @@ class Robot(RobotAPI):
 
     def _grid_with(self, extra: list[np.ndarray]) -> OccupancyGrid:
         occupied = self._grid.occupied.copy()
+        heights = self._grid.heights.copy()
         for points in extra:
             for x, y in points:
                 cell = self._grid.world_to_cell(float(x), float(y))
                 if self._grid.in_bounds(cell):
                     occupied[cell] = True
-        return OccupancyGrid(occupied, self._grid.resolution, self._grid.origin)
+                    heights[cell] = np.inf  # an open door: never reached over
+        return OccupancyGrid(occupied, self._grid.resolution, self._grid.origin, heights)
 
     def _doors_in_the_way(self, works: Callable[[AStarPlanner], bool]) -> str:
         """If closing doors this robot opened would make `works(planner)` true: a hint naming them."""
@@ -396,6 +610,7 @@ class Robot(RobotAPI):
     def _rebuild_planner(self) -> None:
         grid = self._grid_with(list(self._extra_obstacles.values()))
         self._planner = AStarPlanner(grid.inflate(self._cfg.inflation_radius))
+        self._space = self._build_space()
 
     def _inside(self, points: np.ndarray, pose: Pose2D) -> bool:
         """True if the base footprint at `pose` overlaps any of the xy `points`."""

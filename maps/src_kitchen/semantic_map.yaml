@@ -1,0 +1,15 @@
+frame: world
+fixtures:
+  island:
+    location: [1.305, -2.087]
+  stove_counter:
+    location: [1.936, -4.638]
+  side_counter:
+    location: [3.816, -3.556]
+  fridge:
+    location: [3.919, -1.57]
+  far_counter:
+    location: [4.198, 0.56]
+  counter:
+    location: [1.49, 2.06]
+objects: {}

@@ -1,0 +1,5 @@
+frame: world
+fixtures:
+  counter:
+    location: [1.49, 2.06]
+objects: {}

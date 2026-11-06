@@ -1,0 +1,12 @@
+robot-side: 20519 live samples, 209 s, 10.79 m travelled, turned 696 deg in total
+peak planar speed 0.229 m/s (limit 0.15; 99th pct 0.155); peak yaw rate 38.4 deg/s (limit 28.6)
+base centre to counter: min 0.625 m (plan 0.65, keep-out 0.60); base circle 0.33 gap min 0.295 m
+arm box (locked pose, reaching 0.54 m ahead) to counter: min gap 0.081 m; overlaps 0
+extent: x -0.29..3.29, y 0.86..3.19 (base centre; body reaches 0.55 m further)
+
+speed check, 0.1 s windows:
+  base centre from mocap: peak 0.229 m/s, 99.9th 0.173, share of time > 0.16: 0.42%
+  the driver's own odometry (wheels): peak 0.157 m/s, 99.9th 0.156
+  yaw: mocap peak 38.4 deg/s, odometry peak 27.7 deg/s (limit 28.6)
+  mocap speed peak at t 119.88 s: yaw rate there 7.0 deg/s, odometry speed there 0.113 m/s
+  largest gap between live mocap samples: 11 ms

@@ -43,6 +43,10 @@ BASE_VELOCITY = "hb1::current_vel"
 BASE_DESIRED_POSE = "hb1::desired_pose"
 BASE_STOP = "hb1::stop"  # "stop": decelerate and hold
 BASE_MAX_VEL_SCALE = "hb1::max_vel_scale"  # times the driver's --max-vel-xy / --max-vel-yaw
+# ChefBot's base driver (onboard/drivers/base/driver.py) only: a target counts while this keeps changing, and the
+# driver's loop counter, so a live driver can be told from odometry an earlier run left in Redis.
+BASE_CMD_SEQ = "hb1::cmd_seq"
+BASE_HEARTBEAT = "hb1::heartbeat"
 
 # OptiTrack (Motive / NatNet publisher): the base's rigid body, `chefbot-tidy` in the SRC kitchen's Motive
 MOCAP_POSITION = "chefbot-tidy::pos"

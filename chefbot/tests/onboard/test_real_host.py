@@ -273,3 +273,43 @@ def test_a_profile_over_the_base_cap_is_refused_when_the_base_can_move(robot):
         robot.speed("teleop")
     s = robot.speed(arm="normal", base="slow")
     assert s.arm_lin == 0.1 and s.base_max_vel == (0.08, 0.08, 0.15)
+
+
+class LocalizedFakeRobot(FakeRobot):
+    """FakeRobot with mocap as its own reading (EnvState.localization), which can be lost."""
+
+    def __init__(self):
+        super().__init__()
+        self.mocap = True
+
+    def get_state(self) -> EnvState:
+        from chefbot.interface.types import LocalizationReading
+
+        s = super().get_state()
+        s.localization = LocalizationReading(Pose2D(1.0, 2.0, 0.3) if self.mocap else None)
+        return s
+
+
+def test_the_base_is_guarded_by_the_robot_layers_stops_when_it_may_move(robot, tmp_path):
+    fake = LocalizedFakeRobot()
+    h = RealHost(robot, robot.speed("normal"), tmp_path, confirm=False, env=fake, log=lambda *a: None, base=True)
+    assert h.ctl.guard is not None
+    h.start_here()
+    try:
+        h.step([0.05, 0.0, 0.0], "base")  # mocap live: the base is commanded
+        assert fake.sent["base"] > 0
+        fake.mocap = False  # Motive loses the body
+        with pytest.raises(RuntimeError, match="localization"):
+            for _ in range(20):
+                h.step([0.05, 0.0, 0.0], "base")
+        assert "BaseStopped" in type(h.fault).__name__
+    finally:
+        h.close()
+
+
+def test_an_arm_only_host_has_no_base_guard(robot, tmp_path):
+    h, _ = host_on(robot, tmp_path)
+    try:
+        assert h.ctl.guard is None
+    finally:
+        h.close()

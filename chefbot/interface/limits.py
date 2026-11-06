@@ -47,6 +47,14 @@ def base_cap(embodiment: str = "tidybot_fr3") -> dict:
     return {"vel": tuple(float(v) for v in lim["base_max_vel"]), "accel": None if accel is None else tuple(float(v) for v in accel)}
 
 
+def base_stop(embodiment: str = "tidybot_fr3") -> dict:
+    """The base's measured stop (control.limits base_stop_tau_s, base_stop_brake_mps2), {} if the embodiment has none
+    (navigation then refuses to size its speed by it: robot/nav/speed.py StopModel.from_limits)."""
+    raw = yaml.safe_load((EMBODIMENTS / embodiment / "robot.yaml").read_text())
+    lim = (raw.get("control") or {}).get("limits") or {}
+    return {k: float(lim[k]) for k in ("base_stop_tau_s", "base_stop_brake_mps2") if k in lim}
+
+
 def base_profile(name: str, embodiment: str = "tidybot_fr3") -> tuple[tuple, tuple | None]:
     """A profile's base velocity and acceleration (the cap's acceleration if the profile sets none), refused if either is
     over the embodiment's cap or the profile has no base speed."""

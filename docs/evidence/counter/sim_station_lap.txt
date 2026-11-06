@@ -1,0 +1,6 @@
+simulated station lap (smooth following, carrot 0.12 m, square approach), maps/src_counter, start hug_a
+counter_south  reached   1.24 m in  6.4 s  max off path 0 mm   straight in: reached, 0.0 mm
+counter_east   reached   2.63 m in  9.9 s  max off path 21 mm   straight in: reached, 0.0 mm
+counter_north  reached   2.59 m in  9.7 s  max off path 22 mm   straight in: reached, 0.0 mm
+counter_west   reached   2.60 m in  9.8 s  max off path 20 mm   straight in: reached, 0.0 mm
+hug_a          reached   1.44 m in  5.4 s  max off path 14 mm   

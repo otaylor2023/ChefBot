@@ -39,6 +39,14 @@ control:
   limits:
     base_max_vel: [0.25, 0.25, 0.8]     # m/s, m/s, rad/s
     base_max_accel: [0.25, 0.25, 0.8]   # m/s^2, m/s^2, rad/s^2
+    # The base's measured stop with this driver, from the last fresh command to rest (its 0.3 s command timeout
+    # included), as d(v) = v * tau + v^2 / (2 * brake): navigation never drives faster than it can stop in the free
+    # space ahead (robot/nav/speed.py StopModel; the onboard server reports it in hello). HT-4d (2026-11-03): 78 mm
+    # from 0.131 m/s, braking at 0.25 m/s^2 (the cap's acceleration). From the cap's 0.25 m/s it predicts ~0.21 m,
+    # NOT yet measured: run the stop test at the cap (docs/hardware-tests.md) before any counter run, and re-measure
+    # whenever the driver's speed, braking or timeout change.
+    base_stop_tau_s: 0.333
+    base_stop_brake_mps2: 0.25
 
 # The robot's own fixed parts the arm must keep clear of, in the arm base frame (x forward, y left, z up from the
 # arm's plate), as measured on the real robot (2026-11-03). One definition for all: the controller's IK steers around
