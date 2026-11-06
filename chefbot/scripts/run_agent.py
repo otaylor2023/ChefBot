@@ -243,7 +243,8 @@ class Planning:
     def _log(self, kind: str, result, reason: str | None = None) -> None:
         s = self.holder["session"]
         s.totals.cost_usd += result.cost_usd
-        entry = {"kind": kind, "reason": reason, "turn": s.turn, **result.to_dict(), "transcript": result.transcript}
+        entry = {"kind": kind, "reason": reason, "turn": s.turn, **result.to_dict(), "transcript": result.transcript,
+                 "messages": result.messages}
         self.calls.append(entry)
         (self.run_dir / "planner.json").write_text(json.dumps({"request": self.request, "calls": self.calls}, indent=1, default=str))
         s.log.record("planner", s.turn, call=kind, accepted=result.plan is not None, refused=result.refused,

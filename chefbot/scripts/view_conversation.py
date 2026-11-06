@@ -33,6 +33,9 @@ pre { font:12.5px/1.45 ui-monospace, Menlo, monospace; background:var(--code); p
 .say { margin-top:4px } .big { font-size:20px; font-weight:600 }
 .call { font:600 13.5px ui-monospace, Menlo, monospace; background:var(--code); border-radius:6px; padding:6px 10px; margin-top:6px; word-break:break-word }
 .think { font-style:italic; color:var(--muted); margin-top:4px }
+.out { margin-top:6px; border:2px solid var(--c); border-radius:6px; padding:8px 10px }
+.out .lbl { font:700 11px ui-monospace, Menlo, monospace; color:var(--c); text-transform:uppercase; letter-spacing:.05em }
+.out pre { background:transparent; padding:4px 0 0; max-height:none }
 .ok { color:var(--robot); font-weight:700 } .bad { color:var(--bad); font-weight:700 }
 .turn { margin:22px 0 4px; font:700 12px ui-monospace, Menlo, monospace; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:3px }
 details summary { cursor:pointer; color:var(--muted); font-size:13px; margin-top:4px }
@@ -76,6 +79,17 @@ def _plan(plan: dict) -> str:
     return "\n".join(lines)
 
 
+def _output(said: str | None, name: str, arguments: str | None, thought: str | None = None) -> str:
+    """What came out of the LLM, verbatim: its text, its thinking if the API returned any, its tool call (the raw JSON
+    string it wrote, re-indented when it parses)."""
+    try:
+        args = json.dumps(json.loads(arguments or "{}"), indent=1, ensure_ascii=False)
+    except json.JSONDecodeError:
+        args = arguments or ""
+    text = (f"text: {said.strip()}\n\n" if said and said.strip() else "text: (none)\n\n") + (f"thinking: {thought.strip()}\n\n" if thought and thought.strip() else "")
+    return f"<div class='out'><span class='lbl'>LLM output, verbatim</span><pre>{_e(text)}tool call: {_e(name)}\narguments: {_e(args)}</pre></div>"
+
+
 def conversation_html(run_dir: Path) -> str:
     run_dir = Path(run_dir)
     start = json.loads((run_dir / "start.json").read_text()) if (run_dir / "start.json").exists() else {}
@@ -96,17 +110,21 @@ def conversation_html(run_dir: Path) -> str:
         for call in planner.get("calls", []):
             if call.get("kind") == "replan":
                 out.append(_msg("exec", "planner", f"<div class='call'>request_replan(reason={_e(json.dumps(call.get('reason')))})</div>"))
+            msgs = call.get("messages") or []
+            if len(msgs) >= 2:
+                out.append(_msg("harness", "planner", _fold(f"system prompt: planner.md ({len(_text(msgs[0]['content']).splitlines())} lines)", _text(msgs[0]["content"]))
+                                + "<div class='say'>user message:</div>" + f"<pre>{_e(_text(msgs[1]['content']))}</pre>"))  # fmt: skip
             answers = dict((q, a) for q, a in call.get("questions") or [])
             for t in call.get("transcript", []):
                 a = t.get("args", {})
+                to = "user" if t["tool"] == "ask_user" else "harness"
+                out.append(_msg("planner", to, _output(t.get("said"), t["tool"], t.get("arguments") or json.dumps(a))))
                 if t["tool"] == "ask_user":
-                    out.append(_msg("planner", "user", f"<div class='call'>ask_user(question={_e(json.dumps(a.get('question')))})</div>"))
                     out.append(_msg("user", "planner", f"<div class='say big'>“{_e(answers.get(a.get('question')) or '(nobody to ask)')}”</div>"))
                 elif t["tool"] == "submit_plan":
-                    out.append(_msg("planner", "harness", f"<div class='call'>submit_plan(goal={_e(json.dumps(a.get('goal')))}, steps=[{len(a.get('steps', []))} steps])</div>"
-                                    + _fold("the plan it submitted", _plan(a), open_=True)))  # fmt: skip
-                else:
-                    out.append(_msg("planner", "harness", f"<div class='call'>{_e(t['tool'])}({_e(_args(a))})</div>"))
+                    reply = t.get("reply")
+                    out.append(_msg("harness", "planner", (f"<div class='say'>check_plan answers: <b>{_e(reply)}</b></div>" if reply else "")
+                                    + _fold("the plan, as the executor will see it", _plan(a), open_=True)))  # fmt: skip
             n_back = len(call.get("rejected") or [])
             verdict = (f"cannot_do: {call['refused']}" if call.get("refused") else
                        f"plan accepted ({n_back} sent back first by the check)" if call.get("plan") else "no plan")  # fmt: skip
@@ -138,10 +156,10 @@ def conversation_html(run_dir: Path) -> str:
         out.append(f"<div class='turn'>turn {r['turn']}{' · step ' + _e(r['step']) if r.get('step') else ''} · sim {_e(round(r['t']))} s</div>")
         if req:
             out.append(_msg("harness", "exec", f"<div class='say'>system prompt + tools + the last {window} turns + this TASK STATE:</div>" + _fold("TASK STATE", state)))
-        said = (reply.get("content") or r.get("reasoning") or "").strip()
-        thought = (reply.get("reasoning") or "").strip()
-        body = (f"<div class='say'>“{_e(said)}”</div>" if said else "") + (f"<div class='think'>thinking: {_e(thought)}</div>" if thought else "")
-        out.append(_msg("exec", "harness" if r["tool"] in HARNESS_TOOLS else "robot", body + f"<div class='call'>{_e(r['tool'])}({_e(_args(r['args']))})</div>"))
+        said = reply.get("content") or r.get("reasoning")
+        calls = reply.get("tool_calls") or []
+        raw_args = calls[0]["function"]["arguments"] if calls else json.dumps(r["args"])
+        out.append(_msg("exec", "harness" if r["tool"] in HARNESS_TOOLS else "robot", _output(said, r["tool"], raw_args, reply.get("reasoning"))))
         ck = checks.get(r["turn"])
         if ck:
             cfile = run_dir / ck["file"] if ck.get("file") else None

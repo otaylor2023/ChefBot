@@ -63,6 +63,7 @@ class PlanResult:
     turns: int = 0
     cost_usd: float = 0.0
     transcript: list[dict] = field(default_factory=list)
+    messages: list[dict] = field(default_factory=list)  # the whole exchange with the LLM: system, user, its replies, ours
 
     def to_dict(self) -> dict:
         return {"plan": self.plan.to_dict() if self.plan else None, "refused": self.refused, "questions": self.questions,
@@ -164,7 +165,7 @@ class Planner:
 
     def _run(self, text: str, kept: list[Step]) -> PlanResult:
         messages = [{"role": "system", "content": self.prompt}, {"role": "user", "content": text}]
-        result = PlanResult(None)
+        result = PlanResult(None, messages=messages)
         for turn in range(1, self.max_turns + 1):
             response = self.llm.chat(messages, tools=TOOLS)
             result.turns, result.cost_usd = turn, result.cost_usd + (response.cost_usd or 0.0)
@@ -179,11 +180,14 @@ class Planner:
                 args = {}
             messages.append({"role": "assistant", "content": response.text or None,
                              "tool_calls": [{"id": call.id, "type": "function", "function": {"name": call.name, "arguments": call.arguments}}]})  # fmt: skip
-            result.transcript.append({"turn": turn, "tool": call.name, "args": args})
+            # what came out of the LLM, as it wrote it (said: its text; arguments: the tool call's raw JSON string)
+            entry = {"turn": turn, "tool": call.name, "args": args, "said": response.text, "arguments": call.arguments}
+            result.transcript.append(entry)
             reply = self._answer(call.name, args, result, kept)
+            entry["reply"] = reply
+            messages.append({"role": "tool", "tool_call_id": call.id, "content": reply})
             if result.plan is not None or result.refused is not None:
                 return result
-            messages.append({"role": "tool", "tool_call_id": call.id, "content": reply})
         result.refused = result.refused or f"no plan after {self.max_turns} turns"
         return result
 
