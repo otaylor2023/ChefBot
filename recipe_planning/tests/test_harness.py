@@ -289,3 +289,26 @@ def test_fenced_json_is_unwrapped():
     raw = (HERE / "recipes" / "gold" / "onion_egg.gold.json").read_text()
     call = BaseExtractor._parse("```json\n" + raw + "\n```", Usage("x"))
     assert call.recipe is not None and call.error is None and call.raw.startswith("```")
+
+
+def test_actions_compile_to_a_valid_chefbot_job():
+    """The compiled job loads with ChefBot's own Plan model (chefbot/agent/plan/model.py, loaded by path so the
+    robot package's dependencies are not needed)."""
+    import importlib.util
+    from recipe_ir.actions import feasibility, load_skills
+    from recipe_ir.to_job import compile_job
+    spec = importlib.util.spec_from_file_location("plan_model", HERE.parent / "chefbot" / "agent" / "plan" / "model.py")
+    if spec is None or not Path(spec.origin).exists():
+        pytest.skip("ChefBot plan model not in this checkout")
+    pm = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = pm                       # dataclasses resolve the module by name
+    spec.loader.exec_module(pm)
+    v, _ = gold_validation("scrambled_eggs")
+    ins = instructions(v)
+    job = compile_job({"instructions": ins, "feasibility": feasibility(ins, load_skills("chefbot_sim"))})
+    plan = pm.Plan.from_dict(job)                       # raises on duplicate ids or unknown dependencies
+    assert len(plan.steps) == ins["counts"]["main_path"]
+    assert all(s.done_when for s in plan.steps)
+    lean = compile_job({"instructions": ins, "feasibility": feasibility(ins, load_skills("chefbot_sim"))},
+                       include_unsupported=False)
+    pm.Plan.from_dict(lean)                             # dependencies re-linked around dropped steps
