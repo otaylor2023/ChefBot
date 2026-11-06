@@ -22,22 +22,17 @@ onboard (chefbot/onboard) on the robot computer: the drivers' state and commands
 The arm and gripper are config (`embodiments/arms/`, `embodiments/grippers/`), picked in
 `config/robot.yaml` (`hardware:`); `config/robot_real.yaml` is the real robot.
 
-Skills and the labs that make them follow agentic-skills-exploration's split, one folder per concept:
+Skills are developed in agentic-skills-exploration's labs (`chefbot_labs/` there: the research loop, lab configs,
+tasks, setups, suites, generators, evals and the MuJoCo kitchens), on this repo's robot and skill runtime; the ones that
+run on the robot are released into `skills/` here. This repo, one folder per concept:
 
 | Folder | What it holds |
 |---|---|
-| `embodiments/` | What the robot physically is: one folder per robot (`robot.yaml`, cameras, brief), arms and grippers as config, the whole-body controller, speed profiles |
-| `environments/` | Worlds behind the `Env` interface: `robocasa/` (kitchens, and `host.py`, the simulated episode host), `symbolic/`, `real/` |
-| `tasks/` | Task types (`pick_up`): how a kind of task starts, what it measures, how it is scored |
-| `setups/` | A scene plus its randomization, attributes and the named tasks it offers (generated) |
-| `suites/` | Frozen (setup, task, seeds) lists and dev/val/test suite sets |
-| `skills/` | Registered skills: programs the robot runs, with manifests |
-| `runtime/` | Runs a skill: the sandbox and protocol (`episode.py`), workers, metered models, the vision server |
+| `embodiments/` | What the robot physically is: one folder per robot (`robot.yaml`, cameras, brief), arms and grippers as config (printed fingers in `grippers/`), the whole-body controller, speed profiles, and its digital twin in MuJoCo (`twin/`) |
+| `environments/` | Worlds behind the `Env` interface: `real/` (the robot), `robocasa/` (kitchens for the agent), `symbolic/` |
+| `skills/` | Deployed skills: programs the robot runs, with manifests (released from the labs, or hand-written) |
+| `runtime/` | Runs a skill: the sandbox and protocol (`episode.py`), the real robot (`run_real.py`), metered models, the vision server |
 | `interface/` | `Env`, types, transport, and `skill_api.py`: the skill-side robot API (`chefbot-v1`) |
-| `generators/` | Families of generated things (`tongs/`): contract, checks, judge rubrics, example generator |
-| `evals/` | A skill on a suite (`evaluate.py`); a generator on fresh seeds (`generators.py`) |
-| `autoresearch/` | Lab mechanics: `./lab`, the research loop, relay, register; `generator_lab/` for generator labs |
-| `labs/` | Lab configs, briefs and example skills |
 | `jobs/` | The cooking agent's jobs (`fried_egg.yaml`, ...): goal, plan and success conditions |
 
 Tools: `go_to`, `detect`, `nearby`, `align`, `pick`, `place`, `open`, `close`,
@@ -123,56 +118,23 @@ python -m chefbot.onboard.check                 # read-only: which drivers are u
 # laptop (the GPU computer): the tunnel to the onboard server and the vision server, watched until Ctrl-C
 chefbot/environments/real/up.sh                 # --check: just say what's up; --no-vision, --no-tunnel
 python -m chefbot.environments.real.check               # read-only: state, and the arm controller's point vs config
-python -m chefbot.runtime.run_real --skill bringup/v1 --home   # a lab skill on the real robot
+python -m chefbot.runtime.run_real --skill bringup/v1 --ready  # a skill on the real robot
 ```
 
 Not yet: the real kitchen's map, real grasp / placement proposers and fixture
 actuator, contact sensing, camera mounts (TODO markers in the configs).
 
-## Autoresearch labs (chefbot/autoresearch, chefbot/labs)
+## Skill labs (in agentic-skills-exploration)
 
-A researcher agent (Codex) writes a robot skill, a sandboxed Python program,
-against a lab's dev scenes through `./lab`. It scores on held-out val scenes a
-few times, and we score the result on test afterwards. This is
-agentic-skills-exploration's lab, ported onto ChefBot's RoboCasa env and IK,
-with the real robot's arm and hand: the Panda with the Franka Hand
-(`config/robot_franka_hand.yaml`; the env takes `gripper: franka_hand`).
+The autoresearch labs that write skills for this robot (robocasa_pick, mujoco_tongs, kitchen_use and their Astra
+twins, tongs_gen) moved to agentic-skills-exploration on 2026-11-06 (`chefbot_labs/`; everything as it was here is
+tagged `archive/before-split`). They run the robot as this repo defines it: `embodiments/` (the FR3, its controller,
+its twin), `interface/skill_api.py` (chefbot-v1) and `runtime/episode.py` (the sandbox). A lab's skill runs on the
+robot straight from there (`run_real --skill /path/to/skill`), and is released into `skills/` to stay.
 
-The first lab is `robocasa_pick`: pick up a named object from a counter among
-two others, arm only. Its kitchens and object categories are split
-dev/val/test, and val and test are never seen in dev.
-
-```sh
-python -m chefbot.suites.check robocasa_pick       # every scene starts at each seed (no skill)
-python -m chefbot.autoresearch.lab_server robocasa_pick --root runs/labs/try    # a lab to drive by hand: cd .../workspace; ./lab -h
-python -m chefbot.autoresearch.research robocasa_pick --hours 4 # a research run (Codex; GEMINI_API_KEY in .env)
-python -m chefbot.autoresearch.register runs/labs/<run> --version run1_v1
-python -m chefbot.evals.evaluate --skill pick_up/run1_v1 --suite robocasa_pick/test
-```
-
-Skills may call Gemini (metered, with budgets) and the vision models
-(`chefbot/runtime/vision_server.py`, in its own env with torch +
-transformers; set `VISION_URL`). The example skill uses detection, so it needs
-the server. Runs go to `runs/` (`CHEFBOT_RUNS` to put them elsewhere: it is in
-iCloud here). On macOS skills run under `sandbox-exec` plus an in-process guard
-(no network, no subprocesses, nothing of the repo); Codex is not walled off from
-the repo on macOS (`--hide` needs Linux), so the brief asks it not to look.
-
-**Generator labs** (`chefbot/autoresearch/generator_lab`, labs with `kind: generator`) work the same way, but the
-researcher writes a *generator*: given a seed, a MuJoCo model of one thing in a family
-(`chefbot/generators/<family>/contract.md`), so that seeds give a realistic variety. `./lab build` generates assets
-(sandboxed), runs physics checks (squeeze, release, pinch-and-hold, settling on a counter, the Franka Hand's fit,
-declared vs measured length, mass, opening and closing force) and renders them; `./lab judge` has Claude score the
-renders against photos of real products; `./lab val` does both on fresh seeds with a held-out rubric and
-references, aggregate only. The first is `tongs_gen` (kitchen tongs). The judge runs the `claude` CLI on its own
-account (`CLAUDE_JUDGE_TOKEN`, from `claude setup-token`); the reference photos live outside the repo
-(`CHEFBOT_REFS`); the generator's Python is `GEN_PYTHON` (trimesh, manifold3d, CoACD, build123d, mujoco).
-
-```sh
-python -m chefbot.autoresearch.generator_lab.lab tongs_gen --root runs/labs/try    # a lab to drive by hand
-python -m chefbot.evals.generators runs/labs/<run>                                 # test: fresh seeds, held-out judge, rating page
-python -m chefbot.autoresearch.research tongs_gen --hide default --web-search --codex-network   # a research run (Linux)
-```
+Skills may call Gemini (metered, with budgets) and the vision models (`chefbot/runtime/vision_server.py`, in its own
+env with torch + transformers; set `VISION_URL`). On macOS skills run under `sandbox-exec` plus an in-process guard
+(no network, no subprocesses, nothing of the repo); on Linux under bubblewrap.
 
 ## The agent loop (AGENT_SPEC.md)
 

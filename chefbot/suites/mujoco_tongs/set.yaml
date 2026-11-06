@@ -1,7 +1,0 @@
-description: 'Tongs pick in plain MuJoCo kitchens: pick up generated tongs, lift a
-  named food with them (on the counter or in a pan, bowl or plate); TidyBot++ FR3
-  + Franka Hand; val and test kitchens, tongs and food models never in dev'
-suites:
-  dev: dev.yaml
-  val: val.yaml
-  test: test.yaml

@@ -1,7 +1,0 @@
-# The example's ranges are placeholders: they are not from real products. Replace them with ranges you can justify.
-length_m: {min: 0.23, max: 0.37, dist: uniform, why: "placeholder"}
-rest_tip_gap_m: {min: 0.05, max: 0.09, dist: uniform, why: "placeholder"}
-spring_stiffness_Nm_per_rad: {min: 0.8, max: 2.5, dist: uniform, why: "placeholder"}
-mass_kg: {min: 0.02, max: 0.5, dist: derived, why: "placeholder"}
-closing_force_N: {min: 0.5, max: 40, dist: derived, why: "placeholder"}
-tip_friction: {min: 1.0, max: 1.0, dist: fixed, why: "placeholder"}

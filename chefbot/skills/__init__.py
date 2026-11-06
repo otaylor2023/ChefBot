@@ -1,14 +1,15 @@
-"""Registered lab skills: programs the robot runs, one folder each (skills/<name>/<version>/: main.py, skill.yaml,
-REPORT.md), put here by register.py from a lab run.
+"""Deployed skills: programs the robot runs, one folder each (skills/<name>/<version>/: main.py, skill.yaml,
+REPORT.md). Skills are developed in agentic-skills-exploration's labs (chefbot_labs) and released here when they are
+to run on the robot (often as a port for the real robot, e.g. *_fr3); hand-written ones (bringup) live here too.
+load() also takes any skill folder by path, so a lab's skill can be tried on the robot before it is released.
 
 A skill's main.py defines run(robot, **args) against the robot API its manifest names (`interface`: chefbot-v1,
-autoresearch/skill_api.py), and runs sandboxed. Its manifest says which robot it was built on, which models it calls
-and where each runs (`api`: a paid API, key from .env; `vision_models`: our vision server), and where it came from.
+interface/skill_api.py), and runs sandboxed (runtime/episode.py). Its manifest says which robot it was built on, which
+models it calls and where each runs (`api`: a paid API, key from .env; `vision_models`: our vision server), and where
+it came from.
 
-    skill = skills.load("pick_up/run1_v12")
-    skill.check(robot="panda_franka", vision_url=...)   # raises if anything it needs is missing
-
-(agentic-skills-exploration's skills/, without privileged skills or Astra.)
+    skill = skills.load("pick_up/gemini_v1")             # or skills.load("/path/to/agentic-skills-exploration/chefbot_labs/skills/...")
+    skill.check(robot="tidybot_fr3", vision_url=...)    # raises if anything it needs is missing
 """
 
 from __future__ import annotations

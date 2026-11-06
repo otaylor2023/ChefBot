@@ -1,7 +1,7 @@
 """The real robot as an episode host: what runtime/episode.py drives in place of a simulator, so a lab skill
 (interface chefbot-v1) runs on the robot unchanged.
 
-The same contract as the simulated hosts (environments/mujoco_kitchen/host.py), with real time: a control thread
+The same contract as the simulated hosts (agentic-skills-exploration chefbot_labs/environments/mujoco_kitchen/host.py), with real time: a control thread
 runs the same whole-body controller as the sims (embodiments/wholebody.py: IK every tick, joint targets to the arm)
 on RealEnv (the onboard server), each step toward the latest target, so the robot keeps holding its last command
 while the skill thinks or waits on a model. Robot time counts from the skill's first request.

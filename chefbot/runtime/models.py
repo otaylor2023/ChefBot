@@ -172,7 +172,7 @@ def gemini(model: str, prompt: str, images: list[np.ndarray], max_output_tokens:
 
 
 class Vision:
-    """Client for the vision server (autoresearch/vision_server.py, in its own venv), over localhost HTTP."""
+    """Client for the vision server (runtime/vision_server.py, in its own venv), over localhost HTTP."""
 
     def __init__(self, url: str | None):
         self.url = url

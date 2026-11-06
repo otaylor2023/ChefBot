@@ -104,7 +104,7 @@ def _model_path(spec: dict) -> str:
 _ASSET_SETS = {"objaverse", "aigen_objs", "lightwheel"}
 
 
-GENERATED_MARK = ".chefbot_generated"  # in a model folder exported by chefbot.autoresearch.generator_lab.robocasa
+GENERATED_MARK = ".chefbot_generated"  # in a model folder exported by a generator lab (agentic-skills-exploration chefbot_labs/autoresearch/generator_lab/robocasa.py)
 _PHYSICS = ("geom_friction", "geom_solref", "geom_solimp", "geom_solmix", "geom_priority", "geom_condim", "geom_margin", "geom_gap")
 
 

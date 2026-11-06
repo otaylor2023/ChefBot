@@ -47,7 +47,7 @@ def violations(layer: str, forbidden: tuple[str, ...], allow_under: str | tuple[
 
 
 def test_layers_exist():
-    for layer in ("agent", "robot", "interface", "environments", "onboard", "embodiments", "runtime", "tasks", "setups", "suites"):
+    for layer in ("agent", "robot", "interface", "environments", "onboard", "embodiments", "runtime"):
         assert modules_under(layer), layer
 
 
@@ -121,18 +121,21 @@ def test_nothing_imports_the_onboard_package():
         assert violations(layer, ("chefbot.onboard",)) == [], layer
 
 
-def test_nothing_imports_the_autoresearch_lab():
-    # The lab is a harness around the robot: tools to make skills and generators, not part of the robot stack.
-    # (Generator families, chefbot/generators/, are the generator lab's content and may use it; so may evals.)
+def test_the_research_lives_elsewhere():
+    # Skill labs, their tasks, setups, suites, generators and evals are agentic-skills-exploration's (chefbot_labs):
+    # nothing here imports them, and their packages are not here.
     for layer in ("agent", "robot", "interface", "environments", "grasping", "scripts", "onboard", "embodiments", "runtime",
-                  "tasks", "setups", "suites", "skills"):
-        assert violations(layer, ("chefbot.autoresearch", "chefbot.evals")) == [], layer
+                  "skills"):
+        assert violations(layer, ("chefbot_labs", "chefbot.autoresearch", "chefbot.evals", "chefbot.tasks", "chefbot.setups",
+                                  "chefbot.suites", "chefbot.generators")) == [], layer
+    for gone in ("autoresearch", "evals", "labs", "tasks", "setups", "suites", "generators", "environments/mujoco_kitchen"):
+        assert not (PACKAGE / gone).exists(), gone
 
 
 def test_worlds_and_embodiments_do_not_import_how_skills_are_run():
     # Environments and embodiments are what a skill runs in and on; the runtime, skills and labs build on them.
     for layer in ("environments", "embodiments"):
-        assert violations(layer, ("chefbot.runtime", "chefbot.skills", "chefbot.generators")) == [], layer
+        assert violations(layer, ("chefbot.runtime", "chefbot.skills")) == [], layer
 
 
 def test_the_skill_api_is_standard_library_and_numpy():
