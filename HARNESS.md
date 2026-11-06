@@ -71,3 +71,62 @@ scripted symbolic run) unless the step's point was to change it; commits are in 
 
 The executor's system prompt (moved, and `pick` renamed `pick_up` in it), the judge and its prompt, the TASK STATE,
 the window of 8, the tools' code, the symbolic and RoboCasa environments.
+
+## Branch harness-memory-planner: from a user's request to a plan, memory, evaluation, and seeing it work
+
+Built on `agents-skills-registry`. Every change was measured before and after on evaluation sets modeled on the
+robot-memory papers (MessyMem, BUMBLE, the Orchestration Gap, SayPlan, HW1's personas): `EVALUATION.md`.
+
+### a) The loop, adapted further
+
+- **A planner in front of the loop** (`agent/plan/planner.py`, `run_agent --plan-from prompt [--prompt "..."]`).
+  On main a run could only start from a plan written in the job file. Now a second LLM turns the user's sentence into
+  the plan, with three tools: `ask_user` (one question when the dish or where it ends up isn't said), `cannot_do`
+  (the kitchen lacks something the dish needs), `submit_plan`. Code checks the plan (ids, dependencies, cycles, every
+  `done_when` a fact about the kitchen, not a robot action) and sends problems back. `request_replan` calls it again
+  with the executor's reason, keeping the steps already done. In evaluations a simulated user (Haiku, the job's
+  `user:` field) answers its questions.
+- **What the executor remembers beyond its 8-call window** (`plan_loop/context.py`, `tools/plan_tools.py`):
+  each step keeps its failed attempts (`tried:`) and how many times the check refused it; `complete` refused twice is
+  blocked until a call changes the kitchen; LEARNED BY DOING keeps, for the whole run, what failed on what and what
+  made it work; SEARCHING lists only what the agent asked for by name; `finish` is refused once while a door the robot
+  opened is still open.
+- **The kitchen remembered across runs** (`run_agent --memory PATH`): the map as the last run left it, loaded instead
+  of the environment's and saved at the end.
+- **The window stays 8**: 4 loses track (6/12), 8, 16 and 32 differ by at most one run (10, 11, 11 of 12) and 32 costs
+  80% more; in RoboCasa a failing call was repeated after leaving the window once in 282 calls.
+
+### b) Prompts and tool descriptions
+
+| LLM | System prompt | Its user message | Its tools | Written |
+|---|---|---|---|---|
+| Planner | `agents/kitchen_planner/prompts/planner.md` (+ `planner_narrate.md`) | REQUEST, KITCHEN (what the robot knows), ROBOT (one line per skill) | ask_user, cannot_do, submit_plan | this branch |
+| Executor | `system.md` + `handheld.md` / `trigger_tools.md` (+ `narrate.md`) | the last 8 calls, then the TASK STATE | the session's skills and tools (28 here) | main; unchanged here |
+| Judge | `JUDGE_PROMPT` in `agent/check/checker.py` | CONDITION, STATE | none: JSON | main; unchanged |
+| Simulated user | `PROMPT` in `agent/plan/simulated_user.py` | the planner's question | none | this branch |
+
+- `planner.md` tells it how cooking works in this kitchen (a whole egg fries; scrambling needs the cracker, a bowl and
+  stirring; typical times and when food overcooks), what a good plan is (steps that change the kitchen, `done_when` a
+  checkable fact, the burner off, doors closed, no staging), when to ask and when to refuse. Each rule came from a
+  failure in the requests evaluation: 29/42, then 32/42, then 39/42, then 41/42.
+- The planner's ROBOT list is the first sentence of each skill's own description (`skills_text`): the descriptions
+  in the registry are the one source for both LLMs.
+- **Narration** (`run_agent --narrate`, on in the chat): `narrate.md` and `planner_narrate.md` ask both LLMs to say
+  what they do and why before each call. Off in evaluations, so their prompts and results are unchanged.
+
+### c) Seeing it work
+
+| What | How |
+|---|---|
+| Talk to the agent live, as in HW1's chat | `python -m chefbot.scripts.chat [--env robocasa --video]` |
+| A run as who said what to whom | `runs/<run>/conversation.html` (every run; `view_conversation`) |
+| The request, questions, answers and plan in the report | `runs/<run>/report.html`, "User request" |
+| A video with the conversation beside it | `python -m chefbot.scripts.chat_video runs/<run>` → `chat_video.mp4` |
+| Everything the LLMs saw and returned | `runs/<run>/requests/*.json`, `planner.json` (raw outputs, the whole exchange), `checks/` |
+
+### Results (symbolic kitchen; RoboCasa for the videos)
+
+Requests planned from the user's sentence 41/42 (hand-written plans 33/34); ambiguous requests 6/6 with a user to ask,
+0/6 without; the impossible request refused 2/2; recovery with injected failures 21/21; finding moved objects 12/12
+(8/12 before); with the kitchen remembered, the second task in a sequence takes 17 turns instead of 31. RoboCasa:
+fried sausage from the typed request, success, 50 turns, $0.34 (`runs/2026-11-06_102238_fried_sausage_robocasa_s0`).
