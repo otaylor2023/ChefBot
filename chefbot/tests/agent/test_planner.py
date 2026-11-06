@@ -144,6 +144,7 @@ def test_the_planner_sees_the_kitchen_and_the_robots_skills_not_the_executors_to
     text = p.sent[0][-1]["content"]
     assert "KITCHEN" in text and "fridge" in text and "- pick_up(" in text and "- go_to(" in text
     assert "- complete(" not in text and "- set_timer(" not in text  # the executor's own tools
+    assert "- open(id, wait): Open a fixture: a fridge" in text  # a colon doesn't cut the sentence
 
 
 def test_a_refusal_ends_the_run_before_a_turn(tmp_path):

@@ -120,13 +120,14 @@ def _cycle(graph: dict[str, list[str]]) -> bool:
 
 
 def skills_text(schemas: list[dict], exclude: set[str]) -> str:
-    """The robot's skills and tools, one line each (the first sentence of each description)."""
+    """The robot's skills and tools, one line each (the first sentence of each description; a colon doesn't end it:
+    "Open a fixture: a fridge, ..." keeps what it opens)."""
     lines = []
     for s in schemas:
         f = s["function"]
         if f["name"] in exclude:
             continue
-        first = re.split(r"(?<=[.:])\s", f["description"].strip(), maxsplit=1)[0]
+        first = re.split(r"(?<=\.)\s", f["description"].strip(), maxsplit=1)[0]
         args = ", ".join(f["parameters"]["properties"])
         lines.append(f"- {f['name']}({args}): {first}")
     return "\n".join(lines)
