@@ -19,6 +19,12 @@ from pathlib import Path
 from chefbot.agent.logging.run_log import read_timeline
 
 
+def load_planner(run_dir: Path) -> dict | None:
+    """planner.json: the user's request and what the planner did with it (runs planned from a prompt)."""
+    path = run_dir / "planner.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
 def load(run_dir: Path) -> tuple[dict, dict, list[dict]]:
     start = json.loads((run_dir / "start.json").read_text()) if (run_dir / "start.json").exists() else {}
     end = json.loads((run_dir / "end.json").read_text()) if (run_dir / "end.json").exists() else {}
@@ -135,6 +141,8 @@ pre { background:var(--card); border:1px solid var(--line); padding:10px; overfl
 .t { color:var(--muted) } .why { color:var(--muted); font-style:italic }
 .bad { color:var(--bad) } .ok { color:var(--ok) } .mismatch { background:var(--hl) }
 .diff { color:var(--muted); font-size:12.5px } .kind { color:var(--muted) }
+.request { font-size:20px; font-weight:600; background:var(--card); border:1px solid var(--line); border-left:4px solid var(--ok); padding:12px 16px }
+.qa { margin:6px 0 } .qa b { color:var(--muted); font-weight:600 }
 table { border-collapse:collapse } td, th { border:1px solid var(--line); padding:3px 8px; text-align:left; vertical-align:top }
 """
 
@@ -155,7 +163,26 @@ document.querySelectorAll('.filters input, .filters select').forEach(e => e.addE
 """
 
 
-def report_html(start: dict, end: dict, timeline: list[dict]) -> str:
+def request_html(planner: dict | None) -> list[str]:
+    """The user's request as typed, the planner's questions and the answers, and each plan it made (or its refusal)."""
+    if not planner:
+        return []
+    e = html.escape
+    parts = ["<h2>User request</h2>", f"<div class='request'>\u201c{e(planner.get('request') or '')}\u201d</div>"]
+    for call in planner.get("calls", []):
+        head = "Plan" if call.get("kind") == "plan" else f"Replan: {call.get('reason') or ''}"
+        parts.append(f"<p class='kind'>planner · {e(head)} · {call.get('turns', '?')} turn(s) · ${call.get('cost_usd') or 0:.3f}"
+                     f" · {len(call.get('rejected') or [])} plan(s) sent back by the check</p>")  # fmt: skip
+        for q, a in call.get("questions") or []:
+            parts.append(f"<div class='qa'><b>planner asks:</b> {e(q)}<br><b>user answers:</b> {e(a or '(nobody to ask)')}</div>")
+        if call.get("refused"):
+            parts.append(f"<pre class='bad'>cannot_do: {e(call['refused'])}</pre>")
+        elif call.get("plan"):
+            parts.append(f"<pre>{e(_plan_text(call['plan']))}</pre>")
+    return parts
+
+
+def report_html(start: dict, end: dict, timeline: list[dict], planner: dict | None = None) -> str:
     e = html.escape
     bad = {id(r): why for r, why in mismatches(timeline, bool(start.get("world")))}
     steps = sorted({str(r.get("step")) for r in timeline if r["kind"] == "action" and r.get("step")})
@@ -165,6 +192,7 @@ def report_html(start: dict, end: dict, timeline: list[dict]) -> str:
         f"<h1>{e(start.get('task', 'ChefBot run'))}</h1>",
         f"<pre>{e(summary(start, end, timeline))}</pre>",
         f"<p class='kind'>models: {e(str(start.get('models', {})))} · commit {e(str(start.get('git_commit')))}</p>",
+        *request_html(planner),
         "<h2>Start state</h2>",
         f"<pre>{e(_plan_text(start.get('reference_plan')))}</pre>",
         f"<pre>{e(chr(10).join(start.get('world', [])) or '(no observer)')}</pre>",
@@ -282,12 +310,15 @@ def main() -> int:
     parser.add_argument("--text", action="store_true", help="print the timeline as text too")
     args = parser.parse_args()
     start, end, timeline = load(args.run_dir)
+    planner = load_planner(args.run_dir)
+    if planner:
+        print(f"request: {planner.get('request')}")
     print(summary(start, end, timeline))
     if args.text:
         print()
         print(timeline_text(timeline))
     out = args.run_dir / "report.html"
-    out.write_text(report_html(start, end, timeline))
+    out.write_text(report_html(start, end, timeline, load_planner(args.run_dir)))
     print(f"\nwrote {out}")
     return 0
 

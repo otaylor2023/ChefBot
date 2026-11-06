@@ -28,7 +28,7 @@ from chefbot.agent.plan.model import Plan
 from chefbot.agent.tools.plan_tools import terminal_operator
 from chefbot.agent.world.map import WorldMap
 from chefbot.interface import INTERFACES
-from chefbot.scripts.view_run import load, report_html, summary
+from chefbot.scripts.view_run import load, load_planner, report_html, summary
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -201,8 +201,9 @@ def run(
     end["disturbances_applied"] = world.applied
     end_path.write_text(json.dumps(end, default=str))
     start, end, timeline = load(run_dir)
-    (run_dir / "report.html").write_text(report_html(start, end, timeline))
-    text = summary(start, end, timeline)
+    planner_log = load_planner(run_dir)
+    (run_dir / "report.html").write_text(report_html(start, end, timeline, planner_log))
+    text = (f"request: {planner_log['request']}\n" if planner_log else "") + summary(start, end, timeline)
     if not quiet:
         print("\n" + text)
         print(f"ground truth: {'not judged (no ground truth here)' if verdict['success'] is None else 'SUCCESS' if verdict['success'] else 'FAILURE'}"

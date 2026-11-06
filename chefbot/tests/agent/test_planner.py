@@ -135,6 +135,8 @@ def test_run_agent_executes_the_planners_plan(tmp_path):
     planner_log = json.loads((run_dir / "planner.json").read_text())
     assert planner_log["request"].startswith("Take the egg") and planner_log["calls"][0]["plan"]["goal"] == "The egg in the pan"
     assert result["plan_from"] == "prompt" and result["planner"]["calls"] == 1
+    report = (run_dir / "report.html").read_text()
+    assert "User request" in report and planner_log["request"] in report and "Take the egg out of the fridge" in report
 
 
 def test_the_planner_sees_the_kitchen_and_the_robots_skills_not_the_executors_tools(tmp_path):
