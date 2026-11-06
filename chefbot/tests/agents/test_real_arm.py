@@ -22,14 +22,14 @@ PLAN_TOOLS = ("complete", "set_status", "add_step", "skip_step", "request_replan
 def test_its_session_on_the_real_robot():
     s = Session.open(agents.load("real_arm"), env="real")
     assert s.interface == "chefbot-v1"
-    assert [x.path for x in s.skills] == ["bringup/v1", "pick_up/gemini_v1"]
+    assert [x.path for x in s.skills] == ["pick_up/gemini_v1"]  # the wrist camera only
     assert s.tools == PLAN_TOOLS
     assert all(x.description for x in s.skills)  # what the LLM reads about them
 
 
-def test_in_the_sims_it_would_get_only_what_runs_there():
-    assert Session.open(agents.load("real_arm"), env="symbolic").skills == []
-    assert [x.path for x in Session.open(agents.load("real_arm"), env="robocasa").skills] == ["bringup/v1"]  # robot: any
+def test_in_the_sims_it_gets_nothing():
+    for env in ("symbolic", "robocasa", "mujoco_kitchen"):
+        assert Session.open(agents.load("real_arm"), env=env).skills == []
 
 
 class Scripted:
@@ -49,11 +49,32 @@ class Scripted:
         return LLMResponse(None, [ToolCall(f"c{self.i}", name, json.dumps(args))])
 
 
-def _run(tmp_path, calls, **options):
+def with_bringup(tmp_path) -> str:
+    """real_arm plus bringup/v1: a skill that runs to its end on the fake robot (no camera, no model)."""
+    import shutil
+
+    import yaml
+
+    d = tmp_path / "agent" / "real_arm"
+    shutil.copytree(agents.ROOT / "real_arm", d)
+    m = yaml.safe_load((d / "agent.yaml").read_text())
+    m["skills"]["include"] = ["bringup/v1", "pick_up/gemini_v1"]
+    (d / "agent.yaml").write_text(yaml.safe_dump(m))
+    return str(d)
+
+
+def _run(tmp_path, calls, agent="real_arm", **options):
     llm, fake = Scripted(calls), FakeRobot()
-    result = run_agent.run(JOB, 0, tmp_path, llm=llm, operator=lambda r: "abort", quiet=True, env="real", agent="real_arm",
+    result = run_agent.run(JOB, 0, tmp_path / "runs", llm=llm, operator=lambda r: "abort", quiet=True, env="real", agent=agent,
                            env_options={"env": fake, "confirm": False, **options})  # fmt: skip
     return llm, fake, result, Path(result["run_dir"])
+
+
+def test_its_host_asks_the_robot_for_the_wrist_camera_only(tmp_path, monkeypatch):
+    asked = []
+    monkeypatch.setattr(FakeRobot, "keep_cameras_open", lambda self, names: asked.append(list(names)), raising=False)
+    _run(tmp_path, [("finish", {"summary": "nothing", "abandon": True})])
+    assert asked == [["wrist"]]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -72,7 +93,8 @@ def a_gemini_key():
 def pick_run(tmp_path_factory, a_gemini_key):
     calls = [("set_status", {"step_id": "s1", "status": "active"}), ("bringup", {"lift_m": 0.03}), ("pick_up", {}),
              ("pick_up", {"object": "apple"}), ("complete", {"step_id": "s1"}), ("finish", {"summary": "scripted"})]  # fmt: skip
-    return _run(tmp_path_factory.mktemp("real"), calls)
+    tmp = tmp_path_factory.mktemp("real")
+    return _run(tmp, calls, agent=with_bringup(tmp))
 
 
 def test_the_agent_is_offered_its_skills_and_the_plans_tools(pick_run):
@@ -112,7 +134,7 @@ def test_a_completed_step_is_taken_as_done_unchecked(pick_run):
 
 def test_a_dry_run_sends_nothing_to_the_arm(tmp_path):
     calls = [("bringup", {"lift_m": 0.03}), ("finish", {"summary": "dry", "abandon": True})]
-    llm, fake, _, run_dir = _run(tmp_path, calls, dry_run=True)
+    llm, fake, _, run_dir = _run(tmp_path, calls, agent=with_bringup(tmp_path), dry_run=True)
     assert llm.results[0]["success"]  # the skill saw its moves made
     assert fake.sent["arm"] == 0 and fake.sent["gripper"] == 0 and fake.sent["moves"] == 0
     assert json.loads((run_dir / "start.json").read_text())["dry_run"] is True

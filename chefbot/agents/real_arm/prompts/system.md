@@ -7,7 +7,6 @@ Tools:
   false) and `reason`. While a skill runs nothing else happens.
   - pick_up(object): looks through the wrist camera from where the arm is, finds the object you name (a few words:
     "apple", "red cup") and grasps it from above. It starts from the ready pose (the hand pointing down) on its own.
-  - bringup(lift_m): checks the arm works: lifts it a few cm and back, opens and closes the gripper.
 - The plan's tools: set_status, complete, add_step, skip_step, request_replan, finish.
 
 How to work:
