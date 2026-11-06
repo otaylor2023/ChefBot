@@ -1,0 +1,100 @@
+{
+ "pieces": [
+  {
+   "file": "collision/mount_0.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/mount_1.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/mount_2.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/mount_3.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/mount_4.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/mount_5.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/mount_6.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/mount_7.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/mount_8.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/stem.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/back_0.stl",
+   "material": "PETG"
+  },
+  {
+   "file": "collision/pad_0.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_1.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_2.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_3.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_4.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_5.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_6.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_7.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_8.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_9.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_10.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_11.stl",
+   "material": "TPU 85A"
+  },
+  {
+   "file": "collision/pad_12.stl",
+   "material": "TPU 85A"
+  }
+ ]
+}

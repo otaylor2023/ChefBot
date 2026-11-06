@@ -1,5 +1,5 @@
-# The real robot in plain MuJoCo (environments/mujoco_kitchen): the FR3 with the Franka Hand on a TidyBot++ base,
-# from MuJoCo Menagerie's models, the hand's grasp force a servo (environments/mujoco_kitchen/robot.py).
+# The real robot, and its digital twin in plain MuJoCo (embodiments/twin): the FR3 with the Franka Hand on a TidyBot++
+# base, from MuJoCo Menagerie's models, the hand's grasp force a servo (embodiments/twin/robot.py).
 description: TidyBot++ base, Franka FR3, Franka Hand (MuJoCo Menagerie)
 robot_config: robot_tidybot_fr3.yaml   # chefbot/config: kinematics, arm mount, postures, IK
 env:
@@ -43,7 +43,7 @@ control:
 # The robot's own fixed parts the arm must keep clear of, in the arm base frame (x forward, y left, z up from the
 # arm's plate), as measured on the real robot (2026-11-03). One definition for all: the controller's IK steers around
 # them (embodiments/motion.py), the real host's guard stops on them (environments/real/host.py), the robot computer's
-# calibration plans around them (onboard/calibration), and the sim has them as solid geometry (mujoco_kitchen).
+# calibration plans around them (onboard/calibration), and the twin has them as solid geometry (embodiments/twin).
 # The real base: 19 in wide, 22 in long, its plate 0.44 m up (the sim's Menagerie base: 0.335); the arm centered
 # across it, the front of its foot 1 in back from the front edge (the foot reaches 0.072 m ahead of joint 1), so the
 # edge is 0.097 m ahead of the arm. The pole (a camera mast): 7.5 in back from the front edge and 3 in in from the

@@ -1,6 +1,6 @@
 """The Franka Hand's command logic (hand.py) on fingers that follow the servo exactly, or stop on an object."""
 
-from chefbot.environments.mujoco_kitchen import hand as H
+from chefbot.embodiments.twin import hand as H
 
 DT = 0.002
 

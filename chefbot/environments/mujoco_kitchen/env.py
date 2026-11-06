@@ -22,9 +22,9 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from chefbot.environments.mujoco_kitchen import hand
+from chefbot.embodiments.twin import hand
 from chefbot.environments.mujoco_kitchen.objects import DEFAULT, MASS
-from chefbot.environments.mujoco_kitchen.robot import GRIP_KP, GRIP_KP_MOVE, GRIP_KV, GRIP_KV_MOVE, _absolute_files, robot_spec
+from chefbot.embodiments.twin.robot import GRIP_KP, GRIP_KP_MOVE, GRIP_KV, GRIP_KV_MOVE, _absolute_files, robot_spec
 from chefbot.interface.env import Env
 from chefbot.interface.types import RGBD, EnvState, Pose2D
 

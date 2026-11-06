@@ -1,0 +1,18 @@
+{
+ "option": "finger",
+ "printer": "bambu_h2c",
+ "parts": [
+  {
+   "name": "body",
+   "file": "parts/body.stl",
+   "material": "PETG",
+   "role": "body"
+  },
+  {
+   "name": "pad",
+   "file": "parts/pad_filled.stl",
+   "material": "TPU 85A",
+   "role": "grip"
+  }
+ ]
+}
