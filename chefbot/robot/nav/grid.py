@@ -7,6 +7,11 @@ position of the outer corner of cell (0, 0). Anything outside the grid is occupi
 anything the robot can never reach over; 0 for free cells). On disk, `heights.npy`
 next to `grid.npy`, sharing `grid.yaml` (maps/README.md). A map without it: every
 obstacle is a wall.
+
+`heading_zones`: where the base may only face some ways, [(cells, [(yaw rad, tolerance
+rad), ...])], `cells` a grid of the base centre's positions in the zone. On disk,
+`heading_zones.yaml` beside `grid.npy` (maps/README.md); none: []. Planning and the drive's
+guard both hold them (robot/nav/footprint.py FootprintSpace).
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ import numpy as np
 import yaml
 
 Cell = tuple[int, int]  # (row, col)
-GRID_FILE, HEIGHTS_FILE = "grid.npy", "heights.npy"
+GRID_FILE, HEIGHTS_FILE, HEADING_ZONES_FILE = "grid.npy", "heights.npy", "heading_zones.yaml"
 
 
 class OccupancyGrid:
@@ -31,6 +36,7 @@ class OccupancyGrid:
         self.heights = np.where(self.occupied, np.asarray(heights, dtype=float), 0.0)
         if self.heights.shape != self.occupied.shape:
             raise ValueError(f"heights {self.heights.shape} and occupied {self.occupied.shape} differ")
+        self.heading_zones: list = []
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -38,12 +44,32 @@ class OccupancyGrid:
 
     @classmethod
     def load(cls, npy_path: str | Path, yaml_path: str | Path | None = None) -> "OccupancyGrid":
-        """grid.npy (+ grid.yaml beside it, and heights.npy if there)."""
+        """grid.npy (+ grid.yaml beside it, and heights.npy and heading_zones.yaml if there)."""
         npy_path = Path(npy_path)
         meta = yaml.safe_load(Path(yaml_path or npy_path.with_suffix(".yaml")).read_text())
         heights_path = npy_path.with_name(HEIGHTS_FILE)
         heights = np.load(heights_path) if npy_path.name == GRID_FILE and heights_path.exists() else None
-        return cls(np.load(npy_path), meta["resolution"], tuple(meta["origin"]), heights)
+        grid = cls(np.load(npy_path), meta["resolution"], tuple(meta["origin"]), heights)
+        zones_path = npy_path.with_name(HEADING_ZONES_FILE)
+        if npy_path.name == GRID_FILE and zones_path.exists():
+            grid.heading_zones = grid.zones_from(yaml.safe_load(zones_path.read_text()))
+        return grid
+
+    def zones_from(self, spec: dict | None) -> list:
+        """heading_zones.yaml's `zones` (each a box {center, size, yaw_deg} in the world, allowed_yaw_deg, tolerance_deg
+        (default 20)) on this grid: [(cells, [(yaw rad, tolerance rad), ...])]."""
+        out = []
+        h, w = self.shape
+        ys, xs = np.mgrid[0:h, 0:w]
+        wx, wy = self.origin[0] + (xs + 0.5) * self.resolution, self.origin[1] + (ys + 0.5) * self.resolution
+        for z in (spec or {}).get("zones") or []:
+            (cx, cy), (sx, sy), t = z["box"]["center"], z["box"]["size"], math.radians(z["box"].get("yaw_deg", 0.0))
+            a = (wx - cx) * math.cos(t) + (wy - cy) * math.sin(t)
+            b = -(wx - cx) * math.sin(t) + (wy - cy) * math.cos(t)
+            cells = OccupancyGrid((np.abs(a) <= sx / 2) & (np.abs(b) <= sy / 2), self.resolution, self.origin)
+            tol = math.radians(float(z.get("tolerance_deg", 20.0)))
+            out.append((cells, [(math.radians(float(y)), tol) for y in z["allowed_yaw_deg"]]))
+        return out
 
     def save(self, npy_path: str | Path, yaml_path: str | Path | None = None) -> None:
         npy_path = Path(npy_path)

@@ -131,3 +131,21 @@ def park_report(center, size, yaw: float, side: str, base: Pose2D, target_xy) ->
 
 def wrap_yaw(a: float) -> float:
     return math.atan2(math.sin(a), math.cos(a))
+
+
+def counter_stance(robot, box, target, out_m=None, approach: float = 0.0, end_margin=None):
+    """The stance for a counter target by the start rule (counter_park_candidates: the box's sides, out_m from its
+    edge, default 0.45 then 0.48) that `robot` (robot/robot.py Robot) finds clear for its whole footprint at the
+    stance's heading, with its straight `approach` clear, and cheapest to reach from where the base is
+    (Robot.choose_stance): (pose, info) or (None, reason)."""
+    kw = {} if end_margin is None else {"end_margin": end_margin}
+    cands = counter_park_candidates(*box[:3], target, out_m=tuple(out_m or (0.45, 0.48)), **kw)
+    if not cands:
+        return None, "the target is not 0-0.25 m in from a side and >= 0.35 m from its ends: no stance by the rule"
+    body = robot._space
+    ok = [(p, i) for p, i in cands
+          if body.at(p.yaw).segment_free((p.x - approach * math.cos(p.yaw), p.y - approach * math.sin(p.yaw)), (p.x, p.y))]  # fmt: skip
+    pick, why = robot.choose_stance([p for p, _ in ok])
+    if pick is None:
+        return None, why
+    return pick, next(i for p, i in ok if p is pick)

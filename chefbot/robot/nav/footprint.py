@@ -55,7 +55,9 @@ class FootprintSpace:
         """`grid`'s obstacles grouped by their top, each group grown by footprint_below(top): the footprint of what
         the robot has lower than that (top inf: all of it)."""
         tops = grid.tops() or [math.inf]
-        return cls.layered([(grid.only_top(t), footprint_below(t)) for t in tops], margin, step_deg, centre_limit)
+        space = cls.layered([(grid.only_top(t), footprint_below(t)) for t in tops], margin, step_deg, centre_limit)
+        space.heading_zones = list(getattr(grid, "heading_zones", []))  # the map's (OccupancyGrid.load)
+        return space
 
     def with_margin(self, margin: float) -> "FootprintSpace":
         """The same space grown by `margin` (kept, so its slices are made once, not on every plan)."""

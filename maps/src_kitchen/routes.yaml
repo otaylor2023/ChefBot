@@ -1,7 +1,0 @@
-# Routes real_nav park --around follows between the island's north and south sides (Jack, 2026-11-05 15:00): through
-# the middle of the fridge gap (0.58 m from the island and the fridge), keeping the heading the base already has
-# (the gap allows facing along it either way), the turn done after, in the open on the far side. World (x, y), m.
-island_north_south:
-  north: [[2.148, -1.062], [3.047, -1.109]]   # north of the island (turns happen here, clear of the fridge), then north of the gap
-  gap: [[2.922, -3.516]]                      # the gap's south end, its middle
-  south: [[2.024, -3.469]]                    # the south aisle, west of the gap (outside the heading zone)

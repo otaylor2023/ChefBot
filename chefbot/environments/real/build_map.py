@@ -44,7 +44,7 @@ import numpy as np
 import yaml
 
 GRID_FILE, GRID_META_FILE, HEIGHTS_FILE = "grid.npy", "grid.yaml", "heights.npy"
-SEMANTIC_MAP_FILE, PLACES_FILE = "semantic_map.yaml", "places.yaml"
+SEMANTIC_MAP_FILE, PLACES_FILE, MARKED_FILE = "semantic_map.yaml", "places.yaml", "marked.yaml"
 BLANK_SEMANTIC_MAP = {"frame": "world", "fixtures": {}, "objects": {}}
 
 
@@ -152,9 +152,24 @@ def build_map(spec: dict, out_dir: str | Path) -> Path:
 
 
 def load_places(map_dir: str | Path) -> dict:
-    """A map's named base poses (places.yaml), {} when it has none."""
-    path = Path(map_dir) / PLACES_FILE
-    return (yaml.safe_load(path.read_text()) or {}) if path.exists() else {}
+    """A map's named base poses: places.yaml (built from the spec) and marked.yaml (marked on the robot, real_nav mark;
+    a mark wins over a built place of the same name), {} when it has none."""
+    out = {}
+    for name in (PLACES_FILE, MARKED_FILE):
+        path = Path(map_dir) / name
+        if path.exists():
+            out |= yaml.safe_load(path.read_text()) or {}
+    return out
+
+
+def save_mark(map_dir: str | Path, name: str, place: dict) -> Path:
+    """A marked base pose ({x, y, yaw_deg, ...}) into the map's marked.yaml (kept when the map is rebuilt from its
+    spec, which rewrites places.yaml)."""
+    path = Path(map_dir) / MARKED_FILE
+    marks = (yaml.safe_load(path.read_text()) or {}) if path.exists() else {}
+    marks[name] = place
+    path.write_text(yaml.safe_dump(marks, sort_keys=False))
+    return path
 
 
 def body_from_probe(text: str, name: str) -> dict:

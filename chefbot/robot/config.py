@@ -113,6 +113,11 @@ class RobotConfig:
     path_clearance_m: float = 0.0
     turn_in_room: bool = False
     moving_away_m: float = 0.10  # a straight move stops once this much further from its goal than it has been
+    # A go-to stopped by something passing (the localizer lost for a moment: NOT_LOCALIZED; the env failing a tick,
+    # as the real robot's link stalling and its server holding the robot) waits up to transient_wait_s for the env and
+    # the localizer to be back, then plans again from where the base is: this many times (0: it reports the stop).
+    transient_retries: int = 0
+    transient_wait_s: float = 10.0
     # Goal handling
     snap_radius: float = 0.5
     reach_clearance: float = 0.20

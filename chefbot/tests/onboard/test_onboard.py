@@ -522,8 +522,8 @@ def test_real_nav_mark_averages_a_still_pose(sim, tmp_path):
 
     env, base, redis, server = sim
     wait_until(lambda: env.localization().live)
-    p = mark(env, "A", path=tmp_path / "points.json", seconds=0.3)
-    assert load_points(tmp_path / "points.json")["A"] == p and p["samples"] > 5
+    p = mark(env, "A", tmp_path, seconds=0.3)  # into the map's marked.yaml
+    assert load_points(tmp_path)["A"] == pytest.approx(p) and p["samples"] > 5
     assert (p["x"], p["y"]) == pytest.approx((2.0, 1.0), abs=1e-6)  # odometry at 0: the world offset
 
 

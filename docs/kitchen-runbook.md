@@ -37,10 +37,10 @@ ssh chefbot 'cd ~/chefbot_speedexp && (CHEFBOT_PYTHON=~/chefbot_calib/env/bin/py
 - The server closes idle cameras only while a client is connected; a robot-side camera script needs the cameras free.
 
 ## 3. Drive: random A to B in the work area, from the robot
-The robot runs `real_nav park` itself (no Wi-Fi in the drive loop); the Mac only starts it and reads the log:
+The robot runs `real_park` itself (no Wi-Fi in the drive loop); the Mac only starts it and reads the log:
 ```
 ssh chefbot 'cd ~/chefbot_nav && printf "\n" | PYTHONPATH=$PWD setsid nohup ~/miniforge3/envs/chefbot-movement/bin/python -u \
-  -m chefbot.scripts.real_nav park --random 20 --seed N \
+  -m chefbot.scripts.real_park --random 20 --seed N \
   --mix kitchen_island_countertop:south 1-corner-countertop:north --x-range 0.3 1.55 --end-margin 0.05 \
   --map maps/src_kitchen --margin 0.05 --out 0.46 0.46 --approach 0 --profile exp50 --hold \
   --clearance 0.7 --turn-in-room --corridor 0.25 > runs/collect/park_NAME.log 2>&1 &'

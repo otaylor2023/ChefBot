@@ -9,6 +9,8 @@ Every map folder has the same files, read by one loader each, whatever built it:
 | `heights.npy` | the same (`OccupancyGrid.heights`) | float, same shape, resolution and origin: each occupied cell's top above the floor (m); `inf` for walls and anything never to be reached over; 0 for free cells |
 | `semantic_map.yaml` | agent: `WorldMap.load` (NAV_SPEC §7.1) | `frame: world`, `fixtures`, `objects`, rough locations and optional `facing`. A map with no semantics has a blank one: `{frame: world, fixtures: {}, objects: {}}` |
 | `places.yaml` | `environments/real/build_map.py` `load_places` (optional) | named base poses, `{name: {x, y, yaw_deg[, approach_m]}}`: where the base goes, not things in the world (those are fixtures). Absent: no places |
+| `marked.yaml` | the same (optional) | places marked on the robot (`real_nav mark NAME --map DIR`), same format; kept when the map is rebuilt from its spec; a mark wins over a built place of the same name |
+| `heading_zones.yaml` | robot layer: `OccupancyGrid.load` (optional) | `zones: [{name, box: {center, size, yaw_deg}, allowed_yaw_deg: [...], tolerance_deg}]`, world frame: where the base may only face these ways (default tolerance 20 deg). Planning and the drive's guard both hold them (`robot/nav/footprint.py`). Absent: none |
 | `spec.yaml` | `environments/real/build_map.py` (real maps only) | the hand-written description a real map is built from |
 
 Obstacles are the furniture itself. The robot layer grows them by the robot's footprint at each heading and decides from

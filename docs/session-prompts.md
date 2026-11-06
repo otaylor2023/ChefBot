@@ -41,7 +41,7 @@ First message:
 ```
 Read CLAUDE.md's START HERE. In mac_chefbot-movement (branch kitchen-nav), speed up planning for 180-degree trips
 across the island (~6 s now, Python A* repairs in robot/nav/heading_plan.py) and smooth the south-to-north path.
-Benchmark in the simulator with real_nav park --mix ... --clearance 0.7 --turn-in-room as in kitchen-runbook.md.
+Benchmark in the simulator with real_park --mix ... --clearance 0.7 --turn-in-room as in kitchen-runbook.md.
 ```
 
 ## With your partner (not a Claude session)

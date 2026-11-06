@@ -104,3 +104,47 @@ def test_choose_stance_picks_a_clear_reachable_one():
     pick, why = robot.choose_stance([blocked, far, near])
     assert pick is near, why
     assert robot.choose_stance([blocked])[0] is None
+
+
+# -- from the map, and passing stops ------------------------------------------------------------
+
+
+def test_a_maps_heading_zones_load_with_it_and_the_robot_holds_them(tmp_path):
+    import yaml
+
+    grid = OccupancyGrid(np.zeros((40, 80), dtype=bool), 0.05, (0.0, 0.0))
+    grid.save(tmp_path / "grid.npy")
+    zone = {"zones": [{"name": "aisle", "box": {"center": [2.0, 1.0], "size": [1.0, 1.0]}, "allowed_yaw_deg": [0], "tolerance_deg": 20}]}
+    (tmp_path / "heading_zones.yaml").write_text(yaml.safe_dump(zone))
+    loaded = OccupancyGrid.load(tmp_path / "grid.npy")
+    assert len(loaded.heading_zones) == 1
+    robot = Robot(FakeEnv(Pose2D(0.5, 1.0, 0.0)), loaded, CFG, RingReach(), footprint_below=plate)
+    assert robot._space.is_free(2.0, 1.0, 0.0)  # facing along it: allowed
+    assert not robot._space.is_free(2.0, 1.0, math.radians(90))  # across it: not
+    assert robot._space.is_free(0.5, 1.0, math.radians(90))  # outside the zone: any heading
+
+
+class StallsOnce(FakeEnv):
+    """The real robot's link stalling once mid-drive: one tick raises, as RealEnv's RobotHalted does."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.stalled = False
+
+    def wait_for_next_tick(self, dt):
+        super().wait_for_next_tick(dt)
+        if not self.stalled and self.ticks > 10:
+            self.stalled = True
+            raise RuntimeError("the onboard server held the robot: no word from the client")
+
+
+def test_a_passing_stop_is_retried_from_where_the_base_is():
+    env = StallsOnce(Pose2D(1.0, 1.0, 0.0))
+    robot = Robot(env, room(), replace(CFG, transient_retries=1, transient_wait_s=2.0), RingReach(), footprint_below=plate)
+    robot.go_to_pose(Pose2D(2.5, 1.0, 0.0))
+    res = robot.wait(30)
+    assert env.stalled and res.status == MotionStatus.SUCCESS
+    env2 = StallsOnce(Pose2D(1.0, 1.0, 0.0))
+    robot2 = Robot(env2, room(), CFG, RingReach(), footprint_below=plate)  # retries off (the default): it reports it
+    robot2.go_to_pose(Pose2D(2.5, 1.0, 0.0))
+    assert robot2.wait(30).status == MotionStatus.ERROR

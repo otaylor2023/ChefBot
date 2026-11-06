@@ -10,6 +10,7 @@ from typing import Callable
 
 import math
 import threading
+import time
 
 import numpy as np
 
@@ -124,36 +125,6 @@ class Robot(RobotAPI):
         a counter), after a stop at its start."""
         self._motion.start(lambda preempt: self._run_go_to_pose(goal, preempt, approach_m))
 
-    def go_through(self, via: list[Pose2D], goal: Pose2D) -> None:
-        """Through the `via` poses (each at its own heading) to `goal` as one smooth drive: each stretch planned as
-        go_to_pose plans (clear for the footprint at the headings along it), the stretches joined into one path the
-        follower rounds the corners of, with no stop at the via poses."""
-        self._motion.start(lambda preempt: self._run_go_through(list(via), goal, preempt))
-
-    def _run_go_through(self, via: list[Pose2D], goal: Pose2D, preempt: threading.Event) -> MotionResult:
-        lost = self._loc.why_not_live(self._env.get_state())
-        if lost is not None:
-            return self._result(MotionStatus.NOT_LOCALIZED, lost)
-        pose = self.get_base_pose()
-        body, plan = self._space, self._space.with_margin(self._cfg.safety_margin)
-        if not body.is_free(pose.x, pose.y, pose.yaw):
-            return self._result(MotionStatus.NO_PATH, "base is in collision on the map")
-        begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
-        if begin is None:
-            return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
-        path, start = [], pose
-        for k, target in enumerate(via + [goal]):
-            points, why = plan_at_headings(plan, body, start, begin, target, target.yaw, style=self._style())
-            if points is None:
-                return self._result(MotionStatus.NO_PATH, f"stretch {k + 1} of {len(via) + 1}: {why}")
-            stretch = headings(start, subdivide(points, 1.0), target.yaw, self._style(), body)
-            path += stretch if not path else stretch[1:]
-            start, begin = target, (target.x, target.y)
-        path_m = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(path, path[1:]))
-        result = self._drive(path, preempt)
-        result.data.update(path=[(p.x, p.y) for p in path], path_m=path_m)
-        return result
-
     def align_to_point(self, target: np.ndarray) -> None:
         target = np.asarray(target, dtype=float).reshape(3)
         self._motion.start(lambda preempt: self._run_align(target, preempt))
@@ -244,7 +215,35 @@ class Robot(RobotAPI):
                     f"goal is in collision and no free space within {cfg.snap_radius:.2f} m",
                 )
             goal = Pose2D(*grid.cell_to_world(cell), goal.yaw)
-        return self._plan_and_drive(goal, preempt, approach_m)
+        for attempt in range(cfg.transient_retries + 1):
+            last = attempt == cfg.transient_retries
+            try:
+                result = self._plan_and_drive(goal, preempt, approach_m)
+            except RuntimeError as exc:  # the env failed a tick (the real robot: its link stalled, its server held it)
+                if last:
+                    raise
+                why = f"{type(exc).__name__}: {exc}"
+            else:
+                if result.status != MotionStatus.NOT_LOCALIZED or last:
+                    return result
+                why = result.message
+            if not self._wait_until_live(preempt, cfg.transient_wait_s):
+                return self._result(MotionStatus.STOPPED if preempt.is_set() else MotionStatus.NOT_LOCALIZED,
+                                    f"{why}; not back within {cfg.transient_wait_s:.0f} s")  # fmt: skip
+        raise AssertionError("unreachable")
+
+    def _wait_until_live(self, preempt: threading.Event, timeout_s: float) -> bool:
+        """After a passing stop: wait for the env to answer and the localizer to be live (then a second more)."""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout_s and not preempt.is_set():
+            try:
+                if self._loc.why_not_live(self._env.get_state()) is None:
+                    time.sleep(1.0)
+                    return not preempt.is_set()
+            except RuntimeError:
+                pass
+            time.sleep(0.1)
+        return False
 
     def _run_align(self, target: np.ndarray, preempt: threading.Event) -> MotionResult:
         cfg = self._cfg
@@ -493,7 +492,7 @@ class Robot(RobotAPI):
     def _build_space(self) -> FootprintSpace:
         grid = self._grid_with(list(self._extra_obstacles.values()))
         space = FootprintSpace.by_height(grid, self._footprint_below)
-        space.heading_zones = list(getattr(self, "heading_zones", []))
+        space.heading_zones = list(getattr(self._grid, "heading_zones", [])) + list(getattr(self, "heading_zones", []))  # the map's, then any set
         return space
 
     def _style(self) -> PathStyle | None:
@@ -503,7 +502,8 @@ class Robot(RobotAPI):
         return PathStyle(clearance_m=c.path_clearance_m, turn_in_room=c.turn_in_room, need_m=0.369 + c.safety_margin)
 
     def set_heading_zones(self, zones) -> None:
-        """Where the base may only face some ways: [(cells grid, [(yaw rad, tolerance rad), ...])] (FootprintSpace)."""
+        """More places where the base may only face some ways than the map's own (OccupancyGrid.heading_zones):
+        [(cells grid, [(yaw rad, tolerance rad), ...])] (FootprintSpace)."""
         self.heading_zones = list(zones)
         self._space = self._build_space()
 
