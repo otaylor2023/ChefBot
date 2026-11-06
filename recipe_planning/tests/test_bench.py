@@ -80,3 +80,13 @@ def test_quote_f1_identical_is_one():
 def test_head_word():
     assert head_word("large eggs") == "egg" and head_word("boneless chicken thighs") == "chicken"
     assert head_word("dry-packed sea scallops") == "scallop"
+
+
+def test_doneness_temperature_counts_for_units():
+    _, v = gold("scrambled_eggs")
+    r = v.recipe.model_copy(deep=True)
+    from recipe_ir.schema import Until
+    r.steps[5].until = Until(kind="temp", target="49°C", raw="center registers 49°C")
+    vv = validate(r, from_text((HERE / "recipes" / "scrambled_eggs.txt").read_text()))
+    out = check({"expect": {"kind": "temperature", "expected_c": [49], "tolerance_c": 3}}, vv, v)
+    assert out["metrics"]["temps_c"] == [49.0]
