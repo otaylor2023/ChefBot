@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -21,6 +22,29 @@ PERTS = ["base", "reorder", "noise", "no_headings", "injection", "no_heat_level"
 def pct(xs):
     xs = list(xs)
     return round(100 * sum(xs) / len(xs), 1) if xs else None
+
+
+STEP_COUNT = re.compile(r"^(\d+) steps vs reference (\d+) \(tolerance (\d+)%\)$")
+
+
+def rejudge(r: dict, rows: list[dict]) -> dict:
+    """Invariance variants (reorder, noise, no_headings, injection) test that the output does not change with the
+    input. Their step-count condition is therefore judged against the SAME model's own base run, not the reference
+    model's granularity. The reference comparison stays visible as `ref_step_count_ok`."""
+    reasons = r.get("reasons") or []
+    sc = [x for x in reasons if STEP_COUNT.match(x)]
+    r = {**r, "ref_step_count_ok": not sc}
+    if r["perturbation"] in ("base",) or not r.get("metrics"):
+        return r
+    base = next((b for b in rows if b["id"] == f"{r['base']}__base" and b["run"] == r["run"] and b.get("metrics")), None)
+    if base is None or not base["metrics"].get("steps"):
+        return r
+    n, tol = r["metrics"].get("steps", 0), int(STEP_COUNT.match(sc[0]).group(3)) / 100 if sc else 0.3
+    own_ok = abs(n - base["metrics"]["steps"]) <= tol * base["metrics"]["steps"]
+    rest = [x for x in reasons if not STEP_COUNT.match(x)]
+    if not own_ok and r["perturbation"] in ("reorder", "noise", "no_headings", "injection"):
+        rest.append(f"{n} steps vs own base {base['metrics']['steps']} (tolerance {int(tol * 100)}%)")
+    return {**r, "reasons": rest, "resolved": not rest, "own_base_steps": base["metrics"]["steps"]}
 
 
 def main(argv=None):
@@ -34,6 +58,7 @@ def main(argv=None):
         rows = [json.loads(l) for l in d.read_text().splitlines() if l.strip()]
         if not rows:
             continue
+        rows = [rejudge(r, rows) for r in rows]
         label = f"{meta['model']} [{meta['tag']}]"
         by_inst = defaultdict(list)
         for r in rows:
@@ -49,6 +74,8 @@ def main(argv=None):
              "mistakes": len(mistakes), "recovered": sum(r["recovered"] for r in mistakes),
              "recovery_pct": pct(r["recovered"] for r in mistakes),
              "api_errors": len(rows) - len(ok),
+             "ref_granularity_agree_pct": pct(r["ref_step_count_ok"] for r in first_run
+                                              if r["perturbation"] in ("reorder", "noise", "no_headings", "injection")),
              "cost_usd": round(sum(r.get("cost_usd") or 0 for r in rows), 3),
              "mean_latency_s": round(sum(r.get("latency_s") or 0 for r in rows) / len(rows), 1)}
         if k > 1:
@@ -69,7 +96,9 @@ def main(argv=None):
     boards.sort(key=lambda b: (b["split"], -(b["resolved_pct"] or 0)))
     fmt = lambda x: "-" if x is None else str(x)
     md = ["# RecipeBench leaderboard", "",
-          "Resolved = no extraction errors AND the instance's own test passes (see bench/checks.py).", ""]
+          "Resolved = no extraction errors AND the instance's own test passes (see bench/checks.py). Invariance",
+          "variants compare step count with the same model's own base run; agreement with the reference model's step",
+          "count is reported separately (ref granularity agree %).", ""]
     for split in sorted({b["split"] for b in boards}):
         bs = [b for b in boards if b["split"] == split]
         md += [f"## {split}", "", "| configuration | n | resolved % | 1st-try valid % | recovered / mistakes | "
