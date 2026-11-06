@@ -137,6 +137,8 @@ def test_run_agent_executes_the_planners_plan(tmp_path):
     assert result["plan_from"] == "prompt" and result["planner"]["calls"] == 1
     report = (run_dir / "report.html").read_text()
     assert "User request" in report and planner_log["request"] in report and "Take the egg out of the fridge" in report
+    conversation = (run_dir / "conversation.html").read_text()
+    assert planner_log["request"] in conversation and "submit_plan" in conversation and "turn 1" in conversation
 
 
 def test_the_planner_sees_the_kitchen_and_the_robots_skills_not_the_executors_tools(tmp_path):

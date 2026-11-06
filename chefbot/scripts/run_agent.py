@@ -28,6 +28,7 @@ from chefbot.agent.plan.model import Plan
 from chefbot.agent.tools.plan_tools import terminal_operator
 from chefbot.agent.world.map import WorldMap
 from chefbot.interface import INTERFACES
+from chefbot.scripts.view_conversation import conversation_html
 from chefbot.scripts.view_run import load, load_planner, report_html, summary
 
 REPO = Path(__file__).resolve().parents[2]
@@ -203,13 +204,14 @@ def run(
     start, end, timeline = load(run_dir)
     planner_log = load_planner(run_dir)
     (run_dir / "report.html").write_text(report_html(start, end, timeline, planner_log))
+    (run_dir / "conversation.html").write_text(conversation_html(run_dir))
     text = (f"request: {planner_log['request']}\n" if planner_log else "") + summary(start, end, timeline)
     if not quiet:
         print("\n" + text)
         print(f"ground truth: {'not judged (no ground truth here)' if verdict['success'] is None else 'SUCCESS' if verdict['success'] else 'FAILURE'}"
               + (f" · missing {verdict['missing']}" if verdict["missing"] else "")
               + (f" · forbidden {verdict['forbidden_present']}" if verdict["forbidden_present"] else ""))  # fmt: skip
-        print(f"report: {run_dir / 'report.html'}" + (f"\nvideo: {run_dir / 'video.mp4'}" if recorder else ""))
+        print(f"conversation: {run_dir / 'conversation.html'}\nreport: {run_dir / 'report.html'}" + (f"\nvideo: {run_dir / 'video.mp4'}" if recorder else ""))
     extra = {"plan_from": plan_from}
     if planning is not None:
         extra["planner"] = planning.summary()
