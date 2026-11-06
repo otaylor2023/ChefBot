@@ -66,7 +66,10 @@ class Robot(RobotAPI):
         grasp_proposer: GraspProposer | None = None,
         placement_proposer: PlacementProposer | None = None,
         fixture_actuator: FixtureActuator | None = None,
+        body=None,
     ):
+        """body: the robot's own parts the arm keeps clear of (interface/workspace.py Body, an embodiment's
+        robot.yaml `body:`); its planned arm moves into them are refused. None: no body (RoboCasa's PandaOmron)."""
         from chefbot.robot.kinematics.collision import ArmCollisionModel
         from chefbot.robot.kinematics.reachability import ReachabilityChecker
 
@@ -79,9 +82,9 @@ class Robot(RobotAPI):
         self._planner = AStarPlanner(grid.inflate(self._cfg.inflation_radius))
         frames = ReachabilityChecker(self._cfg)
         self._reachability = reachability or frames
+        arm = ArmController(env, frames.ik, self._cfg, *_constraints_of(body))
         self._arm = ArmStack(
-            env, self._cfg, frames.ik, ArmController(env, frames.ik, self._cfg), Gripper(env, self._cfg), frames,
-            ArmCollisionModel(frames.ik.model),
+            env, self._cfg, frames.ik, arm, Gripper(env, self._cfg), frames, ArmCollisionModel(frames.ik.model),
         )  # fmt: skip
         self._grasp_proposer = grasp_proposer
         self._placement_proposer = placement_proposer
@@ -439,3 +442,10 @@ def _has_path(planner: AStarPlanner, start: Pose2D, goal: Pose2D) -> bool:
     except NoPath:
         return False
     return True
+
+
+def _constraints_of(body) -> tuple[list, float]:
+    """The arm's constraints and hand length for a body (none without one)."""
+    from chefbot.robot.control.constraints import for_robot
+
+    return for_robot(body), (body.hand_m if body is not None else 0.0)

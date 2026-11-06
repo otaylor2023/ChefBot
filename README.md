@@ -23,6 +23,10 @@ The arm and gripper are config (`embodiments/arms/`, `embodiments/grippers/`), p
 `config/robot.yaml` (`hardware:`). The real robot is `embodiments/tidybot_fr3` (its config
 `config/robot_tidybot_fr3.yaml`); on the robot, the real host clips every speed profile to its
 `control.real_limits` (base 0.125 m/s, 0.4 rad/s; arm 5 cm/s, joints 0.5 rad/s) until the base is measured.
+The robot's body (`body:`: the pole, the camera clamp, the base's plate) is avoided by the skill hosts'
+controller (`robot/control`) and guarded by the real host; the agent's arm (`robot/arm/arm_controller.py`)
+refuses a planned move whose path goes into it, by the same rule (`Robot(..., body=...)`; RoboCasa's
+PandaOmron has none).
 
 Skills and the labs that make them follow agentic-skills-exploration's split, one folder per concept:
 
