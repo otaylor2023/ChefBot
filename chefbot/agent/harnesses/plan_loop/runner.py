@@ -278,6 +278,11 @@ class AgentRunner:
             # The step keeps a record of what was done for it (the window forgets).
             target = f'("{args["id"]}")' if "id" in args else f"({args['seconds']:g} s)" if "seconds" in args else "()"
             s.store.add_note(active.id, f"did: {call.name}{target} -> {result.message.split(': ', 1)[-1][:90]}")
+        elif not result.success and active is not None and call.name in _NOTED | {"align"}:
+            # Failed attempts too (BUMBLE's execution record): what was tried for the step, and why it failed.
+            target = f'("{args["id"]}")' if "id" in args else "()"
+            s.store.add_note(active.id, f"tried: {call.name}{target} -> {result.error}: {result.message.split(': ', 1)[-1][:80]}")
+        s.plan_tools.note_action(call.name, result.success)
         if self._after_action is not None:
             self._after_action(s, call.name, args, result, reply.text)
         if result.success:

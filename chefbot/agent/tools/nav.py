@@ -123,6 +123,8 @@ class NavTools:
         for label in requested:
             if label in found_labels:
                 self.searched.pop(label, None)
+            elif asked is None or label not in asked:
+                continue  # a default-vocabulary look: not a search for it
             elif label not in self._map.labels() or any(
                 m.kind == "object" and m.label == label for m in self._map.list()
             ):  # a thing, not a kind of fixture

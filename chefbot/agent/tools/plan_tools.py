@@ -10,6 +10,11 @@ from chefbot.agent.plan.model import FINISHED
 from chefbot.agent.plan.store import PlanError, PlanStore
 from chefbot.interface.types import ToolResult
 
+# complete refused by the check this many times in a row is blocked until a call that changes the kitchen succeeds.
+REFUSALS_BEFORE_BLOCK = 2
+CHANGES_KITCHEN = {"pick_up", "place", "open", "close", "turn_on", "turn_off", "lower_into", "lift_out", "squeeze", "release",
+                   "stir", "pour", "wait"}  # wait: time passes (food cooks)  # fmt: skip
+
 # The operator's answer to request_replan: "continue", "abort" or "reload" (plan file edited).
 Operator = Callable[[str], str]
 
@@ -40,6 +45,14 @@ class PlanTools:
         self._operator = operator
         self._reload = reload
         self.outcome: tuple[str, str] | None = None  # (outcome, summary) once the run should end
+        # complete refused by the check, in a row, per step, and whether the kitchen changed since the last refusal
+        self._refused: dict[str, int] = {}
+        self._changed_since: dict[str, bool] = {}
+
+    def note_action(self, tool: str, success: bool) -> None:
+        """After every tool call (the runner): a successful call that changes the kitchen lets complete be tried again."""
+        if success and tool in CHANGES_KITCHEN:
+            self._changed_since = {k: True for k in self._changed_since}
 
     def complete(self, step_id: str) -> ToolResult:
         try:
@@ -47,14 +60,25 @@ class PlanTools:
             step = self._store.step(step_id)
         except PlanError as exc:
             return _error(exc)
+        refused = self._refused.get(step_id, 0)
+        if refused >= REFUSALS_BEFORE_BLOCK and not self._changed_since.get(step_id, True):
+            last = next((n for n in reversed(step.notes) if n.startswith("check failed:")), "check failed")
+            return ToolResult(False, "complete_refused_again",
+                              f"The check refused {step_id} {refused}x and nothing in the kitchen changed since ({last}). Calling "
+                              "complete again gives the same answer: do what the check says is missing first, or skip_step / "
+                              "add_step / request_replan if the plan is wrong.", {"step_id": step_id})  # fmt: skip
         result = self._check(step_id, step.done_when)
         if not result.passed:
+            self._refused[step_id] = refused + 1
+            self._changed_since[step_id] = False
             self._store.add_note(step_id, f"check failed: {result.reason}")
             return ToolResult(
                 False, "check_failed", f"{step_id} is not done: {result.reason}",
                 {"step_id": step_id, "reason": result.reason},
             )  # fmt: skip
         self._store.complete(step_id)
+        self._refused.pop(step_id, None)
+        self._changed_since.pop(step_id, None)
         if self._bus is not None:
             self._bus.unwatch(step_id)
         return ToolResult(True, None, f"{step_id} done: {result.reason}", {"step_id": step_id, "reason": result.reason})

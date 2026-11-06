@@ -151,6 +151,12 @@ class TaskState:
             done = [n.removeprefix("did: ") for n in step.notes if n.startswith("did:")]
             if done:
                 detail.append("done so far: " + "; ".join(done[-4:]) + (f" (+{len(done) - 4} earlier)" if len(done) > 4 else ""))
+            tried = [n.removeprefix("tried: ") for n in step.notes if n.startswith("tried:")]
+            if tried:
+                detail.append("failed so far: " + "; ".join(tried[-3:]) + (f" (+{len(tried) - 3} earlier)" if len(tried) > 3 else ""))
+            refusals = [n for n in step.notes if n.startswith("check failed:")]
+            if len(refusals) >= 2:
+                detail.append(f"the check refused complete {len(refusals)}x for this step")
         if step.hint and step.status in (PENDING, ACTIVE):
             detail.append(f"hint: {step.hint}")
         extras = []
