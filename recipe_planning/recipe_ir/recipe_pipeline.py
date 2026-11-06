@@ -8,12 +8,13 @@ A repair is accepted only if it strictly reduces extraction errors, does not wor
 adds is stated in the source with a verifiable quote.
 """
 from __future__ import annotations
+import os
 from dataclasses import dataclass, field
 from typing import Any
 from .schema import Recipe, SourceDocument, IdNote, normalize_ids
 from .engine import StateEngine, EngineResult, Violation
-from .checks import (check_evidence, check_faithfulness, check_params, check_rules, classify_uncited, instruction_coverage,
-                     dependency_edges)
+from .checks import (check_cooking_support, check_evidence, check_faithfulness, check_params, check_rules,
+                     classify_uncited, instruction_coverage, dependency_edges)
 from .llm_extractor import BaseExtractor, LLMCall
 
 RECIPE_CODES = {"uncooked_component"}
@@ -97,6 +98,8 @@ def validate(x: Recipe | None, source: SourceDocument, error: str | None = None)
     engine = StateEngine()
     evidence = check_evidence(recipe, source) + check_faithfulness(recipe, engine.rules) + check_rules(recipe)
     evidence += check_params(recipe, source)
+    if os.environ.get("RECIPE_COOKING_CHECK", "1") != "0":      # ablation switch for the planted-gap check
+        evidence += check_cooking_support(recipe, source, engine.rules)
     result = engine.run(recipe)
     coverage, gaps = instruction_coverage(recipe, source)
     return Validation(recipe, result, evidence, None, coverage, gaps, sorted(dependency_edges(recipe, engine.rules)), notes)
@@ -111,6 +114,9 @@ REPAIR_HINTS = {
     "heat_state_required": "delete this required_state entry: never require `heat`; being heated is checked "
                            "automatically from the earlier heat step.",
     "unstated_param": "set the value to null and describe the gap in params.unresolved; the heat step stays.",
+    "unsupported_cooking_step": "quote the clause that says this food cooks (a cooking verb, 'until set/golden', or a "
+                                "time). If the recipe never says it is cooked, make the step a transfer (or delete it) "
+                                "and let the validator report the gap; never invent the cooking.",
     "verb_arity": "this verb acts on one food; use mix for combining two or more (whisk eggs with salt = mix/whisk).",
     "unknown_input": "every ref must be a declared ingredient, a declared container, or an earlier step's output id.",
 }

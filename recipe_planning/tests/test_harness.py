@@ -78,6 +78,40 @@ def test_stated_params_pass():
     from recipe_ir.checks import _duration_ok, _temp_ok
     assert _temp_ok(190.6, "Preheat the oven to 375°F.") and _temp_ok(200, "bake at 200 C") and not _temp_ok(220, "375°F")
     assert _duration_ok(210, "3 to 4 minutes") and _duration_ok(5400, "1 hour 30 minutes") and not _duration_ok(600, "3 minutes")
+    assert _duration_ok(60, "Beat eggs for a minute.") and _duration_ok(150, "two to three minutes")
+    assert _duration_ok(1800, "half an hour") and _duration_ok(120, "a couple of minutes")
+    assert not _duration_ok(180, "a few minutes")              # vague: must stay unresolved, not become a number
+
+
+def _cook_step_recipe(cook_quote):
+    """Eggs added to a hot wok; the cook step quotes `cook_quote`."""
+    ev = lambda q: {"quote": q, "prov": "stated", "reason": None, "implied_by": None}
+    inp = lambda ref, mode: {"ref": ref, "mode": mode, "fraction": 1.0 if mode == "consume" else None,
+                             "fraction_raw": None, "required_state": []}
+    none = {"temp_c": None, "heat": None, "duration_s": None, "unresolved": None}
+    return Recipe.model_validate({"title": "Eggs", "ingredients": [
+        {"id": "eggs", "name": "eggs", "quantity_raw": "4 eggs", "needs_cooking": True, "optional": False, "evidence": ev("4 eggs")}],
+        "containers": [{"id": "wok", "type": "wok", "evidence": ev("wok")}],
+        "steps": [{"id": "s1", "verb": "heat", "verb_raw": None, "style": None, "inputs": [inp("wok", "require")],
+                   "output": None, "container": None, "params": {**none, "heat": "medium"}, "until": None,
+                   "optional": False, "evidence": ev("over medium heat")},
+                  {"id": "s2", "verb": "cook", "verb_raw": None, "style": None,
+                   "inputs": [inp("eggs", "consume"), inp("wok", "require")], "output": "eggs_cooked", "container": "wok",
+                   "params": none, "until": None, "optional": False, "evidence": ev(cook_quote)}],
+        "choices": [], "rules": [], "final_items": ["eggs_cooked"], "ambiguities": []})
+
+
+def test_cooking_step_must_be_supported_by_its_sentence():
+    from recipe_ir.adapters import from_text
+    gap = "Eggs\n\nIngredients\n- 4 eggs\n\nInstructions\n1. Preheat the wok over medium heat. Then add oil and immediately add the eggs. Set aside.\n"
+    v = validate(_cook_step_recipe("immediately add the eggs"), from_text(gap))
+    assert [x.step for x in v.extraction_errors if x.code == "unsupported_cooking_step"] == ["s2"]
+    ok = gap.replace("immediately add the eggs.", "immediately add the eggs and scramble them.")
+    v = validate(_cook_step_recipe("immediately add the eggs"), from_text(ok))   # same quote, the sentence cooks
+    assert not [x for x in v.extraction_errors if x.code == "unsupported_cooking_step"]
+    timed = gap.replace("immediately add the eggs.", "add the eggs, stirring, 2 minutes.")
+    v = validate(_cook_step_recipe("add the eggs"), from_text(timed))
+    assert not [x for x in v.extraction_errors if x.code == "unsupported_cooking_step"]
 
 
 # ------------------------------------------------------------------ action-ready instructions

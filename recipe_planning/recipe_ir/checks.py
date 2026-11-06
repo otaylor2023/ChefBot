@@ -41,6 +41,38 @@ def check_faithfulness(recipe: Recipe, rules: dict) -> list[Violation]:
             if rules.get(s.verb, {}).get("cooks") and s.evidence.prov == "inferred" and not s.evidence.implied_by]
 
 
+_COOKED = re.compile(
+    r"\b(cook\w*|fr(?:y|ies|ied|ying)|stir[- ]?fr\w*|saut[eé]\w*|sear\w*|brown\w*|simmer\w*|boil\w*|bak(?:e|es|ed|ing)|"
+    r"roast\w*|broil\w*|grill\w*|toast\w*|poach\w*|steam\w*|scrambl\w*|melt\w*|carameli[sz]\w*|reduc\w*|bubbl\w*|"
+    r"sizzl\w*|char\w*|blister\w*|wilt\w*|warm\w*|heat\w*|crisp\w*|render\w*|thicken\w*|soften\w*|set(?! aside)|sets|"
+    r"done|golden|tender|translucent|fragrant|microwave\w*|blanch\w*|brais\w*|stew\w*|smok\w*|puff\w*|opaque)\b", re.I)
+_TIMED = re.compile(r"\b(\d+|a|an|one|two|few|couple)\b[^.\n]{0,12}\b(sec|second|min|minute|hour|hr)s?\b", re.I)
+
+
+def _sentence(text: str, span) -> str:
+    """The sentence (or list line) that contains a quote's span."""
+    a, b = span
+    start = max(text.rfind(". ", 0, a), text.rfind("\n", 0, a)) + 1
+    m = re.search(r"[.!?](?:\s|$)|\n", text[b:])
+    return text[start: b + (m.end() if m else len(text) - b)]
+
+
+def check_cooking_support(recipe: Recipe, source: SourceDocument, rules: dict) -> list[Violation]:
+    """A stated cook/bake step must quote a sentence that says the food is cooked: a cooking word ("scramble",
+    "simmer", "until golden", "until set") or a time ("3 minutes"). "Immediately add the eggs" is a transfer; calling
+    it cooking turns a real gap into a valid plan (the planted-gap failure). Run after check_evidence (needs spans)."""
+    out = []
+    for s in recipe.steps:
+        if not rules.get(s.verb, {}).get("cooks") or s.evidence.prov != "stated" or s.evidence.span is None:
+            continue
+        sent = _sentence(source.text, s.evidence.span)
+        if not (_COOKED.search(sent) or _TIMED.search(sent)):
+            out.append(Violation("unsupported_cooking_step", s.id,
+                                 f"{s.verb} quotes {s.evidence.quote!r}, but that sentence never says the food is "
+                                 "cooked (no cooking word, doneness cue or time)"))
+    return out
+
+
 def check_rules(recipe: Recipe) -> list[Violation]:
     """Rules only record what the text says: stated, and pointing at real steps."""
     steps = {s.id for s in recipe.steps}
@@ -62,7 +94,24 @@ def _window(text: str, span, pad: int = 250) -> str:
     return text if span is None else text[max(0, span[0] - pad): span[1] + pad]
 
 
+_NUMWORDS = {"a": "1", "an": "1", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6",
+             "seven": "7", "eight": "8", "nine": "9", "ten": "10", "fifteen": "15", "twenty": "20", "thirty": "30",
+             "a couple of": "2", "a couple": "2", "couple of": "2"}
+_NUMWORD_RE = re.compile(r"\b(" + "|".join(sorted(map(re.escape, _NUMWORDS), key=len, reverse=True))
+                         + r")\s+(?=(?:seconds?|secs?|minutes?|mins?|hours?|hrs?)\b)", re.I)
+
+
+def _numbers_as_digits(text: str) -> str:
+    """'a minute' -> '1 minute', 'two to three minutes' -> '2 to 3 minutes', 'half an hour' -> '30 minutes'.
+    'A few minutes' stays words: a vague amount must stay unresolved, not become a number."""
+    text = re.sub(r"\bhalf an hour\b", "30 minutes", text, flags=re.I)
+    text = re.sub(r"\b(one|two|three|four|five|six|seven|eight|nine|ten)\s+(?=(?:to|or|-|–)\s+\w+\s+(?:seconds?|minutes?|hours?)\b)",
+                  lambda m: _NUMWORDS[m.group(1).lower()] + " ", text, flags=re.I)
+    return _NUMWORD_RE.sub(lambda m: _NUMWORDS[m.group(1).lower()] + " ", text)
+
+
 def _duration_ok(seconds: float, text: str) -> bool:
+    text = _numbers_as_digits(text)
     for m in _DUR.finditer(text):
         word = m.group(3).lower()
         unit = 1 if word.startswith("s") else (60 if word.startswith("m") else 3600)
