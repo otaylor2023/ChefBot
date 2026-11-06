@@ -1,0 +1,17 @@
+# Recipe sites for discover_recipes.py. Mix of cuisines and of easy/hard recipes.
+# Sites that block automated access or lack Recipe JSON-LD are reported and skipped; check the run report.
+budgetbytes.com             # cheap weeknight, stovetop
+justonecookbook.com         # Japanese
+themediterraneandish.com    # Mediterranean
+cookieandkate.com           # vegetarian
+kingarthurbaking.com        # baking, dough
+recipetineats.com           # broad, Australian
+loveandlemons.com           # vegetarian, simple
+minimalistbaker.com         # short ingredient lists
+thewoksoflife.com           # Chinese, wok
+sallysbakingaddiction.com   # baking
+spendwithpennies.com        # American comfort food
+simplyrecipes.com           # broad
+seriouseats.com             # technique-heavy
+smittenkitchen.com          # home cooking
+inspiredtaste.net           # broad, simple

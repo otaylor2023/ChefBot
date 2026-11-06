@@ -2,7 +2,8 @@
 """Extract one recipe with an LLM, validate it, and print/save an inspectable report.
 
   python run_recipe.py --input recipes/scrambled_eggs.txt --model gpt-6.1-sol --reasoning-effort low --show-trace
-  python run_recipe.py --input https://example.com/some-recipe --model claude-sonnet-5-5
+  python run_recipe.py --input https://example.com/some-recipe --model openrouter:anthropic/claude-sonnet-5.5
+  python run_recipe.py --input recipes/onion_egg.txt --model ollama:qwen3.5:9b
   python run_recipe.py --input recipes/onion_egg.txt --replay recipes/gold/onion_egg.gold.json   # offline
 """
 from __future__ import annotations
@@ -20,7 +21,7 @@ from recipe_ir.runio import save_run, result_json
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--input", required=True, help="recipe .txt/.html file or URL")
-    ap.add_argument("--model", default=DEFAULT_RECIPE_MODEL, help="gpt-* / o* (OPENAI_API_KEY) or claude-* (ANTHROPIC_API_KEY)")
+    ap.add_argument("--model", default=DEFAULT_RECIPE_MODEL, help="gpt-* (OPENAI_API_KEY), openrouter:<vendor/model> (OPENROUTER_API_KEY), ollama:<name:tag> (local)")
     ap.add_argument("--temperature", type=float, default=0.0, help="dropped automatically if the model rejects it")
     ap.add_argument("--reasoning-effort", default=DEFAULT_REASONING_EFFORT, help="OpenAI reasoning models only, e.g. low / medium / high")
     ap.add_argument("--max-output-tokens", type=int, default=8000, help="caps the cost of a runaway response")
@@ -78,7 +79,16 @@ def main(argv=None):
                       f"cooked={t['cooked_components']} props={t['properties']}")
             else:
                 print(f"  {t['step']:>4} {t['verb']:10} {t['status']} {t.get('violations', '')}")
-    print(f"\nreport: {run_dir / 'report.html'}")
+    act = json.loads((run_dir / "actions.json").read_text())
+    if act["feasibility"]:
+        ins, f = act["instructions"], act["feasibility"]
+        c = ins["counts"]
+        print(f"\nACTION-READY  {c['main_path']} main-path steps in {c['stages']} stages, {c['open_questions']} open questions, "
+              f"{c['completion_needs_sensing']} completions need sensing")
+        print(f"  tools: {', '.join(x['tool'] + ('' if x['how'] == 'mentioned' else '*') for x in ins['inventory']['tools']) or '-'}  (* implied)")
+        print(f"  robot [{f['profile']}]: {f['supported']} supported, {f['partial']} partial, {f['unsupported']} unsupported"
+              + (f"; gaps: {', '.join(f'{k}({len(v)})' for k, v in f['gaps_by_verb'].items())}" if f['gaps_by_verb'] else ""))
+    print(f"\nreport: {run_dir / 'report.html'}   actions: {run_dir / 'actions.json'}")
     return 0 if s["status"] != "extraction_errors" else 1
 
 

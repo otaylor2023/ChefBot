@@ -1,0 +1,41 @@
+# Skill profile: what ChefBot's agent can do today, per recipe verb. Swap or copy this file for another robot;
+# the instructions never change, only the feasibility report does.
+#
+# Source: chefbot/agent/tools/registry.py and the task files in chefbot/tasks/ on feat/recipe-planning (Oct 2026).
+# These are SIMULATION agent tools (symbolic + RoboCasa). Nothing here is verified on the real robot
+# (the arm is locked as of 2026-11-05).
+#
+# status: supported   - a ChefBot task already does this with these tools
+#         partial     - possible only in a narrow case (see note); treat as needs-review
+#         unsupported - no tool or task for it
+# Keys: verb, or verb/style for a more specific rule (checked first).
+name: chefbot_sim
+version: 1
+verbs:
+  heat:      {status: supported, primitives: [pick, place, turn_on], note: "pan onto a burner, burner on"}
+  turn_off:  {status: supported, primitives: [turn_off], note: "burner off"}
+  transfer:  {status: supported, primitives: [pick, pour, place], note: "pour from a held container, or move a whole item"}
+  mix:       {status: supported, primitives: [pick, lower_into, stir, lift_out], note: "spoon stir in a pan or bowl"}
+  wait:      {status: supported, primitives: [wait, set_timer]}
+  cool:      {status: supported, primitives: [wait, set_timer], note: "waiting only; no fridge-chilling task"}
+  cook:      {status: partial, primitives: [stir, wait, watch], note: "stovetop pan only; doneness comes from simulator state, not vision"}
+  cook/scramble: {status: supported, primitives: [lower_into, stir, wait, watch], note: "scrambled_eggs task"}
+  cook/fry:  {status: supported, primitives: [wait, watch], note: "fried_egg / fried_sausage tasks"}
+  crack:     {status: partial, primitives: [pick, place, squeeze, release], note: "eggs only, with the egg-cracker gadget"}
+  beat:      {status: partial, primitives: [pick, lower_into, squeeze, release], note: "electric whisk gadget only"}
+  melt:      {status: partial, primitives: [pick, place, wait], note: "item into a heated pan, then wait; no melt task yet"}
+  bake:      {status: unsupported, note: "oven doors open/close exist; no oven power or bake task"}
+  preheat:   {status: unsupported, note: "no oven power"}
+  cover:     {status: unsupported, note: "no lid objects in tasks"}
+  uncover:   {status: unsupported}
+  cut:       {status: unsupported, note: "no knife skill"}
+  knead:     {status: unsupported}
+  shape:     {status: unsupported}
+  blend:     {status: unsupported}
+  measure:   {status: unsupported, note: "no quantity sensing"}
+  season:    {status: unsupported, note: "no shaker/sprinkle skill"}
+  portion:   {status: unsupported}
+  drain:     {status: unsupported}
+  garnish:   {status: unsupported, note: "no sprinkle skill"}
+  prepare_container: {status: unsupported}
+  other:     {status: unsupported, note: "verb outside the vocabulary"}

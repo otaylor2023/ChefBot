@@ -116,6 +116,7 @@ class Usage:
     output_tokens: int = 0       # includes reasoning tokens (billed as output)
     latency_s: float = 0.0
     reasoning_tokens: int = 0
+    cost_usd: float | None = None  # provider-reported cost (OpenRouter) or 0.0 (local); None = use pricing.yaml
 
 
 @dataclass
@@ -152,7 +153,35 @@ class BaseExtractor:
             return LLMCall(None, raw, usage, f"schema_error: {e}")
 
 
-class OpenAIExtractor(BaseExtractor):
+class CappedExtractor(BaseExtractor):
+    """Output cap that scales with the recipe, and retry behaviour after truncation or a degenerate loop.
+    Subclasses set max_output_tokens / retry_temperature and read self.cap and self.retrying in _call."""
+    max_output_tokens: int = 8000
+    retry_temperature: float = 0.4
+    retrying: bool = False
+    cap: int = 8000
+
+    def cap_for(self, source) -> int:
+        return min(32000, max(self.max_output_tokens, int(4000 + 1.6 * len(source.text))))
+
+    def extract(self, source, retry: bool = False, prev_error: str | None = None):
+        self.cap = self.cap_for(source)
+        truncated = bool(prev_error and prev_error.startswith("truncated"))
+        loop = bool(prev_error and "loop" in prev_error)
+        if retry and truncated and not loop:
+            self.cap = min(32000, self.cap * 2)
+        self.retrying = retry and not (truncated and not loop)
+        try:
+            return super().extract(source)
+        finally:
+            self.retrying = False
+
+    def repair(self, source, previous, findings):
+        self.cap = self.cap_for(source)
+        return super().repair(source, previous, findings)
+
+
+class OpenAIExtractor(CappedExtractor):
     """Responses API with a strict JSON schema; we parse the text ourselves so that usage and raw output are kept
     even when the output is unusable (a truncated or looping response is still billed).
     - temperature is dropped automatically if the model rejects it (reasoning models)
@@ -173,25 +202,6 @@ class OpenAIExtractor(BaseExtractor):
                                        "schema": to_strict_json_schema(Recipe)}}
         self.retrying = False
         self.cap = max_output_tokens
-
-    def cap_for(self, source) -> int:
-        return min(32000, max(self.max_output_tokens, int(4000 + 1.6 * len(source.text))))
-
-    def extract(self, source, retry: bool = False, prev_error: str | None = None):
-        self.cap = self.cap_for(source)
-        truncated = bool(prev_error and prev_error.startswith("truncated"))
-        loop = bool(prev_error and "loop" in prev_error)
-        if retry and truncated and not loop:
-            self.cap = min(32000, self.cap * 2)
-        self.retrying = retry and not (truncated and not loop)
-        try:
-            return super().extract(source)
-        finally:
-            self.retrying = False
-
-    def repair(self, source, previous, findings):
-        self.cap = self.cap_for(source)
-        return super().repair(source, previous, findings)
 
     def _request(self, system, user, kwargs):
         return self.client.responses.create(model=self.model, instructions=system, input=user, text=self.text_format,
@@ -244,4 +254,16 @@ class ReplayExtractor(BaseExtractor):
 
 def make_extractor(model: str, temperature: float | None = 0.0, reasoning_effort: str | None = None,
                    max_output_tokens: int = 8000) -> BaseExtractor:
-    return OpenAIExtractor(model, temperature, reasoning_effort, max_output_tokens)
+    """model spec -> extractor.
+      gpt-* / o1.. / openai:<m>        OpenAI Responses API          (OPENAI_API_KEY)
+      openrouter:<vendor/model>       OpenRouter chat completions   (OPENROUTER_API_KEY)
+      ollama:<name[:tag]>             local Ollama /api/chat        (OLLAMA_HOST, default http://localhost:11434)
+    """
+    from .providers import OllamaExtractor, OpenRouterExtractor
+    if model.startswith("ollama:"):
+        return OllamaExtractor(model.removeprefix("ollama:"), temperature, reasoning_effort, max_output_tokens)
+    if model.startswith("openrouter:"):
+        return OpenRouterExtractor(model.removeprefix("openrouter:"), temperature, reasoning_effort, max_output_tokens)
+    if model.startswith(("claude", "anthropic:")):
+        raise ValueError(f"{model!r}: no direct Anthropic extractor; use openrouter:anthropic/<model>")
+    return OpenAIExtractor(model.removeprefix("openai:"), temperature, reasoning_effort, max_output_tokens)

@@ -131,10 +131,13 @@ def classify_uncited(text: str) -> list[tuple[str, str]]:
 
 # ---------------------------------------------------------------- graph
 def dependency_edges(recipe: Recipe, rules: dict) -> set[tuple[str, str]]:
-    """(before, after) step pairs: dataflow (uses an earlier output) and equipment state (requires a container
-    an earlier equipment step changed, e.g. preheat -> bake). Unconnected steps may run in parallel."""
+    """(before, after) step pairs: dataflow (uses an earlier output), equipment state (requires a container an
+    earlier equipment step changed, e.g. preheat -> bake), and write-after-read (an equipment step that changes a
+    container waits for the earlier steps that required it, e.g. cook -> turn_off). Unconnected steps may run in
+    parallel."""
     producer: dict[str, str] = {}
     last_writer: dict[str, str] = {}
+    readers: dict[str, set[str]] = {}       # steps that used a container since its last state change
     edges: set[tuple[str, str]] = set()
     containers = {c.id for c in recipe.containers}
     for step in recipe.steps:
@@ -144,7 +147,14 @@ def dependency_edges(recipe: Recipe, rules: dict) -> set[tuple[str, str]]:
             if inp.ref in last_writer and last_writer[inp.ref] != step.id:
                 edges.add((last_writer[inp.ref], step.id))
         if rules.get(step.verb, {}).get("target") == "equipment":
-            last_writer.update({i.ref: step.id for i in step.inputs if i.ref in containers})
+            for ref in (i.ref for i in step.inputs if i.ref in containers):
+                # write after read: "remove from heat" must wait for the cooking that needed the heat
+                edges.update((r, step.id) for r in readers.pop(ref, set()) if r != step.id)
+                last_writer[ref] = step.id
+        else:
+            for i in step.inputs:
+                if i.mode == "require" and i.ref in containers:
+                    readers.setdefault(i.ref, set()).add(step.id)
         if step.output:
             producer[step.output] = step.id
     return edges

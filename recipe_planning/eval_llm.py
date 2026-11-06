@@ -25,7 +25,7 @@ from recipe_ir.compare import compare
 from recipe_ir.schema import Recipe
 from recipe_ir.llm_extractor import make_extractor, ReplayExtractor, PROMPT_VERSION
 from recipe_ir.recipe_pipeline import run_pipeline, validate
-from recipe_ir.runio import save_run, cost_usd
+from recipe_ir.runio import save_run, run_cost
 
 
 def mean(xs):
@@ -46,12 +46,14 @@ def main(argv=None):
     ap.add_argument("--gold-as-prediction", action="store_true", help="offline: feed gold back as the model output")
     ap.add_argument("--rescore", metavar="EVAL_DIR", help="offline: re-validate the model outputs saved in an earlier eval "
                     "folder with the current validator and gold files (no API calls; tokens/cost are the recorded ones)")
-    ap.add_argument("--workers", type=int, default=6, help="parallel extractions (watch your API rate limit)")
+    ap.add_argument("--workers", type=int, default=None, help="parallel extractions (default 6; 1 for ollama:*)")
     ap.add_argument("--limit", type=int, help="only the first N recipes (alphabetical): a cheap smoke test")
     ap.add_argument("--max-cost", type=float, help="stop starting new runs once recorded spend (USD) reaches this")
     ap.add_argument("--out", default="runs")
     a = ap.parse_args(argv)
 
+    if a.workers is None:
+        a.workers = 1 if a.model.startswith("ollama:") else 6
     rdir = Path(a.recipes)
     files = sorted(p for p in rdir.iterdir() if p.suffix in (".txt", ".html", ".htm"))
     if a.limit:
@@ -117,7 +119,7 @@ def main(argv=None):
             "uncited_rules": len(final.uncited(source.text)["rule"]) if final.recipe else None,
             "unmodeled_verbs": sum(1 for v in (final.engine.unresolved if final.engine else []) if v.code == "unmodeled_verb"),
             "unresolved": len(final.engine.unresolved) if final.engine else 0,
-            **u, "cost_usd": cost_usd(a.model if rec_old is not None else res.attempts[0].call.usage.model, u["input_tokens"], u["output_tokens"]),
+            **u, "cost_usd": (rec_old["usage"].get("cost_usd") if rec_old is not None else run_cost(res)),
             "run_dir": str(save_run(res, f"{f.stem}-r{i}", out_dir / "runs")),
         }
         if gold_v is not None and final.recipe is not None and gold_v.recipe is not None:
