@@ -64,6 +64,7 @@ def main(argv=None):
     ap.add_argument("--no-repair", action="store_true")
     ap.add_argument("--only", nargs="*", help="perturbation names to include (base, reorder, noise, ...)")
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--ids", nargs="*", help="only these instance ids (e.g. to rerun cases set aside)")
     ap.add_argument("--workers", type=int)
     ap.add_argument("--max-cost", type=float, help="stop starting new instances once recorded spend reaches this (USD)")
     ap.add_argument("--out", default="bench_runs")
@@ -82,6 +83,8 @@ def main(argv=None):
     instances = [json.loads(l) for l in inst_path.read_text().splitlines() if l.strip()]
     if a.only:
         instances = [i for i in instances if i["perturbation"] in a.only]
+    if a.ids:
+        instances = [i for i in instances if i["id"] in set(a.ids)]
     instances = instances[: a.limit] if a.limit else instances
     out = Path(a.out) / f"{slug(a.model)}__{slug(tag)}__{inst_path.stem}"   # one folder per model x config x split
     out.mkdir(parents=True, exist_ok=True)
