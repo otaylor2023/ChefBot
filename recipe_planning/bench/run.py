@@ -33,6 +33,21 @@ from recipe_ir.schema import Recipe  # noqa: E402
 from bench.checks import check  # noqa: E402
 
 
+def gpu_junction_c() -> float | None:
+    """Hottest GPU sensor reading in C (AMD hwmon temp2 = junction, else temp1), or None if not readable."""
+    temps = []
+    for h in Path("/sys/class/drm").glob("card*/device/hwmon/hwmon*"):
+        for name in ("temp2_input", "temp1_input"):
+            f = h / name
+            if f.exists():
+                try:
+                    temps.append(int(f.read_text()) / 1000)
+                except (OSError, ValueError):
+                    pass
+                break
+    return max(temps) if temps else None
+
+
 def slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s)
 
@@ -52,6 +67,9 @@ def main(argv=None):
     ap.add_argument("--workers", type=int)
     ap.add_argument("--max-cost", type=float, help="stop starting new instances once recorded spend reaches this (USD)")
     ap.add_argument("--out", default="bench_runs")
+    ap.add_argument("--cooldown", type=float, default=None, help="seconds to pause between instances (default 20 for ollama:*)")
+    ap.add_argument("--max-gpu-temp", type=float, default=85.0, help="ollama:* only: wait while the GPU junction is hotter (C)")
+    ap.add_argument("--max-minutes", type=float, help="stop starting new instances after this long (resume later)")
     a = ap.parse_args(argv)
     if a.reasoning_effort is None:
         a.reasoning_effort = DEFAULT_REASONING_EFFORT if a.model.startswith(("gpt", "o", "openai:")) else ""
@@ -91,7 +109,25 @@ def main(argv=None):
     lock = threading.Lock()
     stop = {"why": None}
 
+    local = a.model.startswith("ollama:")
+    cooldown = a.cooldown if a.cooldown is not None else (20.0 if local else 0.0)
+    started = time.monotonic()
+
+    def gpu_guard():
+        """Duty cycle for a home GPU: pause between instances, wait out high temperatures, honour a time budget."""
+        if a.max_minutes and time.monotonic() - started > a.max_minutes * 60 and not stop["why"]:
+            stop["why"] = f"--max-minutes {a.max_minutes} reached"
+            print("  " + stop["why"] + "; rerun the same command to resume", file=sys.stderr, flush=True)
+        if not local or stop["why"]:
+            return
+        if cooldown:
+            time.sleep(cooldown)
+        while (t := gpu_junction_c()) is not None and t > a.max_gpu_temp:
+            print(f"  GPU junction {t:.0f}C > {a.max_gpu_temp:.0f}C: cooling down", file=sys.stderr, flush=True)
+            time.sleep(30)
+
     def one(inst, k):
+        gpu_guard()
         if stop["why"]:
             return None
         src = from_text(inst["text"])

@@ -123,8 +123,11 @@ def main(argv=None):
     write = lambda p, rows: p.write_text("".join(json.dumps(r) + "\n" for r in rows))
     write(out / "instances_full.jsonl", instances)
     write(out / "instances_lite.jsonl", [i for i in instances if i["base"] in lite_bases])
+    # mini: the 3 human-checked recipes only, every variant: short enough for a supervised local-GPU session
+    write(out / "instances_mini.jsonl", [i for i in instances if i["reference_kind"] == "gold"])
     summary = {"bases": len(info), "instances_full": len(instances),
                "instances_lite": sum(i["base"] in lite_bases for i in instances), "lite_bases": lite_bases,
+               "instances_mini": sum(i["reference_kind"] == "gold" for i in instances),
                "by_perturbation": {p: sum(i["perturbation"] == p for i in instances)
                                    for p in ["base", *PERTURBATIONS, "planted_gap"]}, "bases_info": info}
     (out / "build_summary.json").write_text(json.dumps(summary, indent=1))
