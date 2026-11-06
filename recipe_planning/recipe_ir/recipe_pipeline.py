@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from .schema import Recipe, SourceDocument, IdNote, normalize_ids
 from .engine import StateEngine, EngineResult, Violation
-from .checks import (check_evidence, check_faithfulness, check_rules, classify_uncited, instruction_coverage,
+from .checks import (check_evidence, check_faithfulness, check_params, check_rules, classify_uncited, instruction_coverage,
                      dependency_edges)
 from .llm_extractor import BaseExtractor, LLMCall
 
@@ -96,6 +96,7 @@ def validate(x: Recipe | None, source: SourceDocument, error: str | None = None)
     recipe, notes = normalize_ids(x)
     engine = StateEngine()
     evidence = check_evidence(recipe, source) + check_faithfulness(recipe, engine.rules) + check_rules(recipe)
+    evidence += check_params(recipe, source)
     result = engine.run(recipe)
     coverage, gaps = instruction_coverage(recipe, source)
     return Validation(recipe, result, evidence, None, coverage, gaps, sorted(dependency_edges(recipe, engine.rules)), notes)

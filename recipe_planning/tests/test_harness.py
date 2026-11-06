@@ -41,6 +41,20 @@ def test_turn_off_waits_for_cooking():
     assert ("s6", "s7") in v.edges     # remove from heat only after the eggs are cooked (write after read)
 
 
+def test_unstated_params_are_extraction_errors():
+    v, src = gold_validation("onion_egg")
+    r = v.recipe.model_copy(deep=True)
+    heat = next(s for s in r.steps if s.verb == "heat")
+    heat.params.heat = "medium"                                  # the recipe never says medium
+    assert any(x.code == "unstated_param" for x in validate(r, src).extraction_errors)
+
+
+def test_stated_params_pass():
+    from recipe_ir.checks import _duration_ok, _temp_ok
+    assert _temp_ok(190.6, "Preheat the oven to 375°F.") and _temp_ok(200, "bake at 200 C") and not _temp_ok(220, "375°F")
+    assert _duration_ok(210, "3 to 4 minutes") and _duration_ok(5400, "1 hour 30 minutes") and not _duration_ok(600, "3 minutes")
+
+
 # ------------------------------------------------------------------ action-ready instructions
 def test_instructions_scrambled_eggs():
     v, _ = gold_validation("scrambled_eggs")

@@ -54,6 +54,53 @@ def check_rules(recipe: Recipe) -> list[Violation]:
     return out
 
 
+_DUR = re.compile(r"(\d+(?:\.\d+)?)(?:\s*(?:to|-|–|or)\s*(\d+(?:\.\d+)?))?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b", re.I)
+_TEMP = re.compile(r"(\d{2,3})\s*(?:°|º|degrees?)?\s*([CF])\b", re.I)
+
+
+def _window(text: str, span, pad: int = 250) -> str:
+    return text if span is None else text[max(0, span[0] - pad): span[1] + pad]
+
+
+def _duration_ok(seconds: float, text: str) -> bool:
+    for m in _DUR.finditer(text):
+        word = m.group(3).lower()
+        unit = 1 if word.startswith("s") else (60 if word.startswith("m") else 3600)
+        lo = float(m.group(1)) * unit
+        hi = float(m.group(2)) * unit if m.group(2) else lo
+        if lo * 0.9 <= seconds <= hi * 1.1:
+            return True
+    hours = [float(m.group(1)) * 3600 for m in _DUR.finditer(text) if m.group(3).lower().startswith("h")]
+    mins = [float(m.group(1)) * 60 for m in _DUR.finditer(text) if m.group(3).lower().startswith("m")]
+    return any(abs(h + m - seconds) <= 60 for h in hours for m in mins)   # "1 hour 30 minutes"
+
+
+def _temp_ok(temp_c: float, text: str) -> bool:
+    for m in _TEMP.finditer(text):
+        n = float(m.group(1))
+        c = n if m.group(2).upper() == "C" else (n - 32) * 5 / 9
+        if abs(c - temp_c) <= 3:
+            return True
+    return False
+
+
+def check_params(recipe: Recipe, source: SourceDocument) -> list[Violation]:
+    """Rule 3 of the prompt, enforced: a heat level, temperature or duration must be written in the source near the
+    step (the step's quote +-250 chars; the whole text for a step without a quote). Run after check_evidence."""
+    text, out = source.text, []
+    for st in recipe.steps:
+        win = _window(text, st.evidence.span)
+        p = st.params
+        if p.heat and not re.search(r"\b" + re.escape(p.heat.strip()).replace(r"\-", "[- ]?") + r"\b", win, re.I):
+            out.append(Violation("unstated_param", st.id, f"heat={p.heat!r} is not in the source near this step; "
+                                 "leave it null and say what is missing in params.unresolved"))
+        if p.temp_c is not None and not _temp_ok(p.temp_c, win):
+            out.append(Violation("unstated_param", st.id, f"temp_c={p.temp_c} is not in the source near this step"))
+        if p.duration_s is not None and not _duration_ok(p.duration_s, win):
+            out.append(Violation("unstated_param", st.id, f"duration_s={p.duration_s} is not in the source near this step"))
+    return out
+
+
 # ---------------------------------------------------------------- coverage and uncited text
 _FILLER = {"and", "then", "the", "a", "an", "or", "with", "to", "it", "in", "of", "until", "into"}
 

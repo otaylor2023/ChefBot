@@ -198,6 +198,39 @@ result = interpret(
 
 Webpage accessibility and extraction success depend on the source website.
 
+## Harness: any recipe, any model (branch `recipe-harness`)
+
+The goal and its "done" criteria are in [GOAL.md](GOAL.md).
+
+**Models.** `--model` takes `gpt-*` (OpenAI), `openrouter:<vendor/model>` (any hosted model, `OPENROUTER_API_KEY`,
+cost as reported by OpenRouter), or `ollama:<name:tag>` (local, schema-constrained decoding, `OLLAMA_HOST`).
+For Ollama, `--reasoning-effort off` disables thinking; leave it empty for the model default.
+
+**Action-ready output.** Every run folder has `actions.json`:
+- `instructions` is robot-independent: per step, what is acted on (and its base ingredients), equipment and the state
+  it must be in, settings, destination, `done_when` and what senses it, `after`, `stage` (same stage = parallel),
+  tools (mentioned or implied, `recipe_ir/tools.yaml`), rules and open questions. It also has the recipe inventory
+  and stages.
+- `feasibility` is one skill profile's verdict (`skills/chefbot_sim.yaml`). Swap the profile and only this changes.
+
+**Corpus.** `discover_recipes.py --sites sites.txt --per-site 20 --out <corpus>` grows a local corpus from the
+sites' sitemaps. It honors robots.txt, waits between requests, keeps JSON-LD recipes only and writes `index.jsonl`
+(difficulty features plus a heuristic `robot_plausible` label).
+
+**Model comparison.** `eval_models.py --recipes <corpus> --subset robot_plausible --n 12 --models A B C
+--reference A` runs `eval_llm.py` per model and writes `matrix.md` and `matrix.json`:
+- validity, grounding and coverage
+- gold accuracy, where `recipes/gold/` has a reference answer
+- silver agreement with the reference model (agreement only, not correctness)
+- open questions, robot-supported share, cost and latency
+- the hardest recipes first
+
+**Faithfulness.** The validator also rejects heat levels, temperatures and durations that the source does not
+state near the step (`unstated_param`).
+
+**Tests.** `python -m pytest tests -q` runs offline. Fake Ollama/OpenRouter servers serve the gold extractions,
+including an end-to-end `eval_models.py` run.
+
 ## Evaluation
 
 The evaluation pipeline measures extraction validity, source grounding, recipe structure, and additional validation findings across multiple recipes.
