@@ -102,8 +102,31 @@ def validate(x: Recipe | None, source: SourceDocument, error: str | None = None)
     return Validation(recipe, result, evidence, None, coverage, gaps, sorted(dependency_edges(recipe, engine.rules)), notes)
 
 
+REPAIR_HINTS = {
+    "missing_heat_source": "add a separate heat (stove) or preheat (oven) step BEFORE this step, whose only input is "
+                           "the container as require; then give this step that container as a require input "
+                           "(required_state []). See HEATING.",
+    "missing_equipment": "an equipment step's only input is the container, mode require, required_state []; move any "
+                         "food it consumes to the food step (e.g. melt) that follows it.",
+    "heat_state_required": "delete this required_state entry: never require `heat`; being heated is checked "
+                           "automatically from the earlier heat step.",
+    "unstated_param": "set the value to null and describe the gap in params.unresolved; the heat step stays.",
+    "verb_arity": "this verb acts on one food; use mix for combining two or more (whisk eggs with salt = mix/whisk).",
+    "unknown_input": "every ref must be a declared ingredient, a declared container, or an earlier step's output id.",
+}
+
+
+def _hint(x) -> str:
+    code = x.code
+    if code == "state_precondition" and ".heat requires" in x.message:
+        code = "heat_state_required"
+    if code == "state_precondition" and ".temp_c requires" in x.message:
+        return "  -> the bake step's temp_c must equal the preheat step's params.temp_c (or drop this required_state)"
+    return f"  -> {REPAIR_HINTS[code]}" if code in REPAIR_HINTS else ""
+
+
 def findings_text(v: Validation) -> str:
-    lines = [f"EXTRACTION {x.code} step={x.step}: {x.message}" for x in v.extraction_errors]
+    lines = [f"EXTRACTION {x.code} step={x.step}: {x.message}" + _hint(x) for x in v.extraction_errors]
     lines += [f"RECIPE {x.code}: {x.message}" for x in v.recipe_findings]
     lines += [f"WARNING {x.code} {x.step or ''}: {x.message}" for x in v.warnings]
     return "\n".join(lines) or "(none)"

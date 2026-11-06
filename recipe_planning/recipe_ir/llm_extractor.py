@@ -11,7 +11,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from .schema import Recipe, SourceDocument, VERB_TABLE
 
-PROMPT_VERSION = "0.6"  # one fully stepped path; other options as quoted alternative rules
+PROMPT_VERSION = "0.7"  # 0.7: HEATING section with examples, no contradictory temp_c rule; repair hints by error code
 
 
 def _state_keys() -> str:
@@ -40,10 +40,33 @@ MODEL
 - Every step consumes inputs and produces ONE NEW output id (never reuse an id; e.g. onion -> onion_diced -> onion_cooked).
 - An input is `consume` for food (with `fraction` of that item's original amount: 1.0 = all of it, 0.5 = half,
   "the remaining half" = 0.5) or `require` for equipment that must already be in some state (a hot pan, a preheated oven).
-- Cook/bake/melt steps must `require` a container that an earlier heat/preheat step heated. Heating is checked
-  automatically: do NOT add required_state for it.
-- required_state may only use keys that verbs set: {_state_keys()}. Example: bake requires the oven with
-  temp_c = the preheat temperature; dividing batter requires the tin with prepared = true.
+- required_state may only use keys that verbs set: {_state_keys()}. Example: dividing batter requires the tin
+  with prepared = true. For heating see HEATING: never `heat`; `temp_c` only on bake, equal to the preheat value.
+
+HEATING (the most common mistake; follow exactly)
+- Heating is its OWN equipment step, separate from the food step. Stove: `heat`. Oven: `preheat`.
+  An equipment step (heat, preheat, prepare_container, cover, uncover, turn_off) has exactly one input: the
+  container, mode "require", required_state []. It consumes NO food and has output null.
+- Every cook / melt / bake step lists the heated container as a `require` input (required_state []) in addition
+  to the food it consumes. The container is the one an EARLIER heat/preheat step heated.
+- Each container is heated once, before the first cook/melt/bake that uses it. Later steps reuse it.
+- The heat level goes on the heat step (params.heat = "low"/"medium"/"high" exactly as written), the oven
+  temperature on the preheat step (params.temp_c, converted to Celsius). Leave them null on the cook step.
+- No heat level in the text ("saute the onion") -> still write the heat step, with prov="inferred",
+  reason="<verb> implies a heated pan", params.heat=null, params.unresolved="heat level not stated". Never guess "medium".
+- required_state never contains `heat`; whether the container is hot is checked automatically. The one allowed
+  heating state: a bake step may require the oven with temp_c equal to the preheat step's temp_c.
+- "Remove from the heat" / "turn off the burner" -> turn_off, requiring the container.
+Examples (inputs written as ref:mode):
+  "Melt the butter in a nonstick pan over low heat" ->
+    s3 heat   inputs [pan:require]                  params.heat="low"   output null   quote "over low heat"
+    s4 melt   inputs [butter:consume, pan:require]  output butter_melted  container pan  quote "Melt the butter in a nonstick pan"
+  "Saute the onion in oil until soft" ->
+    s1 heat   inputs [skillet:require]  prov inferred, reason "saute implies a heated pan", params.heat null
+    s2 cook   inputs [onion:consume, oil:consume, skillet:require]  output onion_cooked  until visual "soft"
+  "Preheat the oven to 375F. ... Bake 20 minutes" ->
+    s1 preheat inputs [oven:require]  params.temp_c=190.6
+    s9 bake    inputs [batter_in_tin:consume, oven:require (required_state temp_c=190.6)]  params.duration_s=1200
 - `container` on a step = where its output ends up.
 - Steps are listed in the order the recipe gives them. Step ids are s1, s2, s3, ...
 - Every ingredient, container and output id is unique: never give a container or an output the same id as an ingredient.
@@ -88,7 +111,7 @@ FAITHFULNESS RULES (most important)
 REPAIR_PROMPT = """The validator ran your extraction and reported the findings below.
 
 Fix ONLY extraction mistakes: wrong or missing ids, quotes that are not exact substrings, missing heat steps the text
-implies, inputs consumed twice, steps you skipped that the text states, wrong verbs. If a finding says a cooking step is
+implies (follow HEATING in the instructions; each finding below says what to change after "->"), inputs consumed twice, steps you skipped that the text states, wrong verbs. If a finding says a cooking step is
 inferred, DELETE that step: the recipe does not say to cook it, and the validator will report that gap to the user.
 
 Do NOT change the recipe's meaning to make a finding disappear. Findings marked RECIPE describe the recipe itself
