@@ -1,0 +1,15 @@
+# Evaluation (memory across runs, after MessyMem's long-horizon sequence without a reset): task A then task B in one kitchen.
+# A: the egg goes into the pan.
+name: seq_egg_A
+goal: "The egg in the pan, the fridge closed"
+prompt: "Take the egg out of the fridge and put it in the pan."
+steps:
+  - {id: s1, goal: "Put the egg in the pan", done_when: "the egg is inside the pan"}
+  - {id: s2, goal: "Close the fridge", done_when: "the fridge is closed"}
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: pan, on: counter_2}
+  success:
+    require: ["egg: inside pan"]
+    forbid: ["fridge: open"]

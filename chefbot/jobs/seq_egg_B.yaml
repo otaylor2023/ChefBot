@@ -1,0 +1,16 @@
+# Evaluation (memory across runs, after MessyMem's long-horizon sequence without a reset): task A then task B in one kitchen.
+# B: the egg is in the pan, where A put it.
+name: seq_egg_B
+goal: "The egg back in the fridge, closed"
+prompt: "Put the egg back in the fridge."
+steps:
+  - {id: s1, goal: "Put the egg in the fridge and close it", done_when: "the egg is inside the fridge and the fridge is closed"}
+symbolic:
+  objects:
+    - {name: egg, in: fridge}
+    - {name: pan, on: counter_2}
+  disturbances:
+    - {at: start, do: move, object: egg, to: {in: pan}, note: "where task A left it (the map without memory still says fridge)"}
+  success:
+    require: ["egg: inside fridge"]
+    forbid: ["fridge: open"]

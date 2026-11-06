@@ -58,6 +58,7 @@ def run(
     prompt: str | None = None,
     planner_llm=None,
     user=None,
+    memory: Path | None = None,
 ) -> dict:
     """env_options: the real robot's (--env real): dry_run, confirm, url, speed, model_usd; env (a stand-in for
     RealEnv, for tests). plan_from: "job" (the task file's plan) or "prompt" (the planner plans from the request:
@@ -72,6 +73,9 @@ def run(
     config = config or agent_def.loop_config()
     real = {"skills": [s for s in run_session.skills if s.sandboxed], **(env_options or {})} if env == "real" else {}
     world = ENVS[env](task_path, seed, noise, **real)
+    remembered = memory is not None and Path(memory).exists()
+    if remembered:  # the kitchen as the last run left it, not the env's map (MessyMem's persistent memory)
+        world.world_map = WorldMap.load(memory)
     # A long task can raise its own run limits: `limits: {max_turns: 250}` in the task file.
     limits = {k: v for k, v in (world.task.get("limits") or {}).items() if hasattr(config, k)}
     if limits:
@@ -121,7 +125,7 @@ def run(
     session.bus.add_safety(world.safety)
     session.log.start(
         task=world.name, task_file=str(task_path), seed=seed, agent={"name": agent_def.name, "harness": agent_def.harness_name},
-        session=run_session.describe(),
+        session=run_session.describe(), memory={"path": str(memory) if memory else None, "loaded": remembered},
         reference_plan=plan.to_dict(), models={"agent": config.model, "judge": config.judge_model},
         tools=[s["function"]["name"] for s in session.registry.schemas],
         config=config.__dict__, git_commit=git_commit(REPO), **world.info,
@@ -187,6 +191,10 @@ def run(
         if recorder is not None:
             recorder.close()
         world.close()
+        if memory is not None:  # what this run learned about the kitchen, for the next one
+            for gone in session.registry.tools.missing():
+                world.world_map.remove(gone)
+            world.world_map.save(memory)
     end_path = run_dir / "end.json"
     end = json.loads(end_path.read_text())
     end["ground_truth"] = verdict
@@ -285,6 +293,7 @@ def main() -> int:
     parser.add_argument("--plan-from", choices=["job", "prompt"], default="job",
                         help="job: the task file's plan; prompt: the planner plans from the request (--prompt or the task's prompt:)")
     parser.add_argument("--prompt", help="the user's request (with --plan-from prompt)")
+    parser.add_argument("--memory", type=Path, help="the kitchen memory: loaded at the start if it exists, saved at the end")
     parser.add_argument("--no-user", action="store_true", help="nobody answers the planner's questions (an ablation)")
     parser.add_argument("--window", type=int, help="calls kept verbatim in the executor's context (the agent's loop.window_n)")
     parser.add_argument("--interface", choices=INTERFACES, help="the robot API of the session (default: the agent's first)")
@@ -307,7 +316,7 @@ def main() -> int:
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
                  env=args.env, video=args.video, agent=args.agent, interface=args.interface,
                  env_options={"dry_run": args.dry_run, "confirm": args.confirm, "url": args.url, "speed": args.speed},
-                 plan_from=args.plan_from, prompt=args.prompt, user=_nobody if args.no_user else (None if args.quiet else _ask_in_terminal))  # fmt: skip
+                 plan_from=args.plan_from, prompt=args.prompt, memory=args.memory, user=_nobody if args.no_user else (None if args.quiet else _ask_in_terminal))  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
     if result["success"] is None:  # not judged (the real robot): the agent's own word

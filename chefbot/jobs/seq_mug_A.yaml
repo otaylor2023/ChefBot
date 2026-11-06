@@ -1,0 +1,13 @@
+# Evaluation (memory across runs, after MessyMem's long-horizon sequence without a reset): task A then task B in one kitchen.
+# A: the robot puts the mug away.
+name: seq_mug_A
+goal: "The mug in cabinet_2, closed"
+prompt: "Put the mug away in cabinet_2."
+steps:
+  - {id: s1, goal: "Put the mug in cabinet_2 and close it", done_when: "the mug is inside cabinet_2 and cabinet_2 is closed"}
+symbolic:
+  objects:
+    - {name: mug, on: counter_1}
+  success:
+    require: ["mug: inside cabinet_2"]
+    forbid: ["cabinet_\\d: open"]

@@ -1,0 +1,15 @@
+# Evaluation (memory across runs, after MessyMem's long-horizon sequence without a reset): task A then task B in one kitchen.
+# B: the mug is where A put it; the env's map is from before A.
+name: seq_mug_B
+goal: "The mug on the table"
+prompt: "Put the mug on the table."
+steps:
+  - {id: s1, goal: "Put the mug on the table", done_when: "the mug is on the table"}
+symbolic:
+  objects:
+    - {name: mug, on: counter_1}
+  disturbances:
+    - {at: start, do: move, object: mug, to: {in: cabinet_2}, note: "where task A left it (the map without memory still says counter_1)"}
+  success:
+    require: ["mug: on table"]
+    forbid: ["cabinet_\\d: open"]

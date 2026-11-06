@@ -75,9 +75,15 @@ class TaskState:
         self._fruitless: dict[str, list] = {}
         # go_to visits since the last progress (a pick_up, place, open/close, turn on/off or completed step).
         self._visits: dict[str, int] = {}
+        # What acting on things taught (MessyMem's interaction analyzer): per (tool, target), the failures and what
+        # made it work. Kept for the whole run, so it outlives the window.
+        self._learned: dict[tuple[str, str], dict] = {}
+        self._calls: list[str] = []
 
     def record(self, tool: str, args: dict, result: ToolResult) -> None:
-        """After every tool call: count calls that got nowhere, so loops show up in the task state."""
+        """After every tool call: count calls that got nowhere, so loops show up in the task state; and learn from
+        acting on things (what failed on what, and what made it work)."""
+        self._learn(tool, args, result)
         if result.success and tool in _PROGRESS:
             self._visits.clear()
         elif result.success and tool == "go_to":
@@ -94,6 +100,30 @@ class TaskState:
         entry = self._fruitless.setdefault(call, [0, 0.0, outcome])
         entry[0] += 1
         entry[1], entry[2] = self._clock.now(), outcome
+
+    def _learn(self, tool: str, args: dict, result: ToolResult) -> None:
+        target = args.get("id")
+        if tool in _LEARN_FROM and target:
+            entry = self._learned.get((tool, target))
+            if not result.success:
+                entry = self._learned.setdefault((tool, target), {"fails": [], "worked_after": None, "since": len(self._calls)})
+                entry["fails"].append(result.error)
+                entry["worked_after"], entry["since"] = None, len(self._calls)
+            elif entry is not None and entry["worked_after"] is None:
+                between = [c for c in self._calls[entry["since"] + 1:] if c != tool]
+                entry["worked_after"] = ", ".join(dict.fromkeys(between)) or "trying again"
+            if entry is not None:
+                entry["t"] = self._clock.now()
+        self._calls.append(tool)
+
+    def _learned_lines(self) -> list[str]:
+        rows = sorted(self._learned.items(), key=lambda kv: -kv[1]["t"])[:8]
+        lines = []
+        for (tool, target), e in rows:
+            counts = ", ".join(f"{err} {e['fails'].count(err)}x" for err in dict.fromkeys(e["fails"]))
+            then = f"; then it worked after {e['worked_after']}" if e["worked_after"] else "; not solved yet"
+            lines.append(f"  {tool} {target}: {counts}{then}")
+        return lines
 
     def render(self, events: list) -> str:
         plan = self._store.live
@@ -125,6 +155,9 @@ class TaskState:
             if circling:
                 lines.append("  went to " + ", ".join(f"{p} {n}x" for p, n in sorted(circling, key=lambda pn: -pn[1]))
                              + " since your last progress (pick_up, place, open/close, turn on/off, complete)")  # fmt: skip
+        learned = self._learned_lines()
+        if learned:
+            lines += ["", "LEARNED BY DOING (whole run: what failed on what, and what made it work)", *learned]
         lines += ["", *self._kitchen_lines()]
         lines += ["", "EVENTS SINCE LAST TURN"]
         lines += [f"  [{e.kind}] {e.message}" for e in events] or ["  none"]
@@ -338,6 +371,8 @@ def _row(indent: str, place: str, contents: str, width: int = 30) -> str:
     return f"{head:<{width}}  {contents}" if len(head) < width else f"{head}   {contents}"
 
 
+# Acting on a target: what it teaches is kept (LEARNED BY DOING).
+_LEARN_FROM = {"align", "pick_up", "place", "open", "close", "turn_on", "turn_off", "lower_into", "pour"}
 _PROGRESS = {"pick_up", "place", "open", "close", "turn_on", "turn_off", "complete"}
 _OPENABLE = {"fridge", "cabinet", "microwave", "oven", "drawer", "dishwasher"}
 _CONTAINERS = {"fridge", "cabinet", "microwave", "drawer", "oven", "toaster", "pan", "pot", "bowl", "mug", "sink", "egg cracker"}
