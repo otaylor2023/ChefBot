@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 from chefbot import agents
-from chefbot.agent.check.checker import StateChecker
+from chefbot.agent.check.checker import StateChecker, UncheckedJudge
 from chefbot.agent.config import LoopConfig
 from chefbot.agent.logging.run_log import git_commit
 from chefbot.agent.loop.llm import OpenRouterClient
@@ -53,7 +53,10 @@ def run(
     video_speed: int = 2,
     agent: str = agents.DEFAULT,
     interface: str | None = None,
+    env_options: dict | None = None,
 ) -> dict:
+    """env_options: the real robot's (--env real): dry_run, confirm, url, speed, model_usd; env (a stand-in for
+    RealEnv, for tests)."""
     from chefbot.agents.session import Session
     from chefbot.scripts.envs import ENVS
 
@@ -61,7 +64,8 @@ def run(
     harness = agent_def.harness
     run_session = Session.open(agent_def, env, interface)  # refused here, before the env is built
     config = config or agent_def.loop_config()
-    world = ENVS[env](task_path, seed, noise)
+    real = {"skills": [s for s in run_session.skills if s.sandboxed], **(env_options or {})} if env == "real" else {}
+    world = ENVS[env](task_path, seed, noise, **real)
     # A long task can raise its own run limits: `limits: {max_turns: 250}` in the task file.
     limits = {k: v for k, v in (world.task.get("limits") or {}).items() if hasattr(config, k)}
     if limits:
@@ -72,16 +76,27 @@ def run(
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M%S")
     run_dir = out / f"{stamp}_{world.name}_{env}_s{seed}"
     llm = llm or OpenRouterClient(config.model, temperature=config.temperature, provider=config.provider)
+    if judge is None and env == "real":
+        judge = UncheckedJudge()  # no ground truth on the real robot: a completed step is taken as done
     judge = judge or StateChecker(
         OpenRouterClient(config.judge_model, provider=config.provider), config.judge_model, config.judge_temperature
     )
     tools = world.task.get("tools") or {}  # a task can withhold tools: {exclude: [...], only: [...]}
-    session = harness.AgentSession.build(
-        plan, world.robot, world.detector, world.world_map, world.clock, run_dir, judge, world.observer,
-        config, agent_def.settings, operator=operator,
-        tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
-        prompts_dir=agent_def.prompts_dir, agent_tools=run_session.tools, robot_skills=run_session.skills,
-    )  # fmt: skip
+    try:
+        skill_tools = []  # chefbot-v1 skills: one sandboxed episode per call (runtime/agent_skills.py)
+        if world.skills is not None:
+            world.skills.move_to(run_dir / "skills")
+            skill_tools = [world.skills.tool(s) for s in run_session.skills if s.sandboxed]
+        session = harness.AgentSession.build(
+            plan, world.robot, world.detector, world.world_map, world.clock, run_dir, judge, world.observer,
+            config, agent_def.settings, operator=operator,
+            tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
+            prompts_dir=agent_def.prompts_dir, agent_tools=run_session.tools,
+            robot_skills=[s for s in run_session.skills if not s.sandboxed], skill_tools=skill_tools,
+        )  # fmt: skip
+    except BaseException:
+        world.close()  # the real robot: let go of it
+        raise
     session.bus.add_safety(world.safety)
     session.log.start(
         task=world.name, task_file=str(task_path), seed=seed, agent={"name": agent_def.name, "harness": agent_def.harness_name},
@@ -161,7 +176,7 @@ def run(
     text = summary(start, end, timeline)
     if not quiet:
         print("\n" + text)
-        print(f"ground truth: {'SUCCESS' if verdict['success'] else 'FAILURE'}"
+        print(f"ground truth: {'not judged (no ground truth here)' if verdict['success'] is None else 'SUCCESS' if verdict['success'] else 'FAILURE'}"
               + (f" · missing {verdict['missing']}" if verdict["missing"] else "")
               + (f" · forbidden {verdict['forbidden_present']}" if verdict["forbidden_present"] else ""))  # fmt: skip
         print(f"report: {run_dir / 'report.html'}" + (f"\nvideo: {run_dir / 'video.mp4'}" if recorder else ""))
@@ -172,7 +187,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the ChefBot agent on a task.")
     parser.add_argument("--task", type=Path, required=True)
     parser.add_argument("--agent", choices=agents.names(), default=agents.DEFAULT, help="the agent (chefbot/agents/<name>)")
-    parser.add_argument("--env", choices=["symbolic", "robocasa"], default="symbolic")
+    parser.add_argument("--env", choices=["symbolic", "robocasa", "real"], default="symbolic",
+                        help="real: the real robot through the onboard server (ssh -L 8765:localhost:8765 tidybot01)")
+    parser.add_argument("--dry-run", action="store_true", help="real: send nothing to the arm or the gripper")
+    parser.add_argument("--confirm", action="store_true", help="real: Enter before each move")
+    parser.add_argument("--url", help="real: the onboard server (default: environments/real/config.yaml)")
+    parser.add_argument("--speed", default="slow", help="real: speed profile (default slow; clipped to the robot's real limits)")
     parser.add_argument("--interface", choices=INTERFACES, help="the robot API of the session (default: the agent's first)")
     parser.add_argument("--video", action="store_true", help="record the run (robocasa): runs/<run>/video.mp4")
     parser.add_argument("--seed", type=int, default=0)
@@ -191,9 +211,12 @@ def main() -> int:
                                                  max_llm_cost_usd=args.max_llm_cost_usd)  # fmt: skip
     operator = terminal_operator if args.operator == "terminal" else (lambda reason, a=args.operator: a)
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
-                 env=args.env, video=args.video, agent=args.agent, interface=args.interface)  # fmt: skip
+                 env=args.env, video=args.video, agent=args.agent, interface=args.interface,
+                 env_options={"dry_run": args.dry_run, "confirm": args.confirm, "url": args.url, "speed": args.speed})  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
+    if result["success"] is None:  # not judged (the real robot): the agent's own word
+        return 0 if result["outcome"] == "finished" else 1
     return 0 if result["success"] else 1
 
 

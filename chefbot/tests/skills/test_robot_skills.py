@@ -89,7 +89,7 @@ def test_a_sandboxed_skill_has_no_in_process_function():
 @pytest.mark.parametrize(
     "edit, message",
     [
-        (lambda m: m.update(interface="robot-api-v1", sandboxed=False), "needs a description"),
+        (lambda m: (m.update(interface="robot-api-v1", sandboxed=False), m.pop("description")), "needs a description"),
         (lambda m: m.update(needs=["teleport"]), "not robot capabilities"),
     ],
 )

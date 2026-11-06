@@ -1,0 +1,121 @@
+"""The real_arm agent on the real robot (run_agent --env real), here on the real-host tests' fake robot: its session,
+its skills run as sandboxed episodes on one host kept open for the run, a skill's failure handed back to the agent,
+a completed step taken as done unchecked, a dry run that sends nothing."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from chefbot import agents, skills
+from chefbot.agent.check.checker import UncheckedJudge
+from chefbot.agent.loop.llm import LLMResponse, ToolCall
+from chefbot.agents.session import Session
+from chefbot.scripts import run_agent
+from chefbot.tests.onboard.test_real_host import FakeRobot
+
+REPO = Path(__file__).resolve().parents[3]
+JOB = REPO / "chefbot/jobs/real_pick.yaml"
+PLAN_TOOLS = ("complete", "set_status", "add_step", "skip_step", "request_replan", "finish")
+
+
+def test_its_session_on_the_real_robot():
+    s = Session.open(agents.load("real_arm"), env="real")
+    assert s.interface == "chefbot-v1"
+    assert [x.path for x in s.skills] == ["bringup/v1", "pick_up/gemini_v1"]
+    assert s.tools == PLAN_TOOLS
+    assert all(x.description for x in s.skills)  # what the LLM reads about them
+
+
+def test_in_the_sims_it_would_get_only_what_runs_there():
+    assert Session.open(agents.load("real_arm"), env="symbolic").skills == []
+    assert [x.path for x in Session.open(agents.load("real_arm"), env="robocasa").skills] == ["bringup/v1"]  # robot: any
+
+
+class Scripted:
+    """An LLM that makes the given calls in order, and keeps what it was offered and told."""
+
+    def __init__(self, calls):
+        self.calls, self.i, self.results, self.tools = calls, 0, [], None
+
+    def chat(self, messages, tools=None, **kwargs):
+        if self.tools is None:
+            self.tools = [t["function"]["name"] for t in tools]
+        last = next((m for m in reversed(messages) if m.get("role") == "tool"), None)
+        if last is not None and self.i:
+            self.results.append(json.loads(last["content"]))
+        name, args = self.calls[min(self.i, len(self.calls) - 1)]
+        self.i += 1
+        return LLMResponse(None, [ToolCall(f"c{self.i}", name, json.dumps(args))])
+
+
+def _run(tmp_path, calls, **options):
+    llm, fake = Scripted(calls), FakeRobot()
+    result = run_agent.run(JOB, 0, tmp_path, llm=llm, operator=lambda r: "abort", quiet=True, env="real", agent="real_arm",
+                           env_options={"env": fake, "confirm": False, **options})  # fmt: skip
+    return llm, fake, result, Path(result["run_dir"])
+
+
+@pytest.fixture(scope="module")
+def pick_run(tmp_path_factory):
+    calls = [("set_status", {"step_id": "s1", "status": "active"}), ("bringup", {"lift_m": 0.03}), ("pick_up", {}),
+             ("pick_up", {"object": "apple"}), ("complete", {"step_id": "s1"}), ("finish", {"summary": "scripted"})]  # fmt: skip
+    return _run(tmp_path_factory.mktemp("real"), calls)
+
+
+def test_the_agent_is_offered_its_skills_and_the_plans_tools(pick_run):
+    llm, _, _, run_dir = pick_run
+    assert llm.tools == list(PLAN_TOOLS) + ["bringup", "pick_up"]
+    start = json.loads((run_dir / "start.json").read_text())
+    assert start["env"] == "real" and start["session"]["interface"] == "chefbot-v1" and start["dry_run"] is False
+
+
+def test_a_skill_runs_as_one_sandboxed_episode_on_the_real_host(pick_run):
+    llm, fake, _, run_dir = pick_run
+    bringup = llm.results[1]
+    assert bringup["success"] and bringup["data"]["returned"]["ok"] and bringup["data"]["end"] == "skill returned"
+    assert fake.sent["arm"] > 0 and fake.sent["base"] == 0  # the arm moved, the base held
+    assert (run_dir / "skills" / "01_bringup" / "result.json").exists()
+
+
+def test_arguments_are_checked_before_anything_runs(pick_run):
+    llm, _, _, run_dir = pick_run
+    assert llm.results[2]["error"] == "invalid_arguments" and "object" in llm.results[2]["message"]
+    assert not (run_dir / "skills" / "02_pick_up_").exists()
+
+
+def test_a_skill_that_fails_is_handed_back_and_the_run_goes_on(pick_run):
+    llm, _, result, run_dir = pick_run
+    failed = llm.results[3]  # the fake robot has no wrist camera
+    assert not failed["success"] and failed["error"] == "skill_error" and "no camera" in failed["message"]
+    assert json.loads((run_dir / "skills" / "02_pick_up" / "result.json").read_text())["n_llm"] == 0  # no model reached
+    assert result["outcome"] == "finished"
+
+
+def test_a_completed_step_is_taken_as_done_unchecked(pick_run):
+    llm, _, result, _ = pick_run
+    assert llm.results[4]["success"] and UncheckedJudge.REASON in llm.results[4]["message"]
+    assert result["success"] is None and result["judged"] is False  # nothing judges the real robot
+
+
+def test_a_dry_run_sends_nothing_to_the_arm(tmp_path):
+    calls = [("bringup", {"lift_m": 0.03}), ("finish", {"summary": "dry", "abandon": True})]
+    llm, fake, _, run_dir = _run(tmp_path, calls, dry_run=True)
+    assert llm.results[0]["success"]  # the skill saw its moves made
+    assert fake.sent["arm"] == 0 and fake.sent["gripper"] == 0 and fake.sent["moves"] == 0
+    assert json.loads((run_dir / "start.json").read_text())["dry_run"] is True
+
+
+def test_the_runner_runs_only_sandboxed_skills():
+    from chefbot.runtime.agent_skills import EpisodeSkills
+
+    with pytest.raises(ValueError, match="not sandboxed"):
+        EpisodeSkills(None, Path("."), None, None).tool(skills.load("go_to/robotapi_v1"))
+
+
+def test_the_cli_offers_the_real_robot():
+    import subprocess
+    import sys
+
+    out = subprocess.run([sys.executable, "-m", "chefbot.scripts.run_agent", "--help"], cwd=REPO, capture_output=True, text=True)
+    assert "{symbolic,robocasa,real}" in out.stdout and "--dry-run" in out.stdout and "real_arm" in out.stdout

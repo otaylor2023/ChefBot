@@ -1,0 +1,32 @@
+# The first agent for the real robot: the arm only, the base held where it stands. It works through a short plan with
+# the real robot's chefbot-v1 skills, each one sandboxed episode on the real host (run_agent --env real). Nothing
+# checks a step's done_when on the real robot: a step it completes is taken as done (unchecked).
+
+name: real_arm
+harness: plan_loop          # agent/harnesses/plan_loop: the loop it runs in
+interfaces: [chefbot-v1]    # its skills are sandboxed programs on the skill API (interface/skill_api.py)
+prompts: prompts
+skills:
+  include: ["bringup/v1", "pick_up/gemini_v1"]   # envs: real; one pick_up only (the LLM calls a skill by its name)
+tools:                      # chefbot/tools: the plan's (no timers yet)
+  - complete
+  - set_status
+  - add_step
+  - skip_step
+  - request_replan
+  - finish
+
+loop:
+  model: anthropic/claude-sonnet-5.5        # OpenRouter model id; key from OPENROUTER_API_KEY or .env
+  judge_model: anthropic/claude-haiku-5.5   # unused on the real robot (UncheckedJudge)
+  provider: {order: [anthropic], allow_fallbacks: false}
+  judge_temperature: 0.0
+  time_mode: realtime        # the robot does not wait while the LLM thinks
+  window_n: 8
+  max_reprompts: 2
+  max_turns: 20
+  max_llm_cost_usd: 1.0
+  max_sim_time_s: 900
+  max_wall_time_s: 900
+  max_consecutive_errors: 3
+  log_full_requests: true

@@ -39,15 +39,27 @@ def test_an_interface_the_agent_does_not_run_with_is_refused(tmp_path):
         _run(tmp_path, interface="chefbot-v1")  # before any env is built
 
 
-def test_plan_loop_runs_no_chefbot_v1_session_yet(tmp_path):
-    d = _copy(tmp_path, lambda m: m.update(interfaces=["robot-api-v1", "chefbot-v1"]))
-    with pytest.raises(ValueError, match="harness plan_loop runs robot-api-v1 sessions, not chefbot-v1"):
-        Session.open(agents.load(str(d)), env="mujoco_kitchen", interface="chefbot-v1")
+def test_a_chefbot_v1_session_in_the_sims_offers_the_lab_skills_it_selects(tmp_path):
+    def edit(m):
+        m.update(interfaces=["robot-api-v1", "chefbot-v1"])
+        m["skills"]["include"] = ["*/robotapi_v1", "tongs_lift/mujoco_tongs3_v59"]
+
+    s = Session.open(agents.load(str(_copy(tmp_path, edit))), env="mujoco_kitchen", interface="chefbot-v1")
+    assert [x.path for x in s.skills] == ["tongs_lift/mujoco_tongs3_v59"]  # one API per session: no robotapi_v1 here
+
+
+def test_three_tongs_versions_at_once_are_refused(tmp_path):
+    def edit(m):
+        m.update(interfaces=["chefbot-v1"], tools=["complete", "finish"])
+        m["skills"]["include"] = ["tongs_lift/*"]
+
+    with pytest.raises(ValueError, match="two skills named tongs_lift"):
+        Session.open(agents.load(str(_copy(tmp_path, edit))), env="mujoco_kitchen")
 
 
 def test_a_chefbot_v1_session_would_offer_only_the_tools_that_need_no_robot_api(tmp_path):
     d = _copy(tmp_path, lambda m: m.update(interfaces=["robot-api-v1", "chefbot-v1"]))
-    s = Session(agents.load(str(d)), "mujoco_kitchen", "chefbot-v1")  # not opened: the harness refuses it today
+    s = Session.open(agents.load(str(d)), "mujoco_kitchen", "chefbot-v1")
     assert s.tools == PLAN_AND_TIME  # no detect, nearby, wait, get_status, stop
     assert s.skills == []  # */robotapi_v1 selects no chefbot-v1 skill
 

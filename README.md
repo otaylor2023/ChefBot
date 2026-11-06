@@ -250,8 +250,22 @@ its `loop:` settings. Today's agent is `kitchen_planner`, the default; `run_agen
 (`*/robotapi_v1`). A run is a **session** (`agents/session.py`): an agent, an env and one robot
 API (`--interface`, the agent's first by default). The session offers the selected skills that
 could run in that env and speak that API, and the listed tools that work with that API, and
-`start.json` records it. `plan_loop` runs robot-api-v1 sessions only: a chefbot-v1 skill is an
-episode on a host that resets the scene, and nothing yet keeps one scene across a run's skills.
+`start.json` records it. In a chefbot-v1 session each skill call is one sandboxed episode on a
+host kept open for the run, continuing its scene (`runtime/agent_skills.py`, `run_episode(restart=False)`).
+
+**The real robot** (`--env real`): `real_arm` is the first agent for it, the arm only (the base
+held), with `bringup/v1` and `pick_up/gemini_v1`. Everything runs on the laptop; the robot runs only
+the onboard server. Nothing judges a step there: one the agent completes is taken as done, unchecked.
+
+```bash
+ssh -L 8765:localhost:8765 tidybot01        # the onboard server running there (bringup/README.md)
+python -m chefbot.scripts.run_agent --env real --agent real_arm --task chefbot/jobs/real_pick.yaml --dry-run
+python -m chefbot.scripts.run_agent --env real --agent real_arm --task chefbot/jobs/real_pick.yaml --confirm
+```
+
+`--dry-run` sends nothing to the arm or the gripper (the cameras are real); `--confirm` asks before
+each move; `--speed` (default slow) is clipped to the robot's real limits. Needs `OPENROUTER_API_KEY`
+(the agent) and `GEMINI_API_KEY` (pick_up) in `.env`.
 
 **Tools** that do not move the robot are defined one file each in `chefbot/tools/<group>/`
 (perception: detect, nearby, holding, get_pose; motion: wait, get_status, stop; plan:

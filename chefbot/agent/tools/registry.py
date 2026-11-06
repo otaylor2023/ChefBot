@@ -171,6 +171,11 @@ class ToolRegistry:
                 raise ValueError(f"no handler for tool {name}")
             self._add(schema, handler)
 
+    def add_tool(self, schema: dict, handler) -> None:
+        """A tool from outside the agent's process: a chefbot-v1 skill, its handler one sandboxed episode
+        (runtime/agent_skills.py). Its arguments are checked against the schema like any other's."""
+        self._add(schema, handler)
+
     def add_loop_tools(self, plan_tools, time_tools) -> None:
         """The agent loop's tools; `wait` keeps its handler but wakes on events."""
         self.tools.time = time_tools

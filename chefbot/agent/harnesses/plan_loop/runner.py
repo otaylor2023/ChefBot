@@ -90,6 +90,7 @@ class AgentSession:
         prompts_dir: str | Path | None = None,
         agent_tools: tuple[str, ...] | None = None,
         robot_skills: list | None = None,
+        skill_tools: list = (),
     ) -> "AgentSession":
         config = config or LoopConfig.load()
         log = RunLog(run_dir, clock, observer, config.log_full_requests)
@@ -119,6 +120,8 @@ class AgentSession:
         time_tools = TimeTools(robot, bus, clock, store)
         plan_tools = PlanTools(store, check, bus, operator)
         registry.add_loop_tools(plan_tools, time_tools)
+        for schema, handler in skill_tools:  # chefbot-v1 skills: (schema, handler running an episode)
+            registry.add_tool(schema, handler)
         registry.tools.now = clock.now  # the kitchen belief's "N ago" is in run time
         perception = Perception(FreshnessConfig(
             config.stale_after_calls, config.stale_move_m, config.stale_turn_deg,

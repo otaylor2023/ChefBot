@@ -17,9 +17,9 @@ from chefbot.scripts import run_agent
 REPO = Path(__file__).resolve().parents[3]
 
 
-def test_todays_agent_is_the_default_and_only_one():
+def test_todays_agent_is_the_default():
     assert agents.DEFAULT == "kitchen_planner"
-    assert agents.names() == ["kitchen_planner"]
+    assert agents.names() == ["kitchen_planner", "real_arm"]
 
 
 def test_the_default_agent_loads():
@@ -123,4 +123,4 @@ def test_the_cli_offers_every_agent():
     import sys
 
     out = subprocess.run([sys.executable, "-m", "chefbot.scripts.run_agent", "--help"], cwd=REPO, capture_output=True, text=True)
-    assert "--agent {kitchen_planner}" in out.stdout
+    assert "--agent {kitchen_planner,real_arm}" in out.stdout
