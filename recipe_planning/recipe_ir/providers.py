@@ -69,13 +69,18 @@ class OpenRouterExtractor(CappedExtractor):
     def _create(self, system, user, extra, kwargs):
         """Vendor limits, handled once per extractor and recorded in self.adaptations:
         - no endpoint accepts `temperature` (some Claude models): drop it
-        - the strict schema is too big for the provider's grammar compiler (Anthropic: >16 union-typed fields):
-          send the schema non-strict; our parser + retry still reject anything that doesn't validate"""
+        - the schema is too big for the provider's grammar compiler (Anthropic: >16 union-typed fields, strict or
+          not): JSON mode with the schema in the system prompt; our parser + retry reject anything invalid"""
         import openai
         while True:
+            sys_msg = system
+            if self.response_format["type"] == "json_object":
+                sys_msg += ("\n\nOUTPUT FORMAT\nReply with ONE JSON object that matches this JSON schema exactly "
+                            "(every property present, null where allowed, no extra keys, no prose):\n"
+                            + json.dumps(recipe_schema(), separators=(",", ":")))
             try:
                 return self.client.chat.completions.create(
-                    model=self.remote_model, messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    model=self.remote_model, messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": user}],
                     response_format=self.response_format, max_tokens=self.cap, extra_body=extra, **kwargs)
             except openai.NotFoundError as e:
                 if "temperature" in kwargs and "No endpoints found" in str(e):
@@ -86,9 +91,10 @@ class OpenRouterExtractor(CappedExtractor):
                 raise
             except openai.BadRequestError as e:
                 msg = str(e)
-                if self.response_format["json_schema"]["strict"] and ("grammar is too large" in msg or "union types" in msg):
-                    self.response_format = {"type": "json_schema", "json_schema": {**self.response_format["json_schema"], "strict": False}}
-                    self.adaptations.add("schema not enforced (provider grammar limit)")
+                if self.response_format["type"] == "json_schema" and ("grammar is too large" in msg or "union types" in msg):
+                    # the provider compiles any json_schema into a grammar, strict or not: JSON mode + schema in prompt
+                    self.response_format = {"type": "json_object"}
+                    self.adaptations.add("JSON mode, schema in prompt (provider grammar limit)")
                     continue
                 raise
 
