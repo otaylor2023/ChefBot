@@ -50,6 +50,46 @@ Tools: `go_to`, `detect`, `nearby`, `align`, `pick_up`, `place`, `open`, `close`
 `holding`, `wait`, `get_status`, `stop`, `get_pose`. The workflow they are built
 around is `go_to -> detect -> align -> pick_up -> go_to -> detect -> align -> place`.
 
+## This branch: agents-skills-registry
+
+The agent loop on `main` (AGENT_SPEC v0.1, Olivia's) is kept as it is: one tool call per turn, the last 8 calls, a
+TASK STATE rebuilt every turn, a judge on every step, the same executor and judge prompts. This branch puts it in a
+form that runs different agents, in sim and on the real robot. The full account is [HARNESS.md](HARNESS.md); the same
+summary, with more detail, is on the branch's page (private on claude.ai until shared:
+https://claude.ai/artifact/JntFqAif1VJYG25Zc7uQfM).
+
+| Part | On main | On this branch |
+|---|---|---|
+| The loop | `agent/loop/`, one agent | the same code, the named harness `agent/harnesses/plan_loop/` |
+| An agent | code plus `config/agent.yaml` | a definition, `agents/<name>/agent.yaml` (harness, robot APIs, prompts, skills, tools, models, limits): `kitchen_planner` (sim) and `real_arm` (robot) |
+| System prompts | `agent/loop/prompts/` | with each agent (`agents/<name>/prompts/`); the executor's text unchanged except `pick` → `pick_up` |
+| Tool descriptions | 30 schemas written in `registry.py` | 16 tools as one YAML each (`tools/<group>/`); 14 robot moves as skills (`skills/<name>/robotapi_v1/skill.yaml`), each with what the LLM reads and where it can run |
+| Where it runs | symbolic, RoboCasa | a session = agent + environment + robot API; also the real robot (`run_agent --env real`) through sandboxed skills |
+| The judge | Haiku on the simulator's state | the same in sim; on the real robot a completed step is taken as done and logged unchecked |
+| Safety | the real host's guard | the arm refuses a move into the robot's own body before sending it; real speed limits enforced; `ready/v1` takes the arm home around the body |
+
+```sh
+python -m chefbot.scripts.run_agent --task chefbot/jobs/fried_sausage.yaml --agent kitchen_planner      # sim, as before
+python -m chefbot.scripts.run_agent --env real --agent real_arm --task chefbot/jobs/real_pick.yaml --dry-run   # the robot, nothing sent
+```
+
+Every step kept the agent's runs byte-identical (its first LLM request, the tool schemas, a scripted run) unless
+changing them was the point. Real robot status: the read-only check passed; the dry run found the pole D455 missing
+on USB (so `real_arm` uses the wrist camera only) and a keep-out graze on the way home (so `ready/v1`); a live pick is
+not run yet.
+
+### The video
+
+[![The agent in RoboCasa with its conversation](docs/videos/fried_sausage_chat.png)](docs/videos/fried_sausage_chat.mp4)
+
+[`docs/videos/fried_sausage_chat.mp4`](docs/videos/fried_sausage_chat.mp4) (3.5 min, download to play): a RoboCasa
+run started from the typed request "Can you fry the sausage and put it on the plate?". On the right, the conversation
+as it happened: the planner's and the executor's system prompts, the executor's tools and the judge's prompt; the
+request, the planner's reply and plan; then every turn (the TASK STATE sent, the executor's reasoning and tool call,
+the judge's verdict, the robot's result). The plain simulation is
+[`docs/videos/fried_sausage_sim.mp4`](docs/videos/fried_sausage_sim.mp4). The run used this branch's loop, registry
+and skills with the next branch's additions (the planner from a typed request, narration): `harness-memory-planner`.
+
 ## Setup
 
 Python 3.10+. The agent and robot layers need no simulator:
