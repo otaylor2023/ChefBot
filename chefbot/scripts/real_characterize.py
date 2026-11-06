@@ -220,7 +220,7 @@ def main() -> None:
         print(f"{len(moves)} moves (each out from C and back), all within +-{args.half} m")
         return
     out = REPO / "runs" / "characterize" / datetime.now().strftime("%Y%m%d_%H%M%S")
-    env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"])
+    env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"], require_arm=False)
     try:
         run(env, args.half, out, moves, args.yaw_speed)
     finally:

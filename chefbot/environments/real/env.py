@@ -90,8 +90,10 @@ class RealEnv(Env):
         max_state_age_s: float = 0.5,
         open_timeout_s: float = 10.0,
         trackers: dict | None = None,
+        require_arm: bool = True,
     ):
         """`cameras`: name -> {parent: "base" | "flange", T: 4x4 camera (OpenCV axes) in the parent}.
+        `require_arm`: get_state refuses without joint readings (False: base-only runs, arm_q then None).
         `flange_in_base(q) -> 4x4` places the flange for wrist cameras. `trackers`: name -> MountTracker (mount_track.py)
         for base cameras whose mount it keeps current from the hand's marker card in their frames."""
         self.flange_to_control = np.asarray(flange_to_control, dtype=float)
@@ -122,7 +124,7 @@ class RealEnv(Env):
         self._ids = itertools.count()
         self._closed = threading.Event()
         self.halted: str | None = None  # why the server last held the robot
-        self.require_arm = True  # get_state refuses without joint readings (False: base-only runs; arm_q is then None)
+        self.require_arm = bool(require_arm)
         self.errors: list[str] = []
         self._gripper_closed: bool | None = None
         self._base_holding = False
@@ -133,7 +135,8 @@ class RealEnv(Env):
         self._heartbeat.start()
 
     @classmethod
-    def from_config(cls, flange_to_control: np.ndarray, path: str | Path = CONFIG, url: str | None = None, flange_in_base=None) -> "RealEnv":
+    def from_config(cls, flange_to_control: np.ndarray, path: str | Path = CONFIG, url: str | None = None, flange_in_base=None,
+                    require_arm: bool = True) -> "RealEnv":  # fmt: skip
         c = load_config(path)
         cameras = {name: {"parent": m["parent"], "T": np.asarray(m["T"], dtype=float)} for name, m in (c.get("cameras") or {}).items()}
         trackers = {}
@@ -144,7 +147,7 @@ class RealEnv(Env):
 
                 trackers[name] = MountTracker(m["track"]["T_flange_card"], hand_card_points(), pose=cameras[name]["T"])
         return cls(url or c["url"], flange_to_control, cameras, flange_in_base, c["velocity_horizon_s"], c["heartbeat_s"],
-                   c["max_state_age_s"], trackers=trackers)  # fmt: skip
+                   c["max_state_age_s"], trackers=trackers, require_arm=require_arm)  # fmt: skip
 
     # -- state ------------------------------------------------------------------
 

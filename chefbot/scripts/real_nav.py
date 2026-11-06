@@ -266,7 +266,8 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
     server. footprint_below / stop_model=None / accel: a trial's own (real_trials)."""
     from chefbot.embodiments import Speed
 
-    env.require_arm = False  # base moves need no arm driver (its last readings, if any, still give its footprint)
+    if env.require_arm:
+        raise ValueError("base moves need no arm driver: build the env with RealEnv(..., require_arm=False)")
     limits = env.server_limits
     if "base_max_vel_xy" in limits:
         check_server_cap(limits, float(speed), float(yaw_speed))  # over the robot's cap: refused (ValueError), not clipped
@@ -478,7 +479,7 @@ def main() -> None:
     if args.cmd == "go":
         args.speed, args.yaw_speed, args.profile = base_speeds(embodiment(), args.profile, args.speed, args.yaw_speed)
         print(f"speed profile {args.profile}: {args.speed:.3f} m/s, {args.yaw_speed:.3f} rad/s")
-    env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"])  # arm poses are never sent
+    env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"], require_arm=False)  # arm poses are never sent
     if args.cmd == "go":
         try:
             check_server_cap(env.server_limits, args.speed, args.yaw_speed)

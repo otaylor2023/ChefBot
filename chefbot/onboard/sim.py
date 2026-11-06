@@ -3,7 +3,7 @@ server in front of them. The laptop tools (envs/real's RealEnv, scripts/real_nav
 from the robot, so the same code paths run, without the hardware.
 
     with SimRobot(start=(0.285, 0.276, 3.134)) as sim:      # world pose (x, y, yaw) the base starts at
-        env = RealEnv(sim.url, np.eye(4))
+        env = RealEnv(sim.url, np.eye(4), require_arm=False)
 
     python -m chefbot.onboard.sim [--start X Y YAW_DEG]     # as a process: prints its url, Ctrl-C stops it
 

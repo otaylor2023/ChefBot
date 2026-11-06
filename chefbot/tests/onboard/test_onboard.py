@@ -465,7 +465,7 @@ def sim():
     server = build(CONFIG, redis)
     server.cameras = FakeCameras()
     server.start()
-    env = RealEnv(server.url, np.eye(4))
+    env = RealEnv(server.url, np.eye(4), require_arm=False)
     yield env, base, redis, server
     base.stop()
     env.close()

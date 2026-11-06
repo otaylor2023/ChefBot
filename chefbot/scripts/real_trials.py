@@ -253,7 +253,7 @@ def main() -> None:
         url = sim.stdout.readline().strip()
     else:
         url = args.url or load_config(CONFIG)["url"]
-    env = RealEnv.from_config(np.eye(4), url=url)
+    env = RealEnv.from_config(np.eye(4), url=url, require_arm=False)
     from chefbot.interface.workspace import load_body
 
     q = None

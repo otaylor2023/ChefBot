@@ -47,7 +47,7 @@ def test_the_checker_catches_an_obstacle_inside_the_footprint():
 
 def test_a_short_session_goes_around_obstacles_without_violations(tmp_path):
     with SimRobot(start=(0.3, 0.3, math.pi)) as sim:
-        env = RealEnv(sim.url, np.eye(4))
+        env = RealEnv(sim.url, np.eye(4), require_arm=False)
         try:
             import time
 
@@ -94,7 +94,7 @@ def _sim_env():
     import time
 
     sim = SimRobot(start=(0.3, 0.3, math.pi))
-    env = RealEnv(sim.url, np.eye(4))
+    env = RealEnv(sim.url, np.eye(4), require_arm=False)
     t0 = time.monotonic()
     while not (env.localization().live and env.raw_state().get("base_driver_live")) and time.monotonic() - t0 < 5:
         time.sleep(0.02)

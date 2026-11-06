@@ -222,7 +222,7 @@ def main() -> None:
         raise SystemExit("park needs --map")
     args.speed, args.yaw_speed, args.profile = base_speeds(embodiment(), args.profile, args.speed, args.yaw_speed)
     print(f"speed profile {args.profile}: {args.speed:.3f} m/s, {args.yaw_speed:.3f} rad/s")
-    env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"])  # arm poses are never sent
+    env = RealEnv.from_config(np.eye(4), url=args.url or load_config(CONFIG)["url"], require_arm=False)  # arm poses are never sent
     try:
         try:
             check_server_cap(env.server_limits, args.speed, args.yaw_speed)
