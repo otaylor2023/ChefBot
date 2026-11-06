@@ -83,7 +83,7 @@ def main(argv=None):
     if a.only:
         instances = [i for i in instances if i["perturbation"] in a.only]
     instances = instances[: a.limit] if a.limit else instances
-    out = Path(a.out) / f"{slug(a.model)}__{slug(tag)}"
+    out = Path(a.out) / f"{slug(a.model)}__{slug(tag)}__{inst_path.stem}"   # one folder per model x config x split
     out.mkdir(parents=True, exist_ok=True)
     meta = {"model": a.model, "tag": tag, "instances": str(inst_path.resolve()), "split": inst_path.stem,
             "prompt_version": PROMPT_VERSION, "temperature": a.temperature, "reasoning_effort": a.reasoning_effort,
