@@ -49,6 +49,31 @@ def test_unstated_params_are_extraction_errors():
     assert any(x.code == "unstated_param" for x in validate(r, src).extraction_errors)
 
 
+def test_heat_level_from_the_pans_heat_step_is_stated():
+    from recipe_ir.adapters import from_text
+    text = ("Title\n\nIngredients\n- scallops\n- oil\n\nInstructions\n1. Heat oil in a skillet over high heat until smoking. "
+            + "Pat the scallops dry and season them well on both sides with plenty of salt and pepper. " * 4
+            + "Cook scallops until browned.\n")
+    r = Recipe.model_validate({"title": "Title", "ingredients": [
+        {"id": i, "name": i, "quantity_raw": None, "needs_cooking": i == "scallops", "optional": False,
+         "evidence": {"quote": i, "prov": "stated", "reason": None, "implied_by": None}} for i in ("scallops", "oil")],
+        "containers": [{"id": "skillet", "type": "skillet", "evidence": {"quote": "skillet", "prov": "stated", "reason": None, "implied_by": None}}],
+        "steps": [
+            {"id": "s1", "verb": "heat", "verb_raw": None, "style": None, "inputs": [
+                {"ref": "skillet", "mode": "require", "fraction": None, "fraction_raw": None, "required_state": []}],
+             "output": None, "container": None, "params": {"temp_c": None, "heat": "high", "duration_s": None, "unresolved": None},
+             "until": None, "optional": False, "evidence": {"quote": "over high heat", "prov": "stated", "reason": None, "implied_by": None}},
+            {"id": "s2", "verb": "cook", "verb_raw": None, "style": "sear", "inputs": [
+                {"ref": "scallops", "mode": "consume", "fraction": 1.0, "fraction_raw": None, "required_state": []},
+                {"ref": "skillet", "mode": "require", "fraction": None, "fraction_raw": None, "required_state": []}],
+             "output": "scallops_cooked", "container": "skillet",
+             "params": {"temp_c": None, "heat": "high", "duration_s": None, "unresolved": None},
+             "until": None, "optional": False, "evidence": {"quote": "Cook scallops until browned", "prov": "stated", "reason": None, "implied_by": None}}],
+        "choices": [], "rules": [], "final_items": ["scallops_cooked"], "ambiguities": []})
+    v = validate(r, from_text(text))
+    assert not [x for x in v.extraction_errors if x.code == "unstated_param"]
+
+
 def test_stated_params_pass():
     from recipe_ir.checks import _duration_ok, _temp_ok
     assert _temp_ok(190.6, "Preheat the oven to 375°F.") and _temp_ok(200, "bake at 200 C") and not _temp_ok(220, "375°F")

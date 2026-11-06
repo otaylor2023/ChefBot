@@ -86,12 +86,19 @@ def _temp_ok(temp_c: float, text: str) -> bool:
 
 def check_params(recipe: Recipe, source: SourceDocument) -> list[Violation]:
     """Rule 3 of the prompt, enforced: a heat level, temperature or duration must be written in the source near the
-    step (the step's quote +-250 chars; the whole text for a step without a quote). Run after check_evidence."""
+    step (the step's quote +-250 chars; the whole text for a step without a quote). A heat level may also come from
+    the heat step that heated a container this step requires. Run after check_evidence."""
     text, out = source.text, []
+    heated_by: dict[str, str] = {}          # container -> text window of the heat step that last heated it
+    has = lambda value, win: re.search(r"\b" + re.escape(value.strip()).replace(r"\-", "[- ]?") + r"\b", win, re.I)
     for st in recipe.steps:
         win = _window(text, st.evidence.span)
         p = st.params
-        if p.heat and not re.search(r"\b" + re.escape(p.heat.strip()).replace(r"\-", "[- ]?") + r"\b", win, re.I):
+        if st.verb in ("heat", "preheat"):
+            heated_by.update({i.ref: win for i in st.inputs if i.mode == "require"})
+        # a heat level on a cook step may come from the step that heated its pan ("over high heat" 3 sentences up)
+        pan_wins = [heated_by[i.ref] for i in st.inputs if i.mode == "require" and i.ref in heated_by]
+        if p.heat and not has(p.heat, win) and not any(has(p.heat, w) for w in pan_wins):
             out.append(Violation("unstated_param", st.id, f"heat={p.heat!r} is not in the source near this step; "
                                  "leave it null and say what is missing in params.unresolved"))
         if p.temp_c is not None and not _temp_ok(p.temp_c, win):
