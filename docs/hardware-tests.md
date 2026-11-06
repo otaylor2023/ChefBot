@@ -617,3 +617,18 @@ Every turn the short way (asked = taken). No link stalls today (robot on SRC; la
 
 **Limitations.** Arm locked (not the READY pose). Map bounds still provisional (HT-6d). One session, one floor state.
 HT-6b (mocap loss mid-move) not yet run: needs the body unticked in Motive.
+
+---
+
+## HT-8: the kitchen (2026-11-05 13:00–15:50; robot ~/chefbot_speedexp e42fe35 for base.sh, laptop / ~/chefbot_nav for real_nav)
+Map `maps/src_kitchen` from Motive bodies (island 26, L leg 1 + stove 27, L leg 2 + fridge 28, far counter 29, test
+counter 25), Jack's no-go and fridge-gap heading rule; procedure in [kitchen-runbook.md](kitchen-runbook.md).
+- Jack's gamepad drive: plate 8–10 mm from island and stove counter without contact (marker edges good to ~1 cm).
+- Island / stove parks at 0.38 m (teleop): 8/8 + 8/8; alternating at exp50: 10/10 (0.42 m), 10/10 (0.46 m).
+- Two correct guard stops: the locked arm (0.68 m) swept into the no-go / fridge aisle mid 180° turn.
+- `--hold`: same 10 parks 74 s vs 99 s; settle 9 vs 34 s; reversals 11 vs 165; final ≤ 5.8 mm / 1.3°.
+- Around the island: back-off-and-turn 8/8 (228 s); clearance paths + turns where there is room: random A to B 10/10
+  (round-the-island trips 13.4–15.8 s, short 1.4–5.2 s).
+- Drive loop on the robot (no Wi-Fi in the loop): 60/60 (r2_work), then data passes p1 20/20, p2 20/20, p3 30/30.
+- Holds from the Mac's Tailscale link (RTT spikes to 474 ms) and brief mocap dropouts: safe stops, now retried.
+Limitations: arm locked (last joint readings); walls west/north provisional; pole calibration stale (re-angled).

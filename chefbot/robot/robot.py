@@ -41,7 +41,7 @@ from chefbot.robot.nav.base_controller import BaseController
 from chefbot.robot.nav.goal import Reachability, select_standoff, snap_to_free, standoff_candidates
 from chefbot.robot.nav.footprint import FootprintSpace
 from chefbot.robot.nav.grid import OccupancyGrid
-from chefbot.robot.nav.heading_plan import escape_start, headings, plan_at_headings, subdivide
+from chefbot.robot.nav.heading_plan import PathStyle, escape_start, headings, plan_at_headings, subdivide
 from chefbot.robot.safety import BaseGuard, base_at_rest, require_base_at_rest, tuck_arm_for_driving
 from chefbot.robot.skills.common import ArmStack
 from chefbot.robot.skills.pick import run_pick
@@ -123,6 +123,36 @@ class Robot(RobotAPI):
         """approach_m > 0: a square finish, the last approach_m straight in along the goal's heading (a station facing
         a counter), after a stop at its start."""
         self._motion.start(lambda preempt: self._run_go_to_pose(goal, preempt, approach_m))
+
+    def go_through(self, via: list[Pose2D], goal: Pose2D) -> None:
+        """Through the `via` poses (each at its own heading) to `goal` as one smooth drive: each stretch planned as
+        go_to_pose plans (clear for the footprint at the headings along it), the stretches joined into one path the
+        follower rounds the corners of, with no stop at the via poses."""
+        self._motion.start(lambda preempt: self._run_go_through(list(via), goal, preempt))
+
+    def _run_go_through(self, via: list[Pose2D], goal: Pose2D, preempt: threading.Event) -> MotionResult:
+        lost = self._loc.why_not_live(self._env.get_state())
+        if lost is not None:
+            return self._result(MotionStatus.NOT_LOCALIZED, lost)
+        pose = self.get_base_pose()
+        body, plan = self._space, self._space.with_margin(self._cfg.safety_margin)
+        if not body.is_free(pose.x, pose.y, pose.yaw):
+            return self._result(MotionStatus.NO_PATH, "base is in collision on the map")
+        begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
+        if begin is None:
+            return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
+        path, start = [], pose
+        for k, target in enumerate(via + [goal]):
+            points, why = plan_at_headings(plan, body, start, begin, target, target.yaw, style=self._style())
+            if points is None:
+                return self._result(MotionStatus.NO_PATH, f"stretch {k + 1} of {len(via) + 1}: {why}")
+            stretch = headings(start, subdivide(points, 1.0), target.yaw, self._style(), body)
+            path += stretch if not path else stretch[1:]
+            start, begin = target, (target.x, target.y)
+        path_m = sum(math.dist((a.x, a.y), (b.x, b.y)) for a, b in zip(path, path[1:]))
+        result = self._drive(path, preempt)
+        result.data.update(path=[(p.x, p.y) for p in path], path_m=path_m)
+        return result
 
     def align_to_point(self, target: np.ndarray) -> None:
         target = np.asarray(target, dtype=float).reshape(3)
@@ -275,11 +305,20 @@ class Robot(RobotAPI):
         begin = escape_start(plan.at(pose.yaw), body.at(pose.yaw), (pose.x, pose.y))
         if begin is None:
             return self._result(MotionStatus.NO_PATH, "base is inside the margin with no clear way out")
-        points, why = plan_at_headings(plan, body, pose, begin, pre, goal.yaw)
+        points, why = None, None
+        last = getattr(self, "_last_plan", None)
+        if last is not None and approach_m == 0:  # choose_stance just planned this: reuse it if the base hasn't moved
+            (sx, sy, syaw), (gx, gy, gyaw), lbegin, lpoints = last
+            if math.hypot(pose.x - sx, pose.y - sy) < 0.02 and abs(wrap_angle(pose.yaw - syaw)) < math.radians(1) \
+                    and math.hypot(goal.x - gx, goal.y - gy) < 1e-6 and abs(wrap_angle(goal.yaw - gyaw)) < 1e-6:
+                points = lpoints
+        self._last_plan = None
+        if points is None:
+            points, why = plan_at_headings(plan, body, pose, begin, pre, goal.yaw, style=self._style())
         if points is None:
             blocking = self._doors_in_the_way(lambda planner: _has_path(planner, pose, goal))
             return self._result(MotionStatus.NO_PATH, why + blocking)
-        path = headings(pose, subdivide(points, 1.0), goal.yaw)
+        path = headings(pose, subdivide(points, 1.0), goal.yaw, self._style(), body)
         if self._tuck_arm:
             # Interlock: the arm is tucked (carrying, if it holds something) before the base moves.
             tucked = tuck_arm_for_driving(self._arm.arm, self._cfg, self._held, preempt)
@@ -313,6 +352,7 @@ class Robot(RobotAPI):
         settled_since: float | None = None
         best = math.inf
         guard.begin(env.get_state())
+        hold = None  # cfg.arrive_hold: the odometry pose held once inside the tolerances
         try:
             while True:
                 if preempt.is_set():
@@ -342,6 +382,24 @@ class Robot(RobotAPI):
                     break
                 speed = math.hypot(*state.base_velocity[:2])
                 still = cfg.arrive_still_mps is None or speed < cfg.arrive_still_mps
+                inside = controller.at_goal(pose)
+                if cfg.arrive_hold and (inside or hold is not None):
+                    if hold is None:  # first tick inside the tolerances: the goal frozen in odometry, never re-tied
+                        hold = self._loc.to_odom(goal)
+                    if still:
+                        settled_since = elapsed if settled_since is None else settled_since
+                        if elapsed - settled_since >= cfg.arrive_settle_s:
+                            status, message = MotionStatus.SUCCESS, "reached the goal (held inside the tolerances)"
+                            break
+                    else:
+                        settled_since = None
+                    if elapsed > timeout:
+                        status, message = MotionStatus.TIMEOUT, f"motion timed out after {timeout:.0f} s"
+                        break
+                    self._log(leg, "hold", elapsed, state, pose, goal)
+                    env.set_base_target(hold, (0.05, 0.05, cfg.max_ang_vel))
+                    env.wait_for_next_tick(dt)
+                    continue
                 if controller.at_goal(pose) and still:
                     settled_since = elapsed if settled_since is None else settled_since
                     if elapsed - settled_since >= cfg.arrive_settle_s:
@@ -426,13 +484,28 @@ class Robot(RobotAPI):
         ranked = sorted((costs[cell], i) for i, c in enumerate(clear) if (cell := planner.grid.world_to_cell(c.x, c.y)) in costs)
         for _, i in ranked:
             c = clear[i]
-            if plan_at_headings(plan, body, pose, begin, c, c.yaw)[0] is not None:
+            found = plan_at_headings(plan, body, pose, begin, c, c.yaw, style=self._style())[0]
+            if found is not None:
+                self._last_plan = ((pose.x, pose.y, pose.yaw), (c.x, c.y, c.yaw), begin, found)
                 return c, ""
         return None, "no stance reachable from here"
 
     def _build_space(self) -> FootprintSpace:
         grid = self._grid_with(list(self._extra_obstacles.values()))
-        return FootprintSpace.by_height(grid, self._footprint_below)
+        space = FootprintSpace.by_height(grid, self._footprint_below)
+        space.heading_zones = list(getattr(self, "heading_zones", []))
+        return space
+
+    def _style(self) -> PathStyle | None:
+        c = self._cfg
+        if c.path_clearance_m <= 0 and not c.turn_in_room:
+            return None
+        return PathStyle(clearance_m=c.path_clearance_m, turn_in_room=c.turn_in_room, need_m=0.369 + c.safety_margin)
+
+    def set_heading_zones(self, zones) -> None:
+        """Where the base may only face some ways: [(cells grid, [(yaw rad, tolerance rad), ...])] (FootprintSpace)."""
+        self.heading_zones = list(zones)
+        self._space = self._build_space()
 
     # -- Arm skills (run on the motion thread) --------------------------------
 

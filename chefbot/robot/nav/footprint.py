@@ -37,6 +37,10 @@ class FootprintSpace:
         self.n = max(1, round(360.0 / step_deg))
         self.half = math.pi / self.n  # half a band (rad)
         self._slices: dict[int, OccupancyGrid] = {}
+        # Heading zones: [(cells, [(yaw, tolerance), ...])]: where `cells` (a grid of the base centre's positions) is
+        # occupied, the base may only be at headings within `tolerance` of one of the yaws (rad); a slice whose band
+        # is not wholly inside one of them has the zone blocked (planning and the drive's guard both read slices).
+        self.heading_zones: list = []
 
     @classmethod
     def layered(cls, layers, margin: float = 0.0, step_deg: float = 2.0, centre_limit=None) -> "FootprintSpace":
@@ -54,7 +58,23 @@ class FootprintSpace:
         return cls.layered([(grid.only_top(t), footprint_below(t)) for t in tops], margin, step_deg, centre_limit)
 
     def with_margin(self, margin: float) -> "FootprintSpace":
-        return FootprintSpace(self.grid, None, margin, 360.0 / self.n, self.layers, self.centre_limit)
+        """The same space grown by `margin` (kept, so its slices are made once, not on every plan)."""
+        cache = self.__dict__.setdefault("_with_margin", {})
+        key = (float(margin), id(self.heading_zones))
+        if key not in cache:
+            space = FootprintSpace(self.grid, None, margin, 360.0 / self.n, self.layers, self.centre_limit)
+            space.heading_zones = self.heading_zones
+            cache[key] = space
+        return cache[key]
+
+    def without_heading_zones(self) -> "FootprintSpace":
+        """The same space with no heading zones (kept)."""
+        if "_no_zones" not in self.__dict__:
+            self._no_zones = FootprintSpace(self.grid, None, self.margin, 360.0 / self.n, self.layers, self.centre_limit)
+        return self._no_zones
+
+    def _heading_allowed(self, centre: float, allowed) -> bool:
+        return any(abs(wrap_angle(centre - yaw)) + self.half <= tol for yaw, tol in allowed)
 
     @property
     def radius(self) -> float:
@@ -74,6 +94,9 @@ class FootprintSpace:
                 occ |= _grow(g, fp, centre, self.half, self.margin)
             if self.centre_limit is not None:
                 occ |= self.centre_limit.occupied
+            for cells, allowed in self.heading_zones:
+                if not self._heading_allowed(centre, allowed):
+                    occ |= cells.occupied
             self._slices[b] = OccupancyGrid(occ, self.grid.resolution, self.grid.origin)
         return self._slices[b]
 

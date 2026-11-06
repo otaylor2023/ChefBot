@@ -22,8 +22,11 @@ class NoPath(Exception):
 
 
 class AStarPlanner:
-    def __init__(self, grid: OccupancyGrid):
+    def __init__(self, grid: OccupancyGrid, penalty=None):
+        """`penalty` (optional, the grid's shape, >= 0): a step into a cell costs (1 + penalty) times its length, so
+        paths keep away from where it is high (near obstacles); shortcuts never raise a path's worst penalty."""
         self.grid = grid
+        self.penalty = penalty
 
     def _neighbors(self, cell: Cell):
         row, col = cell
@@ -62,7 +65,7 @@ class AStarPlanner:
                 continue
             closed.add(cell)
             for nxt, step in self._neighbors(cell):
-                new_cost = cost[cell] + step
+                new_cost = cost[cell] + step * (1.0 + (self.penalty[nxt] if self.penalty is not None else 0.0))
                 if new_cost < cost.get(nxt, math.inf):
                     cost[nxt] = new_cost
                     parent[nxt] = cell
@@ -79,17 +82,37 @@ class AStarPlanner:
             points = [start, goal]
         return self._shortcut(points)
 
+    def _cost_along(self, a: Point, b: Point) -> float:
+        """A segment's cost as A* counts it: its length times (1 + the penalty), summed along it."""
+        length = math.dist(a, b)
+        n = max(2, int(length / self.grid.resolution) + 1)
+        total = 0.0
+        for k in range(n):
+            t = (k + 0.5) / n
+            cell = self.grid.world_to_cell(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+            total += (1.0 + (float(self.penalty[cell]) if self.grid.in_bounds(cell) else 0.0)) * length / n
+        return total
+
     def _shortcut(self, points: list[Point]) -> list[Point]:
-        """Drop waypoints wherever a straight line of sight exists."""
+        """Drop waypoints wherever a straight line of sight exists (with a penalty: and the line costs no more than the
+        path it replaces, as A* counts cost)."""
         out = [points[0]]
         i = 0
         while i < len(points) - 1:
             j = len(points) - 1
-            while j > i + 1 and not self.grid.segment_free(points[i], points[j]):
+            while j > i + 1 and not self._can_shortcut(points, i, j):
                 j -= 1
             out.append(points[j])
             i = j
         return out
+
+    def _can_shortcut(self, points: list[Point], i: int, j: int) -> bool:
+        if not self.grid.segment_free(points[i], points[j]):
+            return False
+        if self.penalty is None:
+            return True
+        replaced = sum(self._cost_along(points[k], points[k + 1]) for k in range(i, j))
+        return self._cost_along(points[i], points[j]) <= replaced + 1e-9
 
     def plan(self, start: Pose2D, goal: Pose2D) -> list[Pose2D]:
         return with_yaw(self.plan_xy((start.x, start.y), (goal.x, goal.y)), start.yaw, goal.yaw)

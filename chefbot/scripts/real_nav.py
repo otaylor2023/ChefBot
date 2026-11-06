@@ -245,7 +245,8 @@ def fence_cells(fence: Fence, grid, margin: float = 0.05):
 def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
                yaw_tol_deg: float = 3.0, corridor: float = 0.15, margin: float = 0.10, arm: str = "auto",
                settle_s: float = 0.5, still_mps: float | None = None, lookahead: float = 0.12,
-               timeout_s: float | None = None, centre_limit=None, footprint_below=None, stop_model="robot", accel=None):  # fmt: skip
+               timeout_s: float | None = None, centre_limit=None, footprint_below=None, stop_model="robot", accel=None,
+               arrive_hold: bool = False, path_clearance: float = 0.0, turn_in_room: bool = False):  # fmt: skip
     """The robot layer on the real robot: Robot(RealEnv) on `grid` with the robot's footprint (robot_footprints), its
     measured stop and acceleration as the onboard server reports them (stop_model="robot"; None: none), the run's
     speeds and tolerances. The base drives with the arm as it is (tuck_arm=False: real_nav never moves the arm; the
@@ -262,7 +263,8 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
     cfg = replace(embodiments.load("tidybot_fr3").config, max_lin_vel=float(speed), max_ang_vel=float(yaw_speed),
                   pos_tolerance=float(tol), yaw_tolerance=math.radians(yaw_tol_deg), deviation_threshold=float(corridor),
                   safety_margin=float(margin), snap_radius=0.0, arrive_settle_s=float(settle_s), arrive_still_mps=still_mps,
-                  lookahead=float(lookahead), control_rate=20.0, motion_timeout_s=float(timeout_s or 3600.0))  # fmt: skip
+                  lookahead=float(lookahead), control_rate=20.0, motion_timeout_s=float(timeout_s or 3600.0),
+                  arrive_hold=bool(arrive_hold), path_clearance_m=float(path_clearance), turn_in_room=bool(turn_in_room))  # fmt: skip
     if footprint_below is None:
         footprint_below = robot_footprints(env.raw_state(), arm)[0]
     limits = env.server_limits
@@ -276,7 +278,7 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
 
 
 def drive(robot, env: RealEnv, goal: Pose2D, *, approach_m: float = 0.0, confirm=input, log_dir: Path | None = None,
-          log_path: Path | None = None, quiet: bool = False, preflight=None) -> dict:  # fmt: skip
+          log_path: Path | None = None, quiet: bool = False, preflight=None, via=None) -> dict:  # fmt: skip
     """robot.go_to_pose(goal) on the real robot, with the checks before it, Enter first (`confirm`), Ctrl-C to stop,
     every tick logged (log_dir/leg00.jsonl.. or `log_path`), and a result dict: ok, reason, moved, final errors (by
     mocap), path, path_m, the legs' reasons, and the move's summary (summarize_move). `preflight`: a reason not to move,
@@ -313,7 +315,10 @@ def drive(robot, env: RealEnv, goal: Pose2D, *, approach_m: float = 0.0, confirm
                   f"off path {row.get('off_line') or 0.0:5.3f} m", end="", flush=True)  # fmt: skip
 
     robot.drive_log = log
-    robot.go_to_pose(goal, approach_m)
+    if via:
+        robot.go_through(via, goal)  # one smooth drive through the via poses
+    else:
+        robot.go_to_pose(goal, approach_m)
     try:
         res = robot.wait()
     except KeyboardInterrupt:
@@ -379,11 +384,12 @@ def go(env: RealEnv, goal: Pose2D, *, speed: float = 0.1, yaw_speed: float = 0.3
 
 
 def go_planned(env: RealEnv, goal: Pose2D, grid, *, robot=None, margin: float = 0.10, confirm=input,
-               log_dir: Path | None = None, approach_m: float = 0.0, arm: str = "auto", **robot_args) -> dict:  # fmt: skip
-    """A* on `grid` to `goal` and the path driven: Robot(RealEnv).go_to_pose, its footprint kept `margin` clear of
-    the map at the heading the base will have along the path (the robot layer plans, drives and stops)."""
+               log_dir: Path | None = None, approach_m: float = 0.0, arm: str = "auto", via=None, **robot_args) -> dict:  # fmt: skip
+    """A* on `grid` to `goal` and the path driven: Robot(RealEnv).go_to_pose (or go_through `via`), its footprint kept
+    `margin` clear of the map at the heading the base will have along the path (the robot layer plans, drives and
+    stops)."""
     robot = robot or make_robot(env, grid, margin=margin, arm=arm, **robot_args)
-    return drive(robot, env, goal, approach_m=approach_m, confirm=confirm, log_dir=log_dir, quiet=True)
+    return drive(robot, env, goal, approach_m=approach_m, confirm=confirm, log_dir=log_dir, quiet=True, via=via)
 
 
 def counter_box(map_dir: Path, name: str | None = None) -> tuple:
@@ -398,18 +404,26 @@ def counter_box(map_dir: Path, name: str | None = None) -> tuple:
     raise SystemExit(f"no box obstacle {name or ''} in {map_dir}/spec.yaml")
 
 
-def random_targets(box, n: int, seed: int) -> list[tuple[float, float]]:
-    """Targets drawn as the pick task draws them: a side, a spot along it >= 0.35 m from its ends, 0.10-0.16 m in."""
+def random_targets(box, n: int, seed: int, sides=None, x_range=None, end_margin=None) -> list[tuple[float, float]]:
+    """Targets drawn as the pick task draws them: a side, a spot along it >= 0.35 m from its ends, 0.10-0.16 m in.
+    `sides`: only these (south / north / east / west), e.g. a counter against a wall reached from one side."""
     from chefbot.robot.nav.goal import PARK_END_MARGIN_M, TRAINED_INSET_M, counter_faces
 
     rng = np.random.default_rng(seed)
-    faces = counter_faces(*box[:3])
-    out = []
-    for _ in range(n):
+    faces = [f for f in counter_faces(*box[:3]) if not sides or f["name"] in sides]
+    if not faces:
+        raise SystemExit(f"no counter side among {sides}")
+    out, tries = [], 0
+    while len(out) < n:  # `x_range` (world x min, max): only targets in this stretch, e.g. one section of a kitchen
+        tries += 1
+        if tries > 1000 * max(n, 1):
+            raise SystemExit(f"no targets on {sides or 'any side'} within x {x_range}")
         f = faces[int(rng.integers(len(faces)))]
-        along = rng.uniform(-1, 1) * (f["half_along"] - PARK_END_MARGIN_M)
+        along = rng.uniform(-1, 1) * (f["half_along"] - (PARK_END_MARGIN_M if end_margin is None else end_margin))
         inset = rng.uniform(*TRAINED_INSET_M)
         p = np.asarray(box[0], dtype=float) + f["t"] * along + f["n"] * (f["half_n"] - inset)
+        if x_range and not (x_range[0] <= p[0] <= x_range[1]):
+            continue
         out.append((round(float(p[0]), 3), round(float(p[1]), 3)))
     return out
 
@@ -421,13 +435,14 @@ class _ByRule:
         return True
 
 
-def choose_stance(robot, box, target, out_m, approach: float):
+def choose_stance(robot, box, target, out_m, approach: float, end_margin=None):
     """The stance for `target` by the start rule (robot/nav/goal.py counter_park_candidates) that the robot layer finds
     clear for the whole footprint at its own heading, with its straight approach clear, and cheapest to reach from
     where the base is (Robot.choose_stance): (pose, info) or (None, reason)."""
     from chefbot.robot.nav.goal import counter_park_candidates
 
-    cands = counter_park_candidates(*box[:3], target, out_m=tuple(out_m or (0.45, 0.48)))
+    kw = {} if end_margin is None else {"end_margin": end_margin}
+    cands = counter_park_candidates(*box[:3], target, out_m=tuple(out_m or (0.45, 0.48)), **kw)
     if not cands:
         return None, "the target is not 0-0.25 m in from a side and >= 0.35 m from its ends: no stance by the rule"
     body = robot._space
@@ -452,7 +467,27 @@ def park(env: RealEnv, args) -> list[dict]:
     from chefbot.robot.nav.goal import park_report
 
     box = counter_box(args.map, args.counter)
-    targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed)
+    targets = [tuple(t) for t in args.target or []] + random_targets(box, args.random, args.seed, args.sides, args.x_range, args.end_margin)
+    boxes = [box] * len(targets)
+    if args.mix:  # random places across several counter sides: each target on a randomly chosen one
+        rng = np.random.default_rng(args.seed + 7)
+        pairs = [m.split(":") for m in args.mix]
+        mixed, mixed_boxes = [], []
+        for k in range(args.random):
+            name, side = pairs[int(rng.integers(len(pairs)))]
+            b = counter_box(args.map, name)
+            mixed += random_targets(b, 1, args.seed * 100 + k, [side], args.x_range, args.end_margin)
+            mixed_boxes.append(b)
+        targets, boxes = mixed, mixed_boxes
+    if args.alternate:  # back and forth between two counters: A, B, A, B ... (B's targets from its own side(s))
+        box_b = counter_box(args.map, args.alternate[0])
+        tb = random_targets(box_b, args.random, args.seed + 1000, args.alternate[1:], args.x_range, args.end_margin)
+        ta = targets[len(targets) - args.random:]
+        mixed, mixed_boxes = [tuple(t) for t in args.target or []], [box] * len(args.target or [])
+        for a, b in zip(ta, tb):
+            mixed += [a, b]
+            mixed_boxes += [box, box_b]
+        targets, boxes = mixed, mixed_boxes
     if not targets:
         raise SystemExit("no targets: --target X Y and/or --random N")
     from chefbot.scripts.real_map import load as load_map
@@ -462,7 +497,8 @@ def park(env: RealEnv, args) -> list[dict]:
 
     stop_model = StopModel.from_limits(env.server_limits)  # refuses when the robot reports no measured stop
     accel = float(env.server_limits.get("base_max_accel_xy", 0.1))
-    robot = map_robot(env, args, grid, settle_s=0.2, still_mps=0.01)
+    robot = map_robot(env, args, grid, settle_s=0.2, still_mps=0.01, arrive_hold=args.hold,
+                      path_clearance=args.clearance, turn_in_room=args.turn_in_room)
     print(f"stop model: tau {stop_model.tau_s:.3f} s, brake {stop_model.brake_mps2:.2f} m/s^2 "
           f"({1000 * stop_model.distance(args.speed):.0f} mm from {args.speed:.3f} m/s); driver accel {accel} m/s^2")
     session = REPO / "runs" / "real_park" / f"{datetime.now():%Y%m%d_%H%M%S}"
@@ -470,9 +506,57 @@ def park(env: RealEnv, args) -> list[dict]:
     (session / "session.json").write_text(json.dumps({"targets": targets, "args": {k: (str(v) if isinstance(v, Path) else v)
                                                       for k, v in vars(args).items()}}, indent=2))  # fmt: skip
     results = []
+    route = None
+    if args.around:
+        import yaml
+
+        route = yaml.safe_load((Path(args.map) / "routes.yaml").read_text())["island_north_south"]
     for i, target in enumerate(targets):
-        pose, info = choose_stance(robot, box, target, args.out, args.approach)
+        box = boxes[i]
+        via = None
+        if route is not None:
+            here = env.localization().mocap_pose
+            side_now = "north" if here.y > box[0][1] else "south"
+            side_to = "north" if target[1] > box[0][1] else "south"
+            if side_now != side_to:  # one smooth drive through the gap's middle, the heading kept until after it
+                wps = route["north"] + route["gap"] + route["south"]
+                wps = wps if side_now == "north" else wps[::-1]
+                via = [Pose2D(wx, wy, here.yaw) for wx, wy in wps]
+        if via is not None:
+            from chefbot.robot.nav.goal import counter_park_candidates
+
+            plan_space = robot._space.with_margin(args.margin)
+            clear = [(p, inf) for p, inf in counter_park_candidates(*box[:3], target, out_m=tuple(args.out or (0.45, 0.48)))
+                     if plan_space.is_free(p.x, p.y, p.yaw)]  # fmt: skip
+            pose, info = clear[0] if clear else (None, "no stance clear for the footprint")
+            if pose is not None:
+                print(f"[{i + 1}/{len(targets)}] around the island, {side_now} to {side_to}, through {len(via)} points without stopping")
+        else:
+            pose, info = choose_stance(robot, box, target, args.out, args.approach, args.end_margin)
         head = f"[{i + 1}/{len(targets)}] target ({target[0]:.3f}, {target[1]:.3f})"
+        if pose is None and info == "no stance reachable from here" and not args.plan_only:
+            # A path that needs a turn where the base may not turn (a heading zone, a tight aisle): turn in place to
+            # the stance's heading first, where the base is (if it may), then plan again.
+            from chefbot.robot.nav.goal import counter_park_candidates
+
+            cands = counter_park_candidates(*box[:3], target, out_m=tuple(args.out or (0.45, 0.48)))
+            here = env.localization().mocap_pose
+            if cands and here is not None:
+                yaw = cands[0][0].yaw
+                # Back away from what the base faces (into the aisle) and turn there; else turn where it is.
+                for back in (0.35, 0.0):
+                    turn = Pose2D(here.x - back * math.cos(here.yaw), here.y - back * math.sin(here.yaw), yaw)
+                    print(f"{head}: no path with the turn on the way; {'backing ' + format(back, '.2f') + ' m and ' if back else ''}"
+                          f"turning to {math.degrees(yaw):.0f} deg first")
+                    tlog = session / f"{i:02d}_turn_first_{int(back * 100)}"
+                    tlog.mkdir(parents=True, exist_ok=True)
+                    rt = go_planned(env, turn, grid, robot=robot, log_dir=tlog, confirm=lambda _: None)
+                    print(f"    turn: {rt['reason']}")
+                    if rt.get("ok"):
+                        pose, info = choose_stance(robot, box, target, args.out, args.approach, args.end_margin)
+                        break
+                    if rt.get("moved"):
+                        break  # it moved and stopped: don't try another
         if pose is None:
             print(f"{head}: skipped, {info}")  # nothing moved: go on to the next target
             results.append({"target": target, "ok": False, "reason": info, "moved": False, "skipped": True})
@@ -486,7 +570,21 @@ def park(env: RealEnv, args) -> list[dict]:
         log_dir = session / f"{i:02d}_{info['side']}"
         log_dir.mkdir(parents=True, exist_ok=True)  # go_planned may refuse before it makes it
         t0 = time.monotonic()
-        r = go_planned(env, pose, grid, robot=robot, log_dir=log_dir, confirm=lambda _: None, approach_m=args.approach)
+        r = go_planned(env, pose, grid, robot=robot, log_dir=log_dir, confirm=lambda _: None, approach_m=args.approach, via=via)
+        for retry in range(2):  # a link stall the onboard server held the robot for: wait for the link, the same target again
+            if r.get("ok") or not any(k in str(r.get("reason")) for k in ("no word from the client", "lost the onboard server", "held the robot", "lost the live mocap pose")):
+                break
+            print(f"    stopped by a link or mocap dropout: retrying the same target ({retry + 1}/2)")
+            t_wait = time.monotonic()
+            while not env.localization().live and time.monotonic() - t_wait < 10.0:
+                time.sleep(0.1)
+            time.sleep(1.0)
+            pose2, info2 = choose_stance(robot, box, target, args.out, args.approach, args.end_margin) if via is None else (pose, info)
+            if pose2 is None:
+                break
+            pose, info = pose2, info2
+            r = go_planned(env, pose, grid, robot=robot, log_dir=session / f"{i:02d}_{info['side']}_retry{retry + 1}",
+                           confirm=lambda _: None, approach_m=args.approach, via=via)  # fmt: skip
         elapsed = time.monotonic() - t0
         end = env.localization().mocap_pose
         asked = math.degrees(wrap(pose.yaw - start.yaw))
@@ -516,13 +614,43 @@ def park(env: RealEnv, args) -> list[dict]:
     return results
 
 
+def heading_zones(map_dir: Path, grid) -> list:
+    """The map's heading zones (map_dir/heading_zones.yaml, optional): [(cells grid, [(yaw rad, tolerance rad)])],
+    the cells the base centre's positions inside each zone's box on `grid`."""
+    import yaml
+
+    from chefbot.robot.nav.grid import OccupancyGrid
+
+    path = Path(map_dir) / "heading_zones.yaml"
+    if not path.exists():
+        return []
+    out = []
+    h, w = grid.shape
+    ys, xs = np.mgrid[0:h, 0:w]
+    ox, oy = grid.origin[0], grid.origin[1]
+    wx, wy = ox + (xs + 0.5) * grid.resolution, oy + (ys + 0.5) * grid.resolution
+    for z in yaml.safe_load(path.read_text()).get("zones") or []:
+        (cx, cy), (sx, sy), t = z["box"]["center"], z["box"]["size"], math.radians(z["box"].get("yaw_deg", 0.0))
+        a = (wx - cx) * math.cos(t) + (wy - cy) * math.sin(t)
+        b = -(wx - cx) * math.sin(t) + (wy - cy) * math.cos(t)
+        cells = OccupancyGrid((np.abs(a) <= sx / 2) & (np.abs(b) <= sy / 2), grid.resolution, grid.origin)
+        tol = math.radians(float(z.get("tolerance_deg", 20.0)))
+        out.append((cells, [(math.radians(float(y)), tol) for y in z["allowed_yaw_deg"]]))
+        print(f"heading zone {z.get('name', '?')}: facing {z['allowed_yaw_deg']} deg (+-{z.get('tolerance_deg', 20.0)}) only")
+    return out
+
+
 def map_robot(env: RealEnv, args, grid, **kw):
-    """make_robot for --map, with the run's speeds and tolerances, and its footprint said."""
+    """make_robot for --map, with the run's speeds and tolerances, its footprint said, and the map's heading zones."""
     _, info = robot_footprints(env.raw_state(), args.arm)
     print(f"footprint: plate {info['plate']['x']} x {info['plate']['y']} m about the base centre ({info['note']}); "
           f"reach {info['radius_m']:.2f} m, {info['reach_ahead_m']:.2f} m ahead")  # fmt: skip
-    return make_robot(env, grid, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol, yaw_tol_deg=args.yaw_tol,
-                      corridor=args.corridor, margin=args.margin, arm=args.arm, timeout_s=args.timeout, **kw)  # fmt: skip
+    robot = make_robot(env, grid, speed=args.speed, yaw_speed=args.yaw_speed, tol=args.tol, yaw_tol_deg=args.yaw_tol,
+                       corridor=args.corridor, margin=args.margin, arm=args.arm, timeout_s=args.timeout, **kw)  # fmt: skip
+    zones = heading_zones(args.map, grid) if getattr(args, "map", None) else []
+    if zones:
+        robot.set_heading_zones(zones)
+    return robot
 
 
 def add_go_args(g) -> None:
@@ -561,6 +689,23 @@ def main() -> None:
     k.add_argument("--target", type=float, nargs=2, action="append", metavar=("X", "Y"), help="a target on the counter (world)")
     k.add_argument("--random", type=int, default=0, help="this many targets drawn by the start rule, one after another")
     k.add_argument("--seed", type=int, default=0)
+    k.add_argument("--sides", nargs="+", choices=("south", "north", "east", "west"), default=None,
+                   help="draw --random targets on these counter sides only (a counter against a wall)")
+    k.add_argument("--clearance", type=float, default=0.0,
+                   help="m: plan paths that keep this far from obstacles where they can (down the middle of aisles)")
+    k.add_argument("--turn-in-room", action="store_true", help="turn where the path has room, not evenly along it")
+    k.add_argument("--mix", nargs="+", default=None, metavar="COUNTER:SIDE",
+                   help="random targets, each on a randomly chosen COUNTER:SIDE of these (random A to B across the kitchen)")
+    k.add_argument("--around", action="store_true",
+                   help="between the island's sides, go round by the map's routes.yaml waypoints (keeping the heading)")
+    k.add_argument("--hold", action="store_true",
+                   help="once inside --tol / --yaw-tol, hold the base where it is (no re-aiming for millimetres)")
+    k.add_argument("--alternate", nargs="+", default=None, metavar=("COUNTER", "SIDE"),
+                   help="alternate --random targets with as many on this second counter (its name, then its side(s))")
+    k.add_argument("--end-margin", type=float, default=None,
+                   help="m: targets (and stances) this close to a counter side's ends (default: the pick rule's 0.35)")
+    k.add_argument("--x-range", nargs=2, type=float, default=None, metavar=("XMIN", "XMAX"),
+                   help="draw --random targets only within this world-x stretch (one section of a kitchen)")
     k.add_argument("--counter", default=None, help="the counter's obstacle name in the map spec (default: the first box)")
     k.add_argument("--plan-only", action="store_true", help="choose and print the stances; nothing moves")
     k.add_argument("--out", type=float, nargs="+", default=None,

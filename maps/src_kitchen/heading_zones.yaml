@@ -1,0 +1,8 @@
+# Where the base may only face some ways (real_nav --map reads this; robot/nav/footprint.py heading zones).
+# Jack, 2026-11-05 14:20: in the U's east aisle (between the island's east end and L leg 2 / the fridge) the base only
+# faces along the aisle, so the arm never points at the fridge or leg 2. Yaws in the world frame (deg).
+zones:
+  - name: fridge-aisle-face-along
+    box: {center: [2.966, -2.700], size: [1.156, 3.345], yaw_deg: -2.96}
+    allowed_yaw_deg: [87.04, -92.96]
+    tolerance_deg: 20
