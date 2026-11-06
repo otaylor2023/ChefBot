@@ -1,7 +1,7 @@
-"""Robot-side snapshot grabber for data collection (scripts/real_collect.py drives it over ssh). Self-contained: run as a
+"""Robot-side snapshot grabber for data collection (run it over ssh; scripts/real_collect.py, which drove it, is gone: recording while driving, collect_stream.py, replaced it). Self-contained: run as a
 file with the robot's camera env (pyrealsense2, cv2, redis, numpy); imports nothing from chefbot.
 
-    python collect_grab.py OUT_DIR                 # then, on stdin, one command per line:
+    python chefbot/onboard/collect/collect_grab.py OUT_DIR                 # then, on stdin, one command per line:
         grab STEM                                  # every camera, full resolution, all streams; one JSON line back
         quit
 
@@ -30,19 +30,22 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pyrealsense2 as rs
+from serials import serials  # onboard/config.yaml's, next to this file
 
 CAMERAS = {  # name -> serial, the streams to try (in order), fps
-    "pole": {"serial": "049122252230", "plans": [
+    "pole": {"plans": [
         {"fps": 15, "streams": [("depth", 1280, 720), ("ir1", 1280, 720), ("ir2", 1280, 720), ("color", 1280, 800)]},
         {"fps": 15, "streams": [("depth", 1280, 720), ("ir1", 1280, 720), ("ir2", 1280, 720), ("color", 1280, 720)]},
         {"fps": 15, "streams": [("depth", 848, 480), ("ir1", 848, 480), ("ir2", 848, 480), ("color", 1280, 800)]},
     ], "imu": False},  # the D455 IMU gave no samples through this path (2026-11-05); the mount is rigid: tilt once, separately
-    "wrist": {"serial": "323622271565", "plans": [
+    "wrist": {"plans": [
         {"fps": 5, "streams": [("depth", 1280, 720), ("ir1", 1280, 720), ("color", 1280, 720)]},
         {"fps": 5, "streams": [("depth", 1280, 720), ("color", 1280, 720)]},
         {"fps": 15, "streams": [("depth", 848, 480), ("color", 848, 480)]},
     ], "imu": False},
 }
+for _name, _spec in CAMERAS.items():  # the serial from onboard/config.yaml cameras:
+    _spec["serial"] = serials()[_name]
 WARMUP_S = 1.2
 REDIS_PATTERNS = ("*::pos", "*::ori", "*::tracking_valid", "opensai::sensors::*", "hb1::current_pose",
                   "hb1::current_vel", "hb1::heartbeat")  # fmt: skip

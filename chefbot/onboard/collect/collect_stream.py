@@ -3,7 +3,7 @@ RealSenses and saves the frames taken while the base moves (A to B; --all: every
 sampled alongside on the same clock. Self-contained: run as a
 file with the robot's camera env (pyrealsense2, cv2, redis, numpy); imports nothing from chefbot.
 
-    python collect_stream.py OUT_DIR [--seconds 0] [--all] [--hz 3]   # SIGTERM / Ctrl-C stops it cleanly
+    python chefbot/onboard/collect/collect_stream.py OUT_DIR [--seconds 0] [--all] [--hz 3]   # SIGTERM / Ctrl-C stops it cleanly
     (--hz: frames written per second while moving, 0 = all 15)
 
 OUT_DIR/
@@ -33,11 +33,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pyrealsense2 as rs
+from serials import serials  # onboard/config.yaml's, next to this file
 
 CAMERAS = {
-    "pole": {"serial": "049122252230", "color": (1280, 800), "depth": (1280, 720), "fps": 15, "ir": [1, 2]},
-    "wrist": {"serial": "323622271565", "color": (640, 480), "depth": (640, 480), "fps": 15, "ir": [1]},  # USB 2.1 link (2026-11-05)
+    "pole": {"color": (1280, 800), "depth": (1280, 720), "fps": 15, "ir": [1, 2]},
+    "wrist": {"color": (640, 480), "depth": (640, 480), "fps": 15, "ir": [1]},  # USB 2.1 link (2026-11-05)
 }
+for _name, _spec in CAMERAS.items():  # the serial from onboard/config.yaml cameras:
+    _spec["serial"] = serials()[_name]
 BODIES = ["chefbot-tidy", "Chef-botcounter-top", "kitchen_island_countertop", "1-corner-countertop",
           "2-corner-connected-1-and-fridge", "far-counter"]  # every Motive body we map with (2026-11-05)
 STATE_KEYS = [f"{b}::{k}" for b in BODIES for k in ("pos", "ori", "tracking_valid")] + [

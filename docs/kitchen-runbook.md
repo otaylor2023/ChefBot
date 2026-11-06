@@ -21,7 +21,7 @@ Each tree is a `git archive` of one commit into its own folder (the teammate's `
 | `~/chefbot_nav` | this branch (`kitchen-nav`) | `real_nav` run ON the robot, env `~/miniforge3/envs/chefbot-movement` (has mujoco, mink, coal, ompl) |
 | `~/chefbot_movement` | PR #1 head | `base.sh` at main's 0.25 m/s cap |
 | `~/chefbot_speedexp` | branch `speed-exp` (0.5 m/s cap, profiles exp35 / exp50) | `base.sh` for the faster runs (experiment, not main) |
-| `~/chefbot_collect` | `collect_stream.py` (+ `collect_grab.py`) copied from `chefbot/onboard/` | the camera recorder, env `~/chefbot_calib/env` (pyrealsense2) |
+| `~/chefbot_collect` | the recordings (`data/`) | the recorder itself runs from the checkout, `chefbot/onboard/collect/` (its serials are `onboard/config.yaml`'s), env `~/chefbot_calib/env` (pyrealsense2) |
 
 Deploy: `git archive <commit> | ssh chefbot 'mkdir ~/X_new && tar -x -C ~/X_new'`, compare sha256 of every file with the
 local archive, then swap folders (keep the old one).
@@ -55,7 +55,7 @@ ssh chefbot 'cd ~/chefbot_nav && printf "\n" | PYTHONPATH=$PWD setsid nohup ~/mi
 
 ## 4. Record (cameras) during the drive
 ```
-ssh chefbot 'cd ~/chefbot_collect && (setsid nohup ~/chefbot_calib/env/bin/python collect_stream.py data/stream/NAME --hz 1 > data/stream_NAME.log 2>&1 < /dev/null & echo $! > /tmp/collect_stream.pid)'
+ssh chefbot 'cd ~/chefbot_collect && (setsid nohup ~/chefbot_calib/env/bin/python ~/ChefBot/chefbot/onboard/collect/collect_stream.py data/stream/NAME --hz 1 > data/stream_NAME.log 2>&1 < /dev/null & echo $! > /tmp/collect_stream.pid)'
 ... drive ...
 ssh chefbot 'kill -TERM $(cat /tmp/collect_stream.pid)'
 ```
