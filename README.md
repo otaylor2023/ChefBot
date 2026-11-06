@@ -240,7 +240,12 @@ section for each kind of tool offered (the agent's `prompts/`).
 the harness the agent runs in (`agent/harnesses/`: `plan_loop` is the loop above), the
 robot APIs it runs with, its prompts, the `tools:` it gets, its tools' `settings:` and
 its `loop:` settings. Today's agent is `kitchen_planner`, the default; `run_agent --agent
-<name>` picks another.
+<name>` picks another. It selects its skills with `skills: include:` patterns on their paths
+(`*/robotapi_v1`). A run is a **session** (`agents/session.py`): an agent, an env and one robot
+API (`--interface`, the agent's first by default). The session offers the selected skills that
+could run in that env and speak that API, and the listed tools that work with that API, and
+`start.json` records it. `plan_loop` runs robot-api-v1 sessions only: a chefbot-v1 skill is an
+episode on a host that resets the scene, and nothing yet keeps one scene across a run's skills.
 
 **Tools** that do not move the robot are defined one file each in `chefbot/tools/<group>/`
 (perception: detect, nearby, holding, get_pose; motion: wait, get_status, stop; plan:

@@ -1,6 +1,7 @@
 """Agents: one folder per agent (agent.yaml, prompts/), loaded by name. An agent names the harness it runs in
-(agent/harnesses), the robot APIs it runs with, its prompts, the tools it gets (chefbot/tools), its tools'
-settings and its loop's settings.
+(agent/harnesses), the robot APIs it runs with, its prompts, the skills it gets (chefbot/skills: `skills: include:` patterns), the tools
+it gets (chefbot/tools), its tools' settings and its loop's settings. A run is a session (agents/session.py): an
+agent, an env and one robot API.
 
     agent = agents.load("kitchen_planner")
     agent.harness.AgentSession.build(..., agent_config=agent.settings, prompts_dir=agent.prompts_dir,
@@ -13,11 +14,13 @@ Today's cooking agent is kitchen_planner (DEFAULT), the only one so far.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 from types import ModuleType
 
 import yaml
 
+from chefbot import skills as skillbook
 from chefbot import tools as toolbox
 from chefbot.agent import harnesses
 from chefbot.agent.config import AgentConfig, LoopConfig
@@ -25,7 +28,7 @@ from chefbot.interface import INTERFACES
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT = "kitchen_planner"
-KEYS = {"name", "harness", "interfaces", "prompts", "tools", "settings", "loop"}
+KEYS = {"name", "harness", "interfaces", "prompts", "skills", "tools", "settings", "loop"}
 
 
 def names() -> list[str]:
@@ -69,6 +72,14 @@ class Agent:
         return self.dir / self.manifest.get("prompts", "prompts")
 
     @property
+    def skill_patterns(self) -> tuple[str, ...]:
+        """Which registered skills it gets, as patterns on their paths (pick_up/chefbot_v30, */robotapi_v1)."""
+        return tuple((self.manifest.get("skills") or {}).get("include") or ())
+
+    def selects(self, skill_path: str) -> bool:
+        return any(fnmatch(skill_path, pattern) for pattern in self.skill_patterns)
+
+    @property
     def tools(self) -> tuple[str, ...]:
         return tuple(self.manifest.get("tools") or ())
 
@@ -91,6 +102,14 @@ class Agent:
         interfaces = m.get("interfaces") or []
         if not interfaces or set(interfaces) - set(INTERFACES):
             problems.append(f"interfaces must be some of {list(INTERFACES)}, not {interfaces!r}")
+        selection = m.get("skills") or {}
+        if not isinstance(selection, dict) or set(selection) - {"include"}:
+            problems.append(f"skills must be {{include: [patterns]}}, not {selection!r}")
+        else:
+            registered = skillbook.names()
+            for pattern in selection.get("include") or []:
+                if not any(fnmatch(path, pattern) for path in registered):
+                    problems.append(f"skills pattern {pattern!r} matches no registered skill")
         listed = m.get("tools") or []
         unknown_tools = [t for t in listed if t not in toolbox.names()]
         if unknown_tools:

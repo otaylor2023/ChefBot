@@ -6,6 +6,8 @@ name: kitchen_planner
 harness: plan_loop          # agent/harnesses/plan_loop: the loop it runs in
 interfaces: [robot-api-v1]  # the robot APIs it runs with (robot-api-v1: interface/robot_api.py)
 prompts: prompts            # system.md, plus a section per kind of tool offered (context.py PROMPT_SECTIONS)
+skills:                     # the skills it gets (chefbot/skills), of those that fit the session's env and interface
+  include: ["*/robotapi_v1"]  # the robot-moving tools: go_to, align, pick, ...
 tools:                      # the tools it gets from chefbot/tools (the ones that do not move the robot)
   - detect                  # perception
   - nearby

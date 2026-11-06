@@ -27,6 +27,7 @@ from chefbot.agent.loop.llm import OpenRouterClient
 from chefbot.agent.plan.model import Plan
 from chefbot.agent.tools.plan_tools import terminal_operator
 from chefbot.agent.world.map import WorldMap
+from chefbot.interface import INTERFACES
 from chefbot.scripts.view_run import load, report_html, summary
 
 REPO = Path(__file__).resolve().parents[2]
@@ -51,11 +52,14 @@ def run(
     video: bool = False,
     video_speed: int = 2,
     agent: str = agents.DEFAULT,
+    interface: str | None = None,
 ) -> dict:
+    from chefbot.agents.session import Session
     from chefbot.scripts.envs import ENVS
 
     agent_def = agents.load(agent)
     harness = agent_def.harness
+    run_session = Session.open(agent_def, env, interface)  # refused here, before the env is built
     config = config or agent_def.loop_config()
     world = ENVS[env](task_path, seed, noise)
     # A long task can raise its own run limits: `limits: {max_turns: 250}` in the task file.
@@ -76,11 +80,12 @@ def run(
         plan, world.robot, world.detector, world.world_map, world.clock, run_dir, judge, world.observer,
         config, agent_def.settings, operator=operator,
         tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
-        prompts_dir=agent_def.prompts_dir, agent_tools=agent_def.tools,
+        prompts_dir=agent_def.prompts_dir, agent_tools=run_session.tools, robot_skills=run_session.skills,
     )  # fmt: skip
     session.bus.add_safety(world.safety)
     session.log.start(
         task=world.name, task_file=str(task_path), seed=seed, agent={"name": agent_def.name, "harness": agent_def.harness_name},
+        session=run_session.describe(),
         reference_plan=plan.to_dict(), models={"agent": config.model, "judge": config.judge_model},
         tools=[s["function"]["name"] for s in session.registry.schemas],
         config=config.__dict__, git_commit=git_commit(REPO), **world.info,
@@ -168,6 +173,7 @@ def main() -> int:
     parser.add_argument("--task", type=Path, required=True)
     parser.add_argument("--agent", choices=agents.names(), default=agents.DEFAULT, help="the agent (chefbot/agents/<name>)")
     parser.add_argument("--env", choices=["symbolic", "robocasa"], default="symbolic")
+    parser.add_argument("--interface", choices=INTERFACES, help="the robot API of the session (default: the agent's first)")
     parser.add_argument("--video", action="store_true", help="record the run (robocasa): runs/<run>/video.mp4")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=REPO / "runs")
@@ -185,7 +191,7 @@ def main() -> int:
                                                  max_llm_cost_usd=args.max_llm_cost_usd)  # fmt: skip
     operator = terminal_operator if args.operator == "terminal" else (lambda reason, a=args.operator: a)
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
-                 env=args.env, video=args.video, agent=args.agent)  # fmt: skip
+                 env=args.env, video=args.video, agent=args.agent, interface=args.interface)  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
     return 0 if result["success"] else 1

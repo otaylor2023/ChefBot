@@ -1,5 +1,6 @@
 """Harnesses: the loops an agent runs in, by name (an agent's agent.yaml `harness:`). A harness module exposes
-AgentSession (AgentSession.build wires a run) and AgentRunner (runs it to the end).
+AgentSession (AgentSession.build wires a run), AgentRunner (runs it to the end) and INTERFACES (the robot APIs it
+runs sessions with).
 
     harness = harnesses.get("plan_loop")
     session = harness.AgentSession.build(...)

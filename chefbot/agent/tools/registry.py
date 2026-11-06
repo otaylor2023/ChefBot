@@ -99,7 +99,8 @@ class SkillContext:
 class ToolRegistry:
     """The tools the agent gets: those the robot's capabilities allow, minus `exclude`,
     and only those in `only` when it is given (task files and agent.yaml set these). Of chefbot/tools' tools,
-    only those in `agent_tools` when it is given (the agent's agent.yaml `tools:`)."""
+    only those in `agent_tools` when it is given (the agent's agent.yaml `tools:`). Of the robot-api-v1 skills, those in
+    `robot_skills` when it is given (the session's), else the 14 above; one a slot above does not name comes last."""
 
     def __init__(
         self,
@@ -110,6 +111,7 @@ class ToolRegistry:
         exclude: tuple[str, ...] = (),
         only: tuple[str, ...] | None = None,
         agent_tools: tuple[str, ...] | None = None,
+        robot_skills: list[skills.Skill] | None = None,
     ):
         self.tools = NavTools(robot, detector, world_map, config)
         self.manip = ManipTools(robot, self.tools)
@@ -120,10 +122,19 @@ class ToolRegistry:
         self._agent_tools = set(agent_tools) if agent_tools is not None else None
         self._owners = {"nav": self.tools, "manip": self.manip}
         self._ctx = SkillContext(robot, self.tools, self.manip, self.kitchen, self.handheld)
+        given = list(SKILLS.values()) if robot_skills is None else list(robot_skills)
+        not_here = [s.path for s in given if s.interface != "robot-api-v1"]
+        if not_here:
+            raise ValueError(f"skills {not_here} are not robot-api-v1: they do not run in the agent's process")
+        self._skills = {s.name: s for s in given}
         self._schemas: dict[str, dict] = {}
         self._handlers = {}
-        for schema in TOOL_SCHEMAS + HANDHELD_SCHEMAS:
+        for schema in TOOL_SCHEMAS + HANDHELD_SCHEMAS + [s.schema for s in given if s.name not in SKILLS]:
             name = schema["function"]["name"]
+            if name not in toolbox.names():  # a skill's slot
+                if name not in self._skills:
+                    continue  # the session has no skill by this name
+                schema = self._skills[name].schema
             if self.allowed(name):
                 self._add(schema, self._handler(name))
 
@@ -133,7 +144,7 @@ class ToolRegistry:
         registered = name in toolbox.names()
         if registered and self._agent_tools is not None and name not in self._agent_tools:
             return False
-        needs = toolbox.get(name).needs if registered else SKILLS[name].needs
+        needs = toolbox.get(name).needs if registered else self._skills[name].needs
         return needs <= self._capabilities
 
     def _handler(self, name: str):
@@ -141,7 +152,7 @@ class ToolRegistry:
         if name in toolbox.names():
             owner, method = toolbox.get(name).entry
             return getattr(self._owners[owner], method)
-        return functools.partial(SKILLS[name].function(), self._ctx)
+        return functools.partial(self._skills[name].function(), self._ctx)
 
     def has(self, name: str) -> bool:
         return name in self._handlers
