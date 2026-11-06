@@ -1,4 +1,4 @@
-"""The controller's arm solvers (embodiments/wholebody.py), one per file, interchangeable: each takes the arm one
+"""The controller's arm solvers (robot/control/wholebody.py), one per file, interchangeable: each takes the arm one
 control tick from its joints toward a flange pose, within its joint limits and clear of the robot's own parts (its
 body: the pole, the camera on its clamp, the base's plate), at the speed profile's rates.
 
@@ -10,7 +10,7 @@ body: the pole, the camera on its clamp, the base's plate), at the speed profile
 
 The robot's robot.yaml `control.arm_solver` names its default; CHEFBOT_ARM_SOLVER overrides it everywhere (the sims'
 labs too), run_real --solver for a real run. Every solver: `step(target, q, dt, max_lin, max_ang, max_joint)` -> the
-joints after the tick, or mink's NoSolutionFound (the controller holds). The constraints (embodiments/constraints.py)
+joints after the tick, or mink's NoSolutionFound (the controller holds). The constraints (robot/control/constraints.py)
 are defined once, outside the solvers, and every solver avoids them its own way; each runs inside the router
 (route.py), which plans a way around them when the solver stalls against one.
 """
@@ -25,14 +25,14 @@ DEFAULT = "qp"
 
 def make(name: str, ik, constraints: list = (), hand_m: float = 0.0, log=None):
     """The solver `name` on an ArmIK, avoiding `constraints`, inside the router."""
-    from chefbot.embodiments.arm_solvers.route import Router
+    from chefbot.robot.control.arm_solvers.route import Router
 
     if name == "qp":
-        from chefbot.embodiments.arm_solvers.qp import QPSolver as S
+        from chefbot.robot.control.arm_solvers.qp import QPSolver as S
     elif name == "osc":
-        from chefbot.embodiments.arm_solvers.osc import OSCSolver as S
+        from chefbot.robot.control.arm_solvers.osc import OSCSolver as S
     elif name == "legacy":
-        from chefbot.embodiments.arm_solvers.legacy import LegacySolver as S
+        from chefbot.robot.control.arm_solvers.legacy import LegacySolver as S
     else:
         raise ValueError(f"no arm solver {name!r}; solvers: {', '.join(NAMES)}")
     return Router(S(ik, constraints, hand_m), ik, constraints, hand_m, log)

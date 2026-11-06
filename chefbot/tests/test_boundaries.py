@@ -59,8 +59,9 @@ def test_no_simulator_or_hardware_imports(layer):
 def test_mujoco_and_mink_only_in_the_robot_kinematics_code():
     assert violations("agent", KINEMATICS_ONLY) == []
     assert violations("interface", KINEMATICS_ONLY) == []
-    # The one IK module (MANIP_SPEC §5.2) and the reachability checker built on it.
-    assert violations("robot", KINEMATICS_ONLY, allow_under=("robot/kinematics/", "robot/arm/ik.py")) == []
+    # The one IK module (MANIP_SPEC §5.2), the reachability checker built on it, and the whole-body controller's arm
+    # solvers on it (robot/control).
+    assert violations("robot", KINEMATICS_ONLY, allow_under=("robot/kinematics/", "robot/arm/ik.py", "robot/control/")) == []
 
 
 def test_agent_never_sees_grasps_joints_or_tcp_frames():
@@ -92,6 +93,16 @@ def test_robot_does_not_import_the_agent():
     assert violations("robot", ("chefbot.agent",)) == []
 
 
+def test_embodiments_are_data_and_its_loader():
+    # The controller that reads them is robot/control; embodiments/ holds no code beyond loading robot.yaml.
+    assert sorted(p.relative_to(PACKAGE).as_posix() for p in modules_under("embodiments")) == ["embodiments/__init__.py"]
+
+
+def test_the_controller_knows_no_environment_runtime_or_agent():
+    # robot/control runs on any Env (interface/env.py) for any embodiment.
+    assert violations("robot/control", SIM_AND_HARDWARE + ("chefbot.agent", "chefbot.runtime", "chefbot.skills")) == []
+
+
 def test_ground_truth_never_reaches_the_agents_context():
     # AGENT_SPEC §2: Observer output goes to the StateChecker and the run log only. In every harness.
     names = sorted(p.relative_to(PACKAGE).as_posix() for p in (PACKAGE / "agent/harnesses").glob("*/*.py")
@@ -118,8 +129,10 @@ def test_grasping_depends_only_on_the_interface():
 
 def test_environments_do_not_import_the_robot_layer_or_the_agent():
     # serve.py is the composition root that wires Robot(Env) to the server; the real robot's
-    # check.py uses the robot's kinematics to check its frames.
-    allowed = ("environments/robocasa/serve.py", "environments/real/check.py")
+    # check.py uses the robot's kinematics to check its frames; a skill host (host.py) wires the whole-body
+    # controller (robot/control) to its env.
+    allowed = ("environments/robocasa/serve.py", "environments/real/check.py", "environments/robocasa/host.py",
+               "environments/mujoco_kitchen/host.py", "environments/real/host.py")  # fmt: skip
     assert violations("environments", ("chefbot.robot", "chefbot.agent"), allow_under=allowed) == []
 
 

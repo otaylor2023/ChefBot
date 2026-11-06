@@ -30,7 +30,7 @@ hand:                     # measured on the model
 start_q: [0.0, -0.53, 0.0, -1.49, 0.0, 1.31, 0.79]
 
 control:
-  arm_solver: qp           # embodiments/arm_solvers: qp, osc or legacy (CHEFBOT_ARM_SOLVER, run_real --solver override)
+  arm_solver: qp           # robot/control/arm_solvers: qp, osc or legacy (CHEFBOT_ARM_SOLVER, run_real --solver override)
   hz: 15
   speed: normal
   limits:

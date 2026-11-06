@@ -8,7 +8,7 @@ with Lambda = (J M^-1 J')^-1 the task's inertia and N its dynamically consistent
 make the task, the one moving the least inertia (the light wrist turns before the heavy shoulder swings). On the FR3
 model it reached a low tilted grasp the old step stalled on, tidily.
 
-The constraints (embodiments/constraints.py: the pole, the camera on its clamp, the plate, ...) push back on the points
+The constraints (robot/control/constraints.py: the pole, the camera on its clamp, the plate, ...) push back on the points
 along the arm near them (Khatib's potential field, within REPEL_M), so the arm bends away from them as it nears them;
 a step that would still go further into one is cut short (an arm that starts inside may only move out).
 """
@@ -22,8 +22,8 @@ import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from chefbot.embodiments import constraints as C
-from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints
+from chefbot.robot.control import constraints as C
+from chefbot.robot.control.arm_solvers.common import MARGIN, ArmPoints
 from chefbot.robot.arm.ik import TCP_SITE, ArmIK
 
 KP, KV, KV_NULL = 100.0, 20.0, 10.0  # chefbot_fr3.xml's cartesian_task gains; the nullspace's joint damping

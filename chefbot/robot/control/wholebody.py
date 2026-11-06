@@ -6,8 +6,8 @@ acts only when that changes), and where the robot root should be. Each control s
   - the base drives toward its target: by itself when the environment's base can (Env.set_base_target), else by
     velocity control (P on the error, within the speed profile's base limit);
   - the arm takes one resolved-rate step toward the flange target relative to where the base is now (so a held
-    object stays put while the base moves), by the robot's arm solver (embodiments/arm_solvers: qp, osc or legacy),
-    within the joint limits, around the arm's constraints (embodiments/constraints.py: the pole, the plate), at the
+    object stays put while the base moves), by the robot's arm solver (robot/control/arm_solvers: qp, osc or legacy),
+    within the joint limits, around the arm's constraints (robot/control/constraints.py: the pole, the plate), at the
     speed profile's rates.
 Step sizes are the speed profile's rates times the tick.
 

@@ -1,7 +1,7 @@
 """legacy: the controller's first arm step (to 2026-11-03), kept to compare against: a short Cartesian step toward
 the target, clipped to the speed profile's rates, solved exactly by the arm's IK from the current joints, each joint's
 change clipped too. At a joint limit with no solution the IK's fallback seeds pulled it back: it stalled 0.35 m short
-of a low tilted grasp the FR3 reaches. The constraints (embodiments/constraints.py) only cut a step short here, at
+of a low tilted grasp the FR3 reaches. The constraints (robot/control/constraints.py) only cut a step short here, at
 the margin: going around them is the router's (route.py)."""
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from chefbot.embodiments import constraints as C
-from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints
+from chefbot.robot.control import constraints as C
+from chefbot.robot.control.arm_solvers.common import MARGIN, ArmPoints
 from chefbot.robot.arm.ik import ArmIK
 
 

@@ -99,7 +99,7 @@ choice.
    nothing read from `trace.jsonl`. The skill must work on objects it has never seen. General
    priors are fine ("grasp a bottle around its body, not its cap").
 4. **Don't modify the lab.** That includes `./lab`, `docs/`, and the code it runs. Reading the
-   lab's controller and time accounting (`chefbot/embodiments/wholebody.py`, `episode.py`) to
+   lab's controller and time accounting (`chefbot/robot/control/wholebody.py`, `episode.py`) to
    understand them is fine.
 5. **Report honestly.** That includes failures, negative results, and anything you did that
    might be borderline.

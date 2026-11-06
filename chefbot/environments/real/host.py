@@ -2,7 +2,7 @@
 (interface chefbot-v1) runs on the robot unchanged.
 
 The same contract as the simulated hosts (environments/mujoco_kitchen/host.py), with real time: a control thread
-runs the same whole-body controller as the sims (embodiments/wholebody.py: IK every tick, joint targets to the arm)
+runs the same whole-body controller as the sims (robot/control/wholebody.py: IK every tick, joint targets to the arm)
 on RealEnv (the onboard server), each step toward the latest target, so the robot keeps holding its last command
 while the skill thinks or waits on a model. Robot time counts from the skill's first request.
 
@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 
 from chefbot.embodiments import Robot, Speed
-from chefbot.embodiments.wholebody import WholeBodyController, quat_wxyz
+from chefbot.robot.control.wholebody import WholeBodyController, quat_wxyz
 from chefbot.interface.types import Pose2D
 
 HOME = (0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785)  # the FR3's ready pose: the hand pointing down (the calibrations' start)
@@ -64,7 +64,7 @@ class GuardedEnv:
 
         self.env, self.kin, self.base, self.dry_run, self.flange_z_min = env, robot.kin, base, dry_run, flange_z_min
         self.body = robot.body or BODY
-        from chefbot.embodiments.constraints import for_robot
+        from chefbot.robot.control.constraints import for_robot
 
         self.constraints = robot.kin.constraints or for_robot(self.body)
         self.lo, self.hi = LIMITS[:, 0] + MARGIN / 2, LIMITS[:, 1] - MARGIN / 2
@@ -105,9 +105,9 @@ class GuardedEnv:
             raise SafetyStop(f"the flange would go to {F[2, 3]:.3f} m over the base, below its floor of {self.flange_z_min} m (arm base frame)")
 
     def violation(self, q) -> str | None:
-        """The first of the arm's constraints (embodiments/constraints.py, the same the solvers avoid) joints q
+        """The first of the arm's constraints (robot/control/constraints.py, the same the solvers avoid) joints q
         violate, said, or None."""
-        from chefbot.embodiments.constraints import KeepOut
+        from chefbot.robot.control.constraints import KeepOut
         from chefbot.interface.workspace import arm_points
 
         pts = arm_points(np.asarray(q, dtype=float), self.body.hand_m)
@@ -120,7 +120,7 @@ class GuardedEnv:
 
     def clearance(self, q) -> float:
         """The arm's least clearance (m; negative: in) from its constraints at joints q."""
-        from chefbot.embodiments.constraints import nearest
+        from chefbot.robot.control.constraints import nearest
         from chefbot.interface.workspace import arm_points
 
         return float(nearest(self.constraints, arm_points(np.asarray(q, dtype=float), self.body.hand_m))[0].min())

@@ -78,7 +78,7 @@ This is research, and the result is only worth something if it's honest. If some
    instructions, and nothing read from `trace.jsonl` (ground truth, for your debugging only). General priors are fine
    ("grasp a bottle around its body, not its cap").
 5. **Don't modify the lab** (`./lab`, `docs/`, the code it runs). Reading the lab's controller and time accounting
-   (`chefbot/embodiments/wholebody.py`, `chefbot/runtime/episode.py`) to understand them is fine.
+   (`chefbot/robot/control/wholebody.py`, `chefbot/runtime/episode.py`) to understand them is fine.
 6. **Report honestly**, including failures, negative results and anything borderline.
 
 ## Your tools

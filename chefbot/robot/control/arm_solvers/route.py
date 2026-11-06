@@ -19,8 +19,8 @@ import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from chefbot.embodiments import constraints as C
-from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints, scale
+from chefbot.robot.control import constraints as C
+from chefbot.robot.control.arm_solvers.common import MARGIN, ArmPoints, scale
 from chefbot.robot.arm.ik import TCP_SITE, ArmIK
 
 STALL_S = 1.0  # s of control ticks
@@ -80,7 +80,7 @@ class Router:
         """Clear IK solutions for the target, nearest q first: the qp solver's constrained steps run to convergence
         (fast rates, no clock) from a few seeds (q, the posture, the pose seeds, joints between), so every one found
         is clear of the constraints by construction (it slides along them)."""
-        from chefbot.embodiments.arm_solvers.qp import QPSolver
+        from chefbot.robot.control.arm_solvers.qp import QPSolver
 
         if self._ik_solver is None:
             self._ik_solver = QPSolver(self.ik, self.constraints, self.points.hand_m)

@@ -3,7 +3,7 @@ arm's inertia (its mass matrix): among the motions that do it, the one that move
 wrist turns before the heavy shoulder and elbow swing (the choice an operational-space controller makes, osc.py, here
 kinematic). Under hard constraints:
   - the joint limits (mink's ConfigurationLimit), so a limit in the way is gone around, not stalled on;
-  - the arm's constraints (embodiments/constraints.py: the pole, the camera on its clamp, the plate, ...): no point
+  - the arm's constraints (robot/control/constraints.py: the pole, the camera on its clamp, the plate, ...): no point
     along the arm closer to one, once within KEEP_ACTIVE, than a damper allows, nor past MARGIN outside it; it
     slides along them, never into them.
 Then scaled, as a whole, to the speed profile's linear, angular and joint rates.
@@ -20,8 +20,8 @@ import numpy as np
 import qpsolvers
 from scipy.spatial.transform import Rotation
 
-from chefbot.embodiments import constraints as C
-from chefbot.embodiments.arm_solvers.common import MARGIN, ArmPoints, scale
+from chefbot.robot.control import constraints as C
+from chefbot.robot.control.arm_solvers.common import MARGIN, ArmPoints, scale
 from chefbot.robot.arm.ik import TCP_SITE, ArmIK
 
 INERTIA_WEIGHT = 0.1  # the motion's cost, dq' M dq, against the pose error's

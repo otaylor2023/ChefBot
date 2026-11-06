@@ -1,6 +1,6 @@
 """Where the FR3 may go on ChefBot's base: its joint limits, and the robot's own fixed parts it must keep clear of
 (the pole behind it on its left, the pole camera on its clamp, the base's plate). Pure geometry (interface/fr3.py),
-shared by the controller's IK (embodiments/motion.py: it steers around them), the laptop's real host (its guard
+shared by the controller's IK (robot/control: it steers around them), the laptop's real host (its guard
 stops on them) and the robot computer's calibration (it plans around them).
 
 The parts themselves are the embodiment's (embodiments/tidybot_fr3/robot.yaml `body:`, measured on the real robot):

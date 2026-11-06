@@ -26,7 +26,7 @@ Skills and the labs that make them follow agentic-skills-exploration's split, on
 
 | Folder | What it holds |
 |---|---|
-| `embodiments/` | What the robot physically is: one folder per robot (`robot.yaml`, cameras, brief), arms and grippers as config, the whole-body controller, speed profiles |
+| `embodiments/` | What the robot physically is, as data: one folder per robot (`robot.yaml`: cameras, body keep-outs, controller settings; brief), arms and grippers as config, speed profiles. The whole-body controller that reads them is `robot/control/` |
 | `environments/` | Worlds behind the `Env` interface: `robocasa/` (kitchens, and `host.py`, the simulated episode host), `symbolic/`, `real/` |
 | `tasks/` | Task types (`pick_up`): how a kind of task starts, what it measures, how it is scored |
 | `setups/` | A scene plus its randomization, attributes and the named tasks it offers (generated) |

@@ -67,7 +67,7 @@ def host_on(robot, tmp_path, **kw):
 
 
 def arm_row(F, dz=0.0, dx=0.0, gripper=0.0):
-    from chefbot.embodiments.wholebody import quat_wxyz
+    from chefbot.robot.control.wholebody import quat_wxyz
 
     return [F[0, 3] + dx, F[1, 3], F[2, 3] + dz, *quat_wxyz(F[:3, :3]), gripper]
 

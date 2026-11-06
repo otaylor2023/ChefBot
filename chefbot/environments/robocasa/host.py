@@ -26,7 +26,7 @@ from scipy.spatial.transform import Rotation
 
 from chefbot.embodiments import Robot, Speed
 from chefbot.environments.robocasa.scene import Scene
-from chefbot.embodiments.wholebody import WholeBodyController, quat_wxyz
+from chefbot.robot.control.wholebody import WholeBodyController, quat_wxyz
 from chefbot.environments.robocasa.config import RoboCasaConfig
 from chefbot.environments.robocasa.env import RoboCasaEnv
 

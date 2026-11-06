@@ -1,6 +1,6 @@
 """Where the arm may not go: constraints on the points along it (interface/workspace.py arm_points' 17: the joint
 origins, the flange, the fingertips, the midpoints between, the base column's first two), defined once and read by
-every arm solver (embodiments/arm_solvers: each avoids them its own way) and by the real host's guard (it stops on
+every arm solver (robot/control/arm_solvers: each avoids them its own way) and by the real host's guard (it stops on
 them). A new constraint here is avoided by all the solvers and guarded on the real robot.
 
 A constraint gives, for points (N x 3, arm base frame), each one's clearance (m, past a margin; negative: in

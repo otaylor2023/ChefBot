@@ -19,7 +19,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from chefbot.embodiments import Robot, Speed
-from chefbot.embodiments.wholebody import WholeBodyController, quat_wxyz
+from chefbot.robot.control.wholebody import WholeBodyController, quat_wxyz
 from chefbot.environments.mujoco_kitchen.env import MujocoKitchenEnv
 from chefbot.environments.mujoco_kitchen.export import ensure_kitchen, kitchens_root
 from chefbot.environments.mujoco_kitchen.scene import Scene
