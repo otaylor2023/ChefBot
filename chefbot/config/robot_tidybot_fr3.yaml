@@ -1,0 +1,11 @@
+# The real robot's geometry in plain MuJoCo (environments/mujoco_kitchen): the FR3 and Franka Hand on a TidyBot++
+# base (MuJoCo Menagerie's models), the arm on the base's arm plate, 0.335 m up at the base center.
+extends: robot.yaml
+
+footprint_radius: 0.36      # the bumper ring (0.284 m) and the arm's base
+arm_mount:
+  xyz: [0.0, 0.0, 0.335]
+  yaw_deg: 0.0
+hardware:
+  arm: fr3
+  gripper: franka_hand

@@ -1,0 +1,66 @@
+# The real robot, and its digital twin in plain MuJoCo (embodiments/twin): the FR3 with the Franka Hand on a TidyBot++
+# base, from MuJoCo Menagerie's models, the hand's grasp force a servo (embodiments/twin/robot.py).
+description: TidyBot++ base, Franka FR3, Franka Hand (MuJoCo Menagerie)
+robot_config: robot_tidybot_fr3.yaml   # chefbot/config: kinematics, arm mount, postures, IK
+env:
+  robot: tidybot_fr3
+  gripper: franka_hand
+
+# The skill's camera names -> the sim's cameras, both RGB-D 640x480. `noise` as for panda_franka.
+cameras:
+  # TODO(sim vs real): the real pole D455 (environments/real/config.yaml, 2026-11-03) is 1.04 m up, 0.25 m behind
+  # and 0.26 m left of the base center, looking forward only 7.7 deg down: the sim's sees the workspace from far
+  # higher. Left as is for now.
+  pole:  {sim: tb/pole,           depth: true, noise: {pos_m: 0.01, rot_deg: 1.0, fov: 0.02}}  # on a mast at the back of the base, 1.55 m up
+  wrist: {sim: tb/fr3/hand/wrist, depth: true, noise: {pos_m: 0.003, rot_deg: 0.5, fov: 0.02}}
+
+hand:                     # measured on the model
+  pad_center_m: 0.103     # the fingertip pads' centers, out from the flange along its z
+  pad_span_m: [0.094, 0.111]
+  open_width_m: 0.083
+  closing_yaw_deg: 45.0   # the fingers close along this direction in the flange's xy plane
+  max_width_m: 0.08       # libfranka's width (between the fingers), 0 .. this
+  max_speed_mps: 0.1
+  max_force_n: 70         # a grasp's force, 0.1 .. this
+  default_speed_mps: 0.05 # the gripper column's grasp and open (onboard/config.yaml's, on the real robot)
+  default_force_n: 20
+
+# Where an episode starts the arm: the flange 0.3 m ahead of the base center and 1.2 m up, tipped 20 degrees
+# forward, so the wrist camera looks at the counter in front (the FR3's own ready pose points it at the floor here).
+start_q: [0.0, -0.53, 0.0, -1.49, 0.0, 1.31, 0.79]
+
+control:
+  arm_solver: qp           # embodiments/arm_solvers: qp, osc or legacy (CHEFBOT_ARM_SOLVER, run_real --solver override)
+  hz: 15
+  speed: normal
+  # The base's hard cap (interface/limits.py): the base driver runs at it (launch.sh), the onboard server and the gamepad
+  # never exceed it, and a speed profile over it is refused wherever the base can move (2026-11-04: 0.25 m/s,
+  # 0.8 rad/s; the acceleration Jack measured braking at).
+  limits:
+    base_max_vel: [0.25, 0.25, 0.8]     # m/s, m/s, rad/s
+    base_max_accel: [0.25, 0.25, 0.8]   # m/s^2, m/s^2, rad/s^2
+
+# The robot's own fixed parts the arm must keep clear of, in the arm base frame (x forward, y left, z up from the
+# arm's plate), as measured on the real robot (2026-11-03). One definition for all: the controller's IK steers around
+# them (embodiments/motion.py), the real host's guard stops on them (environments/real/host.py), the robot computer's
+# calibration plans around them (onboard/calibration), and the twin has them as solid geometry (embodiments/twin).
+# The real base: 19 in wide, 22 in long, its plate 0.44 m up (the sim's Menagerie base: 0.335); the arm centered
+# across it, the front of its foot 1 in back from the front edge (the foot reaches 0.072 m ahead of joint 1), so the
+# edge is 0.097 m ahead of the arm. The pole (a camera mast): 7.5 in back from the front edge and 3 in in from the
+# left, 48 in off the floor; the D455 on a clamp, where pole.py calibrated it.
+body:
+  plate_height_m: 0.44   # the arm's plate (the arm base frame's z = 0) above the floor, on the real base (Jack,
+                         # 2026-11-03; the sim's Menagerie base: 0.335, config/robot_tidybot_fr3.yaml arm_mount)
+  hand_m: 0.13065        # the fingertips, out from the flange along its z (the real hand on its 27.25 mm holder)
+  link_radius_m: 0.08    # the arm's links about their centerline (the points the checks use)
+  spare_m: 0.03          # and this to spare (at least an inch: the loader refuses less): an obstacle keeps out
+                         # radius + link_radius_m + spare_m from its axis
+  plate_clear_m: 0.05    # every point along the arm (bar the base column) at least this above the plate, over it
+  plate:                 # the base's top, the arm's plate in it
+    x: [-0.462, 0.097]
+    y: [-0.241, 0.241]
+  obstacles:
+    - name: pole
+      cylinder: {xy: [-0.093, 0.165], radius: 0.03, top: 0.78}
+    - name: pole camera on its clamp
+      capsule: {a: [-0.093, 0.165, 0.65], b: [-0.25, 0.26, 0.70], radius: 0.062}  # a D455: 124 mm wide

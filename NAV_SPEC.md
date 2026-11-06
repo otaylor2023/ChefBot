@@ -39,7 +39,7 @@ Rules (enforced by tests, §12):
 1. **The agent knows no geometry of the robot.** No footprint, no arm kinematics, no occupancy grid, no paths. It chooses *goals* (poses, object IDs); the robot layer decides how to get there.
 2. **Controllers, planning, and kinematics live in the robot layer (`chefbot/robot/`), never in an env.** Envs only accept low-level commands and report state.
 3. **The robot layer runs in the same process as the env**, so control loops never cross the network. If the agent is remote, only high-level calls go over the wire.
-4. **`chefbot/agent/` and `chefbot/robot/` import no simulator or hardware library** (robosuite, robocasa, isaaclab, omni.*, hardware drivers) and never import `chefbot/envs/`. Exception: `robot/kinematics/` may import `mujoco`/`mink` to load the FR3 MJCF (a robot description, not the simulator).
+4. **`chefbot/agent/` and `chefbot/robot/` import no simulator or hardware library** (robosuite, robocasa, isaaclab, omni.*, hardware drivers) and never import `chefbot/environments/`. Exception: `robot/kinematics/` may import `mujoco`/`mink` to load the FR3 MJCF (a robot description, not the simulator).
 5. **Everything crossing a boundary is a plain serializable type** from `chefbot/interface/`. No sim handles, no env-specific names.
 6. **Env-specific knowledge stays in the env** (e.g. the RoboCasa-name ↔ ChefBot-label table).
 7. **Two agent↔robot transports, same API:** in-process, and `RemoteRobot` over websocket + msgpack-numpy (openpi-style). Integration tests run over both.
@@ -274,7 +274,7 @@ All return `ToolResult(success, error, message, data)`; poses in degrees in `dat
 ## 12. Acceptance criteria
 
 **Boundaries** (`tests/test_boundaries.py`):
-- No module under `agent/`, `robot/`, or `interface/` imports robosuite, robocasa, isaaclab, omni, or `chefbot.envs`; `mujoco`/`mink` only under `robot/kinematics/`.
+- No module under `agent/`, `robot/`, or `interface/` imports robosuite, robocasa, isaaclab, omni, or `chefbot.environments`; `mujoco`/`mink` only under `robot/kinematics/`.
 - `agent/` imports nothing from `chefbot.robot` (agent knows only RobotAPI).
 - Envs don't import `chefbot.robot`.
 - Agent and robot test suites pass without robosuite/robocasa installed.

@@ -1,4 +1,5 @@
-"""BaseController: follows a path of Pose2D waypoints with world-frame velocity commands."""
+"""BaseController: follows a path of Pose2D waypoints with world-frame velocity
+commands, or, for a base that drives to a pose itself, with a moving pose target."""
 
 from __future__ import annotations
 
@@ -70,6 +71,14 @@ class BaseController:
             if dist < best_dist:
                 best_dist, best_s = dist, s
         self._progress, self._deviation = best_s, best_dist
+
+    def target(self, pose: Pose2D) -> Pose2D:
+        """For a base that drives to a pose itself: the carrot on the path, with the
+        path's heading there. It reaches the goal at the end of the path."""
+        self._project(pose.xy)
+        s = self._progress + self._cfg.lookahead
+        carrot = self._point_at(s)
+        return Pose2D(float(carrot[0]), float(carrot[1]), self._yaw_at(s))
 
     def step(self, pose: Pose2D, dt: float) -> tuple[float, float, float]:
         """World-frame (vx, vy, vyaw) for this tick."""

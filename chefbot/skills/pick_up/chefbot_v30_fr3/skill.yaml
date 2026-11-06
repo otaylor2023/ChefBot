@@ -1,0 +1,26 @@
+name: pick_up
+version: chefbot_v30_fr3
+entry: main.py:run
+interface: chefbot-v1
+robot: tidybot_fr3
+arm_only: true
+cameras: [wrist, pole]  # wrist to perceive; both at the hover (saved images)
+args:
+  object:
+    type: string
+    doc: what to pick up, in a few words
+models:
+  gemini-3.1-flash-lite:
+    runs: api
+    provider: google
+    key: GEMINI_API_KEY
+  grounding-dino:
+    runs: vision_models
+  sam2:
+    runs: vision_models
+assumes: the object on a surface in the wrist camera's view from where the arm starts (run_real --ready puts it at the ready position, looking forward and down), its neighbors apart from it
+privileged: false
+provenance:
+  ported_from: pick_up/chefbot_v30 (robocasa_pick lab, panda_franka in sim; val 83%)
+  changes: the real Franka Hand's pad distance (0.13065 m, on the 27.25 mm holder), its closing direction (+45 deg), the band the fingers are sought in (2.7 cm out); a move's step cap (up to 300 steps while still progressing, was n+50; tilted moves on the real arm took ~10 s); nothing else
+  real: run 2026-11-04 (4 runs; perception right when the object is fully in the wrist view; tilted hovers ran out of steps 16-19 cm short and the grasp missed, hence the cap)

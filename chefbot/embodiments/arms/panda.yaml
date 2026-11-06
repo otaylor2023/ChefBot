@@ -1,0 +1,37 @@
+# The Franka Emika Panda, as RoboCasa simulates it (PandaOmron).
+# Lengths in meters, angles in radians unless a key says _deg.
+
+kinematics:
+  # The FR3's MJCF (robot/kinematics/assets): the Panda has the same links.
+  mjcf: fr3_kinematics.xml
+  flange_body: fr3_link7
+  flange_site: attachment_site
+  # Shoulder (joint 2) in the arm base frame, and a generous bound on shoulder -> flange
+  # distance, used to reject far targets without running IK.
+  shoulder: [0.0, 0.0, 0.333]
+  max_shoulder_to_flange: 0.95
+  # Position-only IK restarts: home, then the elbow tucked and extended.
+  position_seeds:
+    - [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
+    - [0.0, 0.6, 0.0, -1.2, 0.0, 1.8, -0.7853]
+    - [0.0, -0.6, 0.0, -2.4, 0.0, 1.8, -0.7853]
+  # Full-pose IK restarts after the posture: gripper level and forward, then gripper down and close in.
+  pose_seeds:
+    - [0.0, -0.5, 0.0, -2.0, 0.0, 3.07, 0.785]
+    - [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
+
+# The Panda's limits, which differ from the FR3's (the MJCF's own) on joints 4 and 6.
+joint_limits:
+  - [-2.8973, 2.8973]
+  - [-1.7628, 1.7628]
+  - [-2.8973, 2.8973]
+  - [-3.0718, -0.0698]
+  - [-2.8973, 2.8973]
+  - [-0.0175, 3.7525]
+  - [-2.8973, 2.8973]
+
+# Named joint configurations. All three point the gripper straight down.
+postures:
+  stow: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]    # compact, inside the base footprint: for driving
+  carry: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]   # holding an object while driving (same pose as stow for now)
+  ready: [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785]   # above the workspace: start and end of skills

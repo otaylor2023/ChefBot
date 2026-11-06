@@ -1,0 +1,26 @@
+# RoboCasa's mobile Franka (PandaOmron) with the Franka Hand: the sim twin of the real robot (FR3 + Franka Hand
+# on a TidyBot++ base, a RealSense on the wrist and one on a pole).
+description: RoboCasa PandaOmron (mobile Franka Panda), Franka Hand
+robot_config: robot_franka_hand.yaml   # chefbot/config: kinematics, arm mount, postures, IK
+env:
+  robot: PandaOmron
+  gripper: franka_hand
+
+# The skill's camera names -> the sim's cameras. Both RGB-D, 640x480 (RealSense-like). `noise`: per (seed, kitchen),
+# each camera is moved and turned a little and its field of view changed; the skill gets the true pose and intrinsics,
+# as from a calibrated robot.
+cameras:
+  pole:  {sim: robot0_frontview,   depth: true, noise: {pos_m: 0.01, rot_deg: 1.0, fov: 0.02}}  # 0.5 m behind the base center, 1.65 m up
+  wrist: {sim: robot0_eye_in_hand, depth: true, noise: {pos_m: 0.003, rot_deg: 0.5, fov: 0.02}}
+
+hand:                     # measured on the sim (envs/robocasa/gripper.py, franka_hand)
+  pad_center_m: 0.093     # the fingertip pads' centers, out from the flange along its z
+  pad_span_m: [0.085, 0.101]
+  open_width_m: 0.077
+  closing_yaw_deg: -45.0  # the fingers close along this direction in the flange's xy plane
+
+control:
+  hz: 15
+  speed: normal
+  limits:
+    base_max_vel: [0.5, 0.5, 1.0]

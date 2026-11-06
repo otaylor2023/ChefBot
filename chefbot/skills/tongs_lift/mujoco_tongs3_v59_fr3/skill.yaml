@@ -1,0 +1,28 @@
+name: tongs_lift
+version: mujoco_tongs3_v59_fr3
+entry: main.py:run
+interface: chefbot-v1
+robot: tidybot_fr3
+arm_only: true      # the base holds where it starts (the lab's moved it; see main.py)
+cameras: [pole, wrist]
+args:
+  object: {type: string, doc: "the food to lift, in a few words"}
+  where: {type: string, doc: "'on the counter', 'in the bowl', 'in the pan', 'in the plate'"}
+  tool: {type: string, doc: "'tongs'"}
+models:
+  gemini-robotics-er-2-preview: {runs: api, provider: google, key: GEMINI_API_KEY}
+  gemini-3.1-flash-lite: {runs: api, provider: google, key: GEMINI_API_KEY}
+  grounding-dino: {runs: vision_models}
+  sam2: {runs: vision_models}
+assumes: tongs on a surface in front of the robot, in the cameras' view from the ready position (run_real --ready), and the food where `where` says, both within the arm's reach without the base moving
+privileged: false
+provenance:
+  ported_from: tongs_lift/mujoco_tongs3_v59 (the mujoco_tongs lab, the sim's tidybot_fr3)
+  changes: the real Franka Hand's pad distance (0.13065 m, on the 27.25 mm holder; sim 0.103); the base held (the lab drove it 7.5 cm forward and sideways under the tongs and the food), so its targets go as arm targets; a move's step cap (up to 300 steps while still progressing); nothing else
+  real: not yet run on the robot (2026-11-04)
+  lab: mujoco_tongs
+  run: mujoco_tongs-1102-083921 (bohg-ws-20, local NVMe mirror), the third session, started from mujoco_tongs2_v17, on the Franka Hand commands (gripper_move / gripper_grasp)
+  suite: mujoco_tongs
+  test: not run; val 12.5% then 8.3% (two submissions of 24); dev 7/48, 0 broken, no hand-food contact
+  report: REPORT.md; research_log.md (the run's record)
+  note: ~36 s and ~$0.003 per episode (target 20-30 s not met); the lab restarted twice (worker-pool fixes), jobs lost then were resubmitted

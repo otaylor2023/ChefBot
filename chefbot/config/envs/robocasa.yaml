@@ -2,6 +2,7 @@
 
 task: Kitchen
 robot: PandaOmron
+gripper: robotiq_2f85      # or franka_hand (the real FR3's); robot.yaml's hardware.gripper must match
 layout: 1
 style: 1
 seed: 0

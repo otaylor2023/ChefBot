@@ -9,7 +9,7 @@ import pytest
 
 PACKAGE = Path(__file__).resolve().parent.parent
 REPO = PACKAGE.parent
-SIM_AND_HARDWARE = ("robosuite", "robocasa", "isaaclab", "isaacsim", "omni", "chefbot.envs")
+SIM_AND_HARDWARE = ("robosuite", "robocasa", "isaaclab", "isaacsim", "omni", "chefbot.environments")
 KINEMATICS_ONLY = ("mujoco", "mink")
 
 
@@ -47,7 +47,7 @@ def violations(layer: str, forbidden: tuple[str, ...], allow_under: str | tuple[
 
 
 def test_layers_exist():
-    for layer in ("agent", "robot", "interface", "envs"):
+    for layer in ("agent", "robot", "interface", "environments", "onboard", "embodiments", "runtime"):
         assert modules_under(layer), layer
 
 
@@ -102,9 +102,47 @@ def test_grasping_depends_only_on_the_interface():
     assert violations("grasping", ("chefbot.agent", "chefbot.robot") + KINEMATICS_ONLY) == []
 
 
-def test_envs_do_not_import_the_robot_layer_or_the_agent():
-    # serve.py is the composition root that wires Robot(Env) to the server.
-    assert violations("envs", ("chefbot.robot", "chefbot.agent"), allow_under="envs/robocasa/serve.py") == []
+def test_environments_do_not_import_the_robot_layer_or_the_agent():
+    # serve.py is the composition root that wires Robot(Env) to the server; the real robot's
+    # check.py uses the robot's kinematics to check its frames.
+    allowed = ("environments/robocasa/serve.py", "environments/real/check.py")
+    assert violations("environments", ("chefbot.robot", "chefbot.agent"), allow_under=allowed) == []
+
+
+def test_onboard_runs_on_the_interface_alone():
+    # What runs on the robot computer: no robot layer, agent, sims, perception, or kinematics.
+    others = ("chefbot.robot", "chefbot.agent", "chefbot.environments", "chefbot.grasping", "chefbot.scripts")
+    assert violations("onboard", others + SIM_AND_HARDWARE + KINEMATICS_ONLY) == []
+
+
+def test_nothing_imports_the_onboard_package():
+    # It is deployed alone; the client side shares only the protocol (interface/transport/onboard.py).
+    for layer in ("agent", "robot", "interface", "environments", "grasping", "scripts"):
+        assert violations(layer, ("chefbot.onboard",)) == [], layer
+
+
+def test_the_research_lives_elsewhere():
+    # Skill labs, their tasks, setups, suites, generators and evals are agentic-skills-exploration's (chefbot_labs):
+    # nothing here imports them, and their packages are not here.
+    for layer in ("agent", "robot", "interface", "environments", "grasping", "scripts", "onboard", "embodiments", "runtime",
+                  "skills"):
+        assert violations(layer, ("chefbot_labs", "chefbot.autoresearch", "chefbot.evals", "chefbot.tasks", "chefbot.setups",
+                                  "chefbot.suites", "chefbot.generators")) == [], layer
+    for gone in ("autoresearch", "evals", "labs", "tasks", "setups", "suites", "generators", "environments/mujoco_kitchen"):
+        assert not (PACKAGE / gone).exists(), gone
+
+
+def test_worlds_and_embodiments_do_not_import_how_skills_are_run():
+    # Environments and embodiments are what a skill runs in and on; the runtime, skills and labs build on them.
+    for layer in ("environments", "embodiments"):
+        assert violations(layer, ("chefbot.runtime", "chefbot.skills")) == [], layer
+
+
+def test_the_skill_api_is_standard_library_and_numpy():
+    # It is all a sandboxed skill gets: it runs in the skill's own interpreter, without ChefBot.
+    imported = imports_of(PACKAGE / "interface" / "skill_api.py")
+    allowed = {"__future__", "json", "os", "sys", "threading", "time", "traceback", "uuid", "pathlib", "numpy", "main"}
+    assert {m.split(".")[0] for m in imported} <= allowed, imported
 
 
 def run_pytest_without(blocked: list[str], targets: list[str]) -> subprocess.CompletedProcess:

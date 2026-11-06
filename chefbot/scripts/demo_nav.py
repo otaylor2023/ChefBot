@@ -4,7 +4,7 @@ In-process (simulator, robot layer and agent in one process):
     python -m chefbot.scripts.demo_nav --env robocasa
 
 Remote (agent here, robot layer + simulator behind a websocket):
-    python -m chefbot.envs.robocasa.serve            # terminal 1
+    python -m chefbot.environments.robocasa.serve            # terminal 1
     python -m chefbot.scripts.demo_nav --remote ws://127.0.0.1:8765   # terminal 2
 """
 
@@ -58,15 +58,15 @@ def main() -> int:
     close = []
     if args.env == "robocasa":
         # Imported here so --remote runs without any simulator installed.
-        from chefbot.envs.robocasa.config import RoboCasaConfig
-        from chefbot.envs.robocasa.serve import build_stack
+        from chefbot.environments.robocasa.config import RoboCasaConfig
+        from chefbot.environments.robocasa.serve import build_stack
 
         stack = build_stack(RoboCasaConfig.load(layout=args.layout, style=args.style))
         robot, detector = stack.robot, stack.detector
         map_path = args.map or stack.semantic_map_path
         close = [stack.robot.stop, stack.env.close]
     else:
-        from chefbot.envs.robocasa.config import RoboCasaConfig
+        from chefbot.environments.robocasa.config import RoboCasaConfig
         from chefbot.interface.transport.client import RemoteDetector, RemoteRobot
 
         robot, detector = RemoteRobot(args.remote), RemoteDetector(args.remote)

@@ -1,0 +1,31 @@
+# The onboard server on the robot computer (tidybot01). Lengths in meters.
+
+server:
+  host: 127.0.0.1        # reached through `ssh -L 8765:localhost:8765 tidybot01`
+  port: 8765
+  state_hz: 50
+  watchdog_s: 0.3        # silence from a client that has been commanding: hold the arm, stop the base
+  camera_idle_s: 10      # close a camera after this long without a request
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+
+base:
+  # The hb1 driver's speed: the robot's hard base cap, embodiments/tidybot_fr3/robot.yaml control.limits (its one copy;
+  # interface/limits.py reads it, here and on the laptop).
+  # The mocap rigid body on the base (chefbot-tidy): its yaw relative to the base's heading, and its origin's
+  # position in the base frame. Its x runs along the base (the markers are symmetric about it), forward by the
+  # operator's account (the six markers at the front, the lone pair at the back).
+  # TODO(measure): marker_xy (the body's origin is about the markers' centre; a spin in place would show it).
+  marker_yaw_offset_deg: 0.0
+  marker_xy: [0.0, 0.0]
+
+gripper:
+  speed: 0.05            # m/s
+  force: 20.0            # N, when closing on an object
+
+# The RealSenses (serials: `rs-enumerate-devices -s`).
+cameras:
+  - {name: wrist, serial: "323622271565", width: 640, height: 480, fps: 15}   # D405
+  - {name: pole, serial: "049122252230", width: 640, height: 480, fps: 15}    # D455

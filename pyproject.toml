@@ -22,13 +22,18 @@ agent = []
 robot = ["mujoco>=3.2", "mink", "coal", "ompl"]
 # robosuite and robocasa are installed editable from source (see README).
 robocasa = ["chefbot[robot]"]
+# The robot computer: the onboard server only (no planning, IK or simulator).
+onboard = ["redis", "pyrealsense2"]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
 include = ["chefbot*"]
 
 [tool.setuptools.package-data]
-chefbot = ["config/**/*.yaml", "robot/kinematics/assets/**/*", "envs/robocasa/assets/**/*"]
+chefbot = ["config/**/*.yaml", "robot/kinematics/assets/**/*", "environments/robocasa/assets/**/*",
+           "environments/real/config.yaml", "environments/symbolic/**/*.yaml", "onboard/config.yaml", "onboard/bringup/*",
+           "embodiments/**/*.yaml", "embodiments/**/*.md", "embodiments/**/*.json", "embodiments/**/*.stl", "jobs/*.yaml",
+           "skills/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["chefbot/tests"]

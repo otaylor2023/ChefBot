@@ -9,22 +9,11 @@ safety_margin: 0.03         # added to the footprint when inflating the grid
 arm_mount:
   xyz: [0.21, 0.0, 0.7]
   yaw_deg: 0.0
-# TCP frame relative to the arm flange: the gripper's grip point (between the
-# fingertip pads), z along the approach direction, x along the direction the
-# fingers close. Measured on the sim robot's 2F-85 grip site.
-tcp:
-  xyz: [0.0, 0.0, 0.1553]
-  yaw_deg: -45.0
-# Arm joint limits (rad). The sim arm is a Panda, whose limits differ from the
-# FR3's on joints 4 and 6; remove this block to use the FR3's own limits.
-joint_limits:
-  - [-2.8973, 2.8973]
-  - [-1.7628, 1.7628]
-  - [-2.8973, 2.8973]
-  - [-3.0718, -0.0698]
-  - [-2.8973, 2.8973]
-  - [-0.0175, 3.7525]
-  - [-2.8973, 2.8973]
+# The arm and the gripper: kinematics, joint limits, postures (embodiments/arms/<arm>.yaml), and the
+# TCP and finger widths (embodiments/grippers/<gripper>.yaml). Swap either here.
+hardware:
+  arm: panda
+  gripper: robotiq_2f85
 
 control_rate: 20            # Hz
 gains:
@@ -62,10 +51,6 @@ ik:
 
 # -- Arm (MANIP_SPEC §5) ------------------------------------------------------
 arm:
-  # Named joint configurations (rad). All three point the gripper straight down.
-  stow: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]    # compact, inside the base footprint: for driving
-  carry: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]   # holding an object while driving (same pose as stow for now)
-  ready: [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785]   # above the workspace: start and end of skills
   max_joint_vel: 1.2        # rad/s
   max_joint_acc: 3.0        # rad/s^2
   cart_speed: 0.12          # m/s along Cartesian lines
@@ -75,12 +60,10 @@ arm:
   joint_tolerance: 0.02     # rad: a move is done when every joint is this close to its target
   tracking_tolerance: 0.25  # rad: falling this far behind the commanded target means the arm is blocked
   settle_s: 1.5             # time allowed to converge after the last target
-
-gripper:
-  open_width: 0.085         # m between the pads, fully open
-  min_holding_width: 0.012  # closed further than this: nothing between the fingers
-  settle_s: 1.2             # max wait for the fingers to stop moving
-  grasp_settle_s: 0.3       # extra wait after closing on an object
+  # Lines the arm's own controller follows (an env with set_arm_pose_target): checked in Cartesian space
+  cart_tracking_tolerance: 0.05   # m: the TCP falling this far behind the commanded pose means the arm is blocked
+  cart_goal_tolerance: 0.005      # m: a line is done when the TCP is this close to its goal ...
+  cart_goal_rot_tolerance_deg: 2.0  # ... and turned this close
 
 skills:
   lift_height: 0.12         # straight up after grasping

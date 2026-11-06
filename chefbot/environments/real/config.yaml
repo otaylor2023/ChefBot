@@ -1,0 +1,47 @@
+# RealEnv: the real robot through the onboard server. The robot itself (arm, gripper, limits) is
+# config/robot_real.yaml; the onboard server's side is chefbot/onboard/config.yaml.
+
+url: ws://127.0.0.1:8765     # after `ssh -L 8765:localhost:8765 tidybot01`
+velocity_horizon_s: 0.5      # a base velocity command becomes a pose target this far ahead
+heartbeat_s: 0.1             # keep-alive while nothing else is sent (the server's watchdog is 0.3 s)
+max_state_age_s: 0.5         # older than this, get_state fails: the link is down
+
+# Camera mounts: the camera (OpenCV axes: x right, y down, z forward) in its parent's frame,
+# parent "base" (floor under the base center, x forward) or "flange". Names match the onboard
+# config's cameras.
+cameras:
+  # The wrist D405 (onboard/calibration/wrist_base.py, 2026-11-03: the card glued on the base by the pole, its size
+  # known, 13 views, 5.3 px rms): 46.4 deg about the flange's z, its view axis 1.0 deg off the flange's z. Checked on a
+  # table marker against the pole camera: 21 mm apart (with the one before: 52 mm, most of it sideways). Views with
+  # the wrist rolled far from the start fit worst (up to 12 px): the camera may shift a little on its holder.
+  # The one before (one 70 mm marker on the table, 18 views, 4.0 px rms; data_2026-11-03/wrist.json, 61.5 deg):
+  #   [[0.47729, -0.87865, -0.01297, 0.03757], [0.87848, 0.47746, -0.01743, -0.04361],
+  #    [0.02151, -0.00308, 0.99976, 0.01946], [0, 0, 0, 1]]
+  wrist:
+    parent: flange
+    T: [[0.69022, -0.7236, 0.00324, 0.03342],
+        [0.72354, 0.69008, -0.01689, -0.04302],
+        [0.00998, 0.01401, 0.99985, 0.02362],
+        [0, 0, 0, 1]]
+  # The pole D455 (onboard/calibration/pole.py --card, 2026-11-05, after the camera was moved on the pole: the hand
+  # card, 17 poses (the camera's frames stopped at the 18th), 0.81 px rms, 1.37 px the worst pose;
+  # data_2026-11-05/pole_card.json): 0.25 m behind the base center, 0.27 m left, 1.03 m up, looking forward 9.5 deg
+  # down. Its height comes through config/robot_tidybot_fr3.yaml's arm_mount (0.335 m, the sim base's; the real plate
+  # is 0.44 m up, measured 2026-11-03: in this frame's z the camera is 0.105 m low, relative to the arm exact). Its
+  # mount isn't very stable: `track` has environments/real keep the pose current from the hand card in its frames
+  # (mount_track.py). The 2026-11-03 one (26 poses, 1.0 px; data_2026-11-03/pole_card.json), before the move:
+  #   [[-0.2232, -0.17032, 0.95978, -0.25133], [-0.9567, -0.15043, -0.24918, 0.26013],
+  #    [0.18682, -0.97384, -0.12937, 1.03593], [0, 0, 0, 1]]
+  pole:
+    parent: base
+    T: [[-0.30537, -0.15884, 0.93889, -0.25078],
+        [-0.95223, 0.04748, -0.30168, 0.27199],
+        [0.00334, -0.98616, -0.16575, 1.02511],
+        [0, 0, 0, 1]]
+    track:
+      # the hand card (targets.py, ids 4-6) on the flange, from the same calibration (data_2026-11-05/pole_card.json;
+      # within 3 mm and 2 deg of 2026-11-03's: the card hasn't moved on the hand)
+      T_flange_card: [[-0.72825, -0.00911, -0.68525, -0.02043],
+                      [-0.68482, -0.02829, 0.72816, 0.01083],
+                      [-0.02602, 0.99956, 0.01437, 0.06226],
+                      [0, 0, 0, 1]]

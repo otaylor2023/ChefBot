@@ -1,0 +1,5 @@
+# The contact model of the materials these fingers are printed in, as the gripper lab simulated them
+# (agentic-skills generators/gripper/materials.py): friction (MuJoCo's sliding, torsional, rolling), contact softness
+# (solref time constant, s: larger is softer) and density (g/cm3).
+PETG: {friction: [0.35, 0.004, 0.0001], solref: 0.002, condim: 3, density: 1.27}
+TPU 85A: {friction: [0.95, 0.004, 0.0001], solref: 0.008, condim: 4, density: 1.20}  # printed in 85A (the shop's 0.6 mm H2C setup); the lab designed it in 90A (friction 0.90, solref 0.006)

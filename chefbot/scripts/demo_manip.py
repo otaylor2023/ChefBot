@@ -4,7 +4,7 @@ In-process, saving a video and a JSON trace to rollouts/:
     python -m chefbot.scripts.demo_manip --env robocasa
 
 Against a RobotServer (no video: the simulator is in the other process):
-    python -m chefbot.envs.robocasa.serve                                # terminal 1
+    python -m chefbot.environments.robocasa.serve                                # terminal 1
     python -m chefbot.scripts.demo_manip --remote ws://127.0.0.1:8765    # terminal 2
 """
 
@@ -82,12 +82,12 @@ def main() -> int:
         ok = bool(log) and all(step["success"] for step in log) and log[-1]["tool"] == "holding"
         print(f"\nwrote {video}")
     else:
-        from chefbot.envs.robocasa.config import RoboCasaConfig
+        from chefbot.environments.robocasa.config import RoboCasaConfig
 
         config = RoboCasaConfig.load(layout=args.layout, style=args.style)
         close = []
         if args.env == "robocasa":
-            from chefbot.envs.robocasa.serve import build_stack
+            from chefbot.environments.robocasa.serve import build_stack
 
             stack = build_stack(config)
             robot, detector, map_path = stack.robot, stack.detector, stack.semantic_map_path

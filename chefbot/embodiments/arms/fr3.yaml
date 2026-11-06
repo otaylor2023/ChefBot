@@ -1,0 +1,44 @@
+# The Franka Research 3 on the real TidyBot++ (tidybot01), driven by OpenSai.
+# Lengths in meters, angles in radians unless a key says _deg.
+
+kinematics:
+  mjcf: fr3_kinematics.xml
+  flange_body: fr3_link7
+  flange_site: attachment_site
+  shoulder: [0.0, 0.0, 0.333]
+  max_shoulder_to_flange: 0.95
+  position_seeds:
+    - [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
+    - [0.0, 0.6, 0.0, -1.2, 0.0, 1.8, -0.7853]
+    - [0.0, -0.6, 0.0, -2.4, 0.0, 1.8, -0.7853]
+  pose_seeds:
+    - [0.0, -0.5, 0.0, -2.0, 0.0, 3.07, 0.785]
+    - [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
+
+# The real FR3's limits (Franka's datasheet; interface/workspace.py LIMITS), 0.06 rad inside them: just inside the
+# real host's guard (0.05), so the IK never plans a pose the robot would refuse. (The MJCF's own are wider: joint 1
+# +-2.90 not +-2.74, joint 4 down to -3.08 not -3.04, joint 6 0.44-4.62 not 0.54-4.52.)
+joint_limits:
+  - [-2.6837, 2.6837]
+  - [-1.7237, 1.7237]
+  - [-2.8407, 2.8407]
+  - [-2.9821, -0.2118]
+  - [-2.7465, 2.7465]
+  - [0.6045, 4.4569]
+  - [-2.9559, 2.9559]
+
+postures:
+  stow: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
+  carry: [0.0, -1.16, 0.0, -2.32, 0.0, 1.16, 0.785]
+  ready: [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785]
+
+# The arm's own controller on the real robot. Pose targets (Env.set_arm_pose_target) are for the
+# point it moves, given here relative to the flange; the onboard side passes them through unchanged.
+driver:
+  # OpenSai's cartesian_task (onboard/bringup/chefbot_fr3.xml): OpenSai's own panda_arm_sphere.urdf, whose
+  # `end-effector` is the flange (link7 + 0.107), plus compliantFrame (0 0 0.13065): the Franka Hand's TCP
+  # (0.1034) on the 27.25 mm camera holder. (ZitiBot's zitibot_panda.xml had 0.1224.)
+  # TODO(verify on the robot): `python -m chefbot.environments.real.check` compares this against OpenSai.
+  control_point:
+    xyz: [0.0, 0.0, 0.13065]
+    yaw_deg: 0.0

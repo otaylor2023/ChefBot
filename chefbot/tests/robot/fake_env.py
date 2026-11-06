@@ -97,8 +97,8 @@ class FakeEnv(Env):
         self.arm_target = np.array(q, dtype=float)
         self.arm_targets.append((self.time, self.arm_target.copy()))
 
-    def set_gripper(self, closed: bool) -> None:
-        self.gripper_closed = bool(closed)
+    def set_gripper(self, closed: float) -> None:
+        self.gripper_closed = float(closed) >= 0.5
         self.gripper_commands.append(self.gripper_closed)
 
     def tcp(self) -> np.ndarray | None:
