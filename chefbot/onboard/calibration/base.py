@@ -1,5 +1,5 @@
 """The base's mocap frame from driving it by hand: Motive's up axis, the marker's heading offset and its place on
-the base. Recording only reads Redis; the driving is yours, with the gamepad (bringup/gamepad.py).
+the base. Recording only reads Redis; the driving is yours, with the gamepad (bringup/gamepad.sh --one-axis: one motion at a time).
 
     python -m chefbot.onboard.calibration.base record forward.jsonl   # one recording per move, robot still at both ends:
     python -m chefbot.onboard.calibration.base record back.jsonl      #   forward / back / left / right: straight, no turning,

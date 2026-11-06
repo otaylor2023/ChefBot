@@ -123,7 +123,7 @@ def test_record_only_reads_and_logs_raw_samples(tmp_path):
 
 
 def test_a_sloppy_stick_reaches_the_base_as_one_clean_motion():
-    from chefbot.onboard.bringup.gamepad import one_axis
+    from chefbot.onboard.drivers.base.teleop import one_axis
 
     assert one_axis(-0.9, 0.2, 0.3) == (-0.9, 0.0, 0.0)  # mostly up (forward): sideways and turn dropped
     assert one_axis(0.15, -0.7, 0.0) == (0.0, -0.7, 0.0)  # mostly sideways
@@ -132,7 +132,7 @@ def test_a_sloppy_stick_reaches_the_base_as_one_clean_motion():
 
 
 def test_one_axis_joystick_passes_buttons_through():
-    from chefbot.onboard.bringup.gamepad import OneAxisJoystick
+    from chefbot.onboard.drivers.base.teleop import OneAxisJoystick
 
     class Pad:
         axes = {0: 0.2, 1: -0.9, 3: 0.4}
@@ -167,7 +167,7 @@ def test_the_line_fit_ignores_a_wobble_at_the_end(tmp_path):
 
 
 def test_echo_shows_what_gamepad_teleop_would_send():
-    from chefbot.onboard.bringup.gamepad import command
+    from chefbot.onboard.drivers.base.teleop import command
 
     # Stick pushed up and a bit right (pygame: up is negative axis 1, right is positive axis 0), right stick nudged.
     vx, vy, w = command(-1.0, 0.3, 0.4, vel=0.2, yaw_vel=0.5, snap=True)

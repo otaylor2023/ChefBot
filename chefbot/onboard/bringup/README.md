@@ -25,10 +25,21 @@ msgpack, msgpack-numpy, opencv; no planning, IK or simulator.
    driver stops, the teleop below starts; Start on the gamepad begins) and **b** gives it back to its driver (its
    odometry starts over). `--no-arm-driver` if one is already running;
    `arm.sh` is just the arm driver and OpenSai; `float.sh` just the arm driver (the arm floating on zero torques);
-   `mocap.sh` alone runs just the mocap publisher, printing each frame.
+   `base.sh` just the base (`--no-arm`: the base driver, mocap and the server; refused while an arm driver runs unless
+   `--allow-arm`); `mocap.sh` alone runs just the mocap publisher, printing each frame.
 4. To drive the base by hand: `gamepad.sh` (the TidyBot++ gamepad teleop, `onboard/drivers/base/gamepad_teleop.py`,
-   in the zitibot env, at the `teleop` speed profile; `--profile NAME` for another, never over the base cap). Not while a base driver runs: start launch.sh with `--no-base`,
-   or use it alone.
+   through `teleop.py`, in the zitibot env, at the `teleop` speed profile; `--profile NAME` for another, never over the
+   base cap). `--one-axis`: one motion at a time (the mocap marker calibration's drives, `calibration/base.py`);
+   `--echo`: the stick and the command it would send, no base. Not while a base driver runs (except `--echo`): use
+   launch.sh's **g**, start launch.sh with `--no-base`, or use it alone.
+
+## Navigation on the robot itself
+
+`scripts/real_nav.py` and `scripts/real_park.py` can run on the NUC against the server there (`--url
+ws://127.0.0.1:8765`), so the drive loop never crosses the wifi (PR #2's kitchen runs: 60 of 60 trips). They are the
+robot layer (robot/, embodiments/), not onboard code, so they need its dependencies (mujoco, mink, ...), which the
+server's env (`~/chefbot_calib/env`) doesn't have: run them in an env that does (on 2026-11-05, Jack's
+`~/miniforge3/envs/chefbot-movement`), with the repo on PYTHONPATH. `docs/kitchen-runbook.md` has the commands.
 
 Then, read-only, on the robot: `python -m chefbot.onboard.check` (which drivers are up, nothing moves).
 From the laptop: `chefbot/environments/real/up.sh` (the tunnel and the vision server), then

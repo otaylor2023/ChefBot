@@ -10,7 +10,9 @@
 # The base driver must not be running (both would hold the CAN bus): this refuses if it is (launch.sh or base.sh
 # started it; or start launch.sh with --no-base).
 #
-# Usage: chefbot/onboard/bringup/gamepad.sh [--profile NAME]
+# Usage: chefbot/onboard/bringup/gamepad.sh [--profile NAME] [--one-axis] [--echo]
+#   --one-axis: one motion at a time (calibration drives: onboard/calibration/base.py); --echo: print the stick and
+#   the command only, no base (the base driver may run)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -18,19 +20,23 @@ DRIVER_DIR="$(cd "$HERE/../drivers/base" && pwd)"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
 BASE_PYTHON="${BASE_PYTHON:-$HOME/miniforge3/envs/zitibot/bin/python}"  # phoenix6, ruckig, pygame
 PROFILE=teleop
+EXTRA=()
+ECHO=false
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--profile) PROFILE="$2"; shift 2 ;;
-		-h | --help) sed -n '2,14p' "$0"; exit 0 ;;
+		--one-axis) EXTRA+=(--one-axis); shift ;;
+		--echo) EXTRA+=(--echo); ECHO=true; shift ;;
+		-h | --help) sed -n '2,16p' "$0"; exit 0 ;;
 		*) echo "unknown option: $1" >&2; exit 1 ;;
 	esac
 done
 
 [[ -x "$BASE_PYTHON" ]] || { echo "no python at $BASE_PYTHON (set BASE_PYTHON)" >&2; exit 1; }
-if pgrep -f "[d]rivers/base/driver.py" >/dev/null || pgrep -f "[t]idybot_base/redis_driver.py" >/dev/null; then
+if ! $ECHO && { pgrep -f "[d]rivers/base/driver.py" >/dev/null || pgrep -f "[t]idybot_base/redis_driver.py" >/dev/null; }; then
 	echo "a base driver is running (it holds the CAN bus): stop it first (launch.sh --no-base, or Ctrl-C base.sh)" >&2
 	exit 1
 fi
 
 cd "$DRIVER_DIR"  # gamepad_teleop imports base_controller, which imports constants and utils, by name
-PYTHONPATH="$REPO_ROOT" exec "$BASE_PYTHON" "$DRIVER_DIR/teleop.py" --profile "$PROFILE"
+PYTHONPATH="$REPO_ROOT" exec "$BASE_PYTHON" "$DRIVER_DIR/teleop.py" --profile "$PROFILE" ${EXTRA[@]+"${EXTRA[@]}"}

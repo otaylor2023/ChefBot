@@ -9,10 +9,14 @@
 #   4) the mocap publisher (mocap.sh, next to this script; skipped with a warning off SRC wifi)
 #   5) python -m chefbot.onboard.server, in the foreground
 # Ctrl-C stops them all (the arm driver first: the arm's brakes hold it). Desk first: joints unlocked, FCI on.
-# arm.sh, next to this script, is just 0) and 1); float.sh just 0) (the arm floating, gravity compensated: move it by hand).
+# arm.sh, next to this script, is just 0) and 1); float.sh just 0) (the arm floating, gravity compensated: move it by hand);
+# base.sh just 3) to 5) (--no-arm).
 #
-# Usage: chefbot/onboard/bringup/launch.sh [--no-arm-driver] [--no-opensai] [--no-gripper] [--no-base] [--no-mocap] [--no-server]
-#   (--no-arm-driver: one is already running, started by hand)
+# Usage: chefbot/onboard/bringup/launch.sh [--no-arm] [--allow-arm] [--no-arm-driver] [--no-opensai] [--no-gripper]
+#        [--no-base] [--no-mocap] [--no-server]
+#   --no-arm-driver: one is already running, started by hand. --no-arm: no arm at all (no arm driver, OpenSai or
+#   gripper): refused while an arm driver runs (the server's halt would hold an arm someone else started) unless
+#   --allow-arm.
 # Paths and limits come from the environment, with these defaults:
 set -euo pipefail
 
@@ -31,24 +35,32 @@ print(c["vel"][0], c["vel"][2], c["accel"][0], c["accel"][2])') || true
 READY_TIMEOUT_S=90
 SERVER_PORT="${SERVER_PORT:-8765}"  # keep equal to onboard/config.yaml server.port
 
-ARM_DRIVER=true OPENSAI=true GRIPPER=true BASE=true MOCAP=true SERVER=true
+ARM_DRIVER=true OPENSAI=true GRIPPER=true BASE=true MOCAP=true SERVER=true NO_ARM=false ALLOW_ARM=false
 for arg in "$@"; do
 	case "$arg" in
+		--no-arm) NO_ARM=true ARM_DRIVER=false OPENSAI=false GRIPPER=false ;;
+		--allow-arm) ALLOW_ARM=true ;;
 		--no-arm-driver) ARM_DRIVER=false ;;
 		--no-opensai) OPENSAI=false ;;  # nothing holds the arm: it floats on the driver's zero torques
 		--no-gripper) GRIPPER=false ;;
 		--no-base) BASE=false ;;
 		--no-mocap) MOCAP=false ;;
 		--no-server) SERVER=false ;;
-		-h | --help) sed -n '2,20p' "$0"; exit 0 ;;
+		-h | --help) sed -n '2,24p' "$0"; exit 0 ;;
 		*) echo "unknown option: $arg" >&2; exit 1 ;;
 	esac
 done
 
 GRIPPER_DIR="$OPENSAI_DIR/drivers/FrankaPanda/redis_driver"  # the arm driver's too
-for f in "$OPENSAI_DIR/bin/OpenSai_main" "$OPENSAI_DIR/scripts/launch.sh"; do
-	[[ -e "$f" ]] || { echo "missing $f (OPENSAI_DIR=$OPENSAI_DIR)" >&2; exit 1; }
-done
+if $OPENSAI; then
+	for f in "$OPENSAI_DIR/bin/OpenSai_main" "$OPENSAI_DIR/scripts/launch.sh"; do
+		[[ -e "$f" ]] || { echo "missing $f (OPENSAI_DIR=$OPENSAI_DIR)" >&2; exit 1; }
+	done
+fi
+if $NO_ARM && ! $ALLOW_ARM && pgrep -f "[s]ai_franka_robot_redis_driver" >/dev/null; then
+	echo "the Franka arm driver is running: stop it (and lock the joints) or pass --allow-arm" >&2
+	exit 1
+fi
 $GRIPPER && { [[ -f "$GRIPPER_DIR/launch_gripper.sh" ]] || { echo "missing $GRIPPER_DIR/launch_gripper.sh" >&2; exit 1; }; }
 $BASE && { [[ -f "$BASE_DRIVER_DIR/driver.py" && -x "$BASE_PYTHON" ]] || { echo "missing the base driver or $BASE_PYTHON" >&2; exit 1; }; }
 
@@ -272,6 +284,8 @@ PIDS+=($!)
 NAMES[$!]="OpenSai"
 wait_for_key "::sai-interfaces-webui::config_file_name" "$(basename "$OPENSAI_CONFIG")" "$READY_TIMEOUT_S"
 echo "1) OpenSai: up (holding the arm)"
+elif $NO_ARM; then
+	echo "0-2) no arm (--no-arm): no arm driver, OpenSai or gripper"
 else
 	# zero torques: floating (SET, never DEL: the driver reads this key every tick, and a missing one kills it,
 	# "Could not deserialize custom string to eigen data", 1.1 s in: 2026-11-03)
@@ -288,7 +302,7 @@ if $GRIPPER; then
 	wait_for_key "opensai::FrankaRobot::gripper::ready" "1" 30
 	echo "2) Franka gripper driver: up (homed)"
 else
-	echo "2) gripper driver skipped"
+	$NO_ARM || echo "2) gripper driver skipped"
 fi
 
 if $BASE; then
