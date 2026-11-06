@@ -57,8 +57,10 @@ def _effect(st: dict, names: dict[str, str]) -> str:
     v, what, where = st["verb"], _names(st, names), _where(st)
     loc = f" in the {where}" if where else ""
     d = st["done_when"]
-    if d["kind"] in ("visual", "texture", "temp") and (d.get("raw") or d.get("target")):
-        cue = d.get("raw") or f"until {d['target']}"
+    cue = d.get("raw") or (f"until {d['target']}" if d.get("target") else None)
+    if v == "heat" and d["kind"] in ("visual", "texture", "temp") and cue:
+        return f"the {where or 'pan'} is on a burner that is on, {cue}"
+    if d["kind"] in ("visual", "texture", "temp") and cue:
         return f"the {what}{loc} {_be(what)} {PAST.get(v, v + 'ed')}, {cue}"
     where = where or "its container"
     if v == "heat":
@@ -125,7 +127,9 @@ def compile_job(actions: dict, name: str | None = None, include_unsupported: boo
         if deps:
             step["depends_on"] = deps
         if hint:
-            step["hint"] = "; ".join(hint)
+            step["hint"] = "; ".join(dict.fromkeys(h for h in hint
+                                                   if not (h.startswith("recipe says: until") and
+                                                           any(x.startswith("recipe says: ") and h[13:] in x and x != h for x in hint))))
         steps.append(step)
     title = ins.get("title") or "recipe"
     return {
