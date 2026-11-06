@@ -62,7 +62,7 @@ def test_a_tools_needs_come_from_its_file():
 def test_the_agent_tools_filter_only_touches_registered_tools():
     tools, registry = names(ALL_CAPABILITIES, agent_tools=("detect", "wait"))
     assert {"detect", "wait"} <= tools and not {"nearby", "holding", "get_pose", "get_status", "stop"} & tools
-    assert {"go_to", "pick", "stir"} <= tools  # the robot-moving tools are not chefbot/tools'
+    assert {"go_to", "pick_up", "stir"} <= tools  # the robot-moving tools are not chefbot/tools'
     assert registry.dispatch("nearby", {}).error == "unknown_tool"
 
 
@@ -133,7 +133,7 @@ def test_an_agent_without_some_tools_is_not_offered_them(tmp_path):
     llm, start = _run(tmp_path / "runs", agent=str(d))
     offered = {t["function"]["name"] for t in llm.requests[0]["tools"]}
     assert not {"set_timer", "cancel_timer", "watch"} & offered
-    assert {"detect", "wait", "complete", "finish", "go_to", "pick"} <= offered
+    assert {"detect", "wait", "complete", "finish", "go_to", "pick_up"} <= offered
     assert len(offered) == 27
 
 

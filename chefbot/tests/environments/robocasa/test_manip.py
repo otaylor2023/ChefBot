@@ -52,7 +52,7 @@ def fetch(call, label: str):
     result = call("align", id=target)
     if not result.success:
         return result
-    return call("pick", id=target)
+    return call("pick_up", id=target)
 
 
 # -- env: arm and gripper ------------------------------------------------------
@@ -164,7 +164,7 @@ def test_pick_without_align_from_far_away_is_unreachable(session):
         if seen is not None and ids(seen):
             break
     assert seen is not None and ids(seen) == ["mug"], "no far-away spot with a view of the mug"
-    result = session.call("pick", id="mug")
+    result = session.call("pick_up", id="mug")
     assert result.error == "unreachable" and "align" in result.message
     assert stack.object_position("mug") == pytest.approx(mug, abs=1e-3)
     assert session.call("holding").data["holding"] is None
@@ -175,11 +175,11 @@ def test_wrong_kind_calls_fail_through_the_normal_path(session):
     session.call("detect", classes=["mug", "cutting board", "counter"])
     counter = session.stack.world_map.get("mug").inside
     assert session.call("align", id=counter).success
-    not_graspable = session.call("pick", id=counter)
+    not_graspable = session.call("pick_up", id=counter)
     assert not_graspable.error == "no_grasp" and "no graspable object" in not_graspable.message
     assert session.call("open", id="mug").error == "unsupported"
     if "cutting board" in ids(session.call("nearby"), "visible"):
-        assert session.call("pick", id="cutting board").error in ("no_grasp", "unreachable")
+        assert session.call("pick_up", id="cutting board").error in ("no_grasp", "unreachable")
 
 
 # -- carry and place -----------------------------------------------------------
@@ -291,7 +291,7 @@ def test_demo_manip_trace(session):
     failed = "\n".join(f"{name}: {r.error} {r.message}" for name, r in steps if not r.success)
     assert finished, f"{failed}\nlast contact: {env.last_contact}"
     assert [name for name, _ in steps] == [
-        "go_to", "detect", "align", "open", "detect", "align", "pick", "close",
+        "go_to", "detect", "align", "open", "detect", "align", "pick_up", "close",
         "go_to", "detect", "align", "place", "holding",
     ]  # fmt: skip
     counter = next(f for f in named_fixtures(env) if f.name == "counter_1")

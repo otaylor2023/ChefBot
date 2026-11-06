@@ -13,7 +13,7 @@ description: >-
   Drive across the kitchen to a place on the map (a fixture such as the stove or fridge, or a mapped object).
   This is coarse navigation: it leaves the robot standing near the place and facing it, not within arm's
   reach of anything in particular. It is step 1 of the workflow for moving something: go_to a fixture
-  -> detect what you need -> align to it -> pick it -> go_to where it goes -> detect -> align to the spot
+  -> detect what you need -> align to it -> pick_up it -> go_to where it goes -> detect -> align to the spot
   -> place. (nearby lists everything around you at any point.) The arm tucks itself in before the base
   moves, and keeps hold of whatever it is carrying. Fails with unknown_place (the message lists the known
   places), no_path, blocked, timeout or stopped; grasp_failed means the carried object was dropped on

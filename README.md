@@ -42,9 +42,9 @@ Skills and the labs that make them follow agentic-skills-exploration's split, on
 | `labs/` | Lab configs, briefs and example skills |
 | `jobs/` | The cooking agent's jobs (`fried_egg.yaml`, ...): goal, plan and success conditions |
 
-Tools: `go_to`, `detect`, `nearby`, `align`, `pick`, `place`, `open`, `close`,
+Tools: `go_to`, `detect`, `nearby`, `align`, `pick_up`, `place`, `open`, `close`,
 `holding`, `wait`, `get_status`, `stop`, `get_pose`. The workflow they are built
-around is `go_to -> detect -> align -> pick -> go_to -> detect -> align -> place`.
+around is `go_to -> detect -> align -> pick_up -> go_to -> detect -> align -> place`.
 
 ## Setup
 
@@ -212,7 +212,7 @@ scored by.
 
 | Task | What it tests |
 |---|---|
-| `mug_to_counter` | the basics: go_to, detect, align, pick, place, complete |
+| `mug_to_counter` | the basics: go_to, detect, align, pick_up, place, complete |
 | `egg_to_pan` | fridge open / close, dependencies |
 | `fried_egg` | burners, timers or monitors, a waiting step done in parallel with another |
 | `fried_egg_pause` | a long second task; the egg is ready partway through it |
@@ -254,9 +254,10 @@ episode on a host that resets the scene, and nothing yet keeps one scene across 
 complete, set_status, add_step, skip_step, request_replan, finish; time: set_timer,
 cancel_timer, watch). A file holds the schema the LLM sees, its handler (`entry`), the
 robot capabilities it `needs` and the robot APIs it works with (`interfaces`). An agent
-lists the ones it gets. The 14 that move the robot (go_to, align, pick, place, open,
+lists the ones it gets. The 14 that move the robot (go_to, align, pick_up, place, open,
 close, turn_on, turn_off, lower_into, lift_out, squeeze, release, stir, pour) are skills,
-`skills/<name>/robotapi_v1/`: robot-api-v1, not sandboxed, `envs: [symbolic, robocasa]`, a
+`skills/<name>/robotapi_v1/` (pick_up's is `skills/pick_up/robotapi_v1`, beside the lab's pick_up
+versions; it runs the agent's pick code): robot-api-v1, not sandboxed, `envs: [symbolic, robocasa]`, a
 `main.py` whose `run(ctx, ...)` calls the agent's tool code (`agent/tools/`) on the session's
 RobotAPI.
 
@@ -359,7 +360,7 @@ Things that differ from the spec, or that it did not anticipate:
   it). Each turn's task state shows it as the KITCHEN block, with doors and
   burners as the agent last left them or saw them (`Detection.state`).
 - **Start set.** Egg, mug, bowl (rim), bottle and pan (handle) can be picked;
-  the cutting board is a place target only (`pick` returns `no_grasp`).
+  the cutting board is a place target only (`pick_up` returns `no_grasp`).
 - **Physics settings.** MuJoCo's no-slip solver is on (`noslip_iterations`):
   without it a held mug creeps out of the fingers within seconds. With it, the
   base's joint friction is a hard threshold, so the mobile base's own geoms are

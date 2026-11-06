@@ -25,24 +25,24 @@ def names(caps, **kw):
 
 def test_tools_follow_the_robots_capabilities():
     basic, _ = names({BASE, GRASP, ARTICULATE})  # e.g. RoboCasa today
-    assert {"go_to", "pick", "open", "detect", "wait"} <= basic
+    assert {"go_to", "pick_up", "open", "detect", "wait"} <= basic
     assert not {"turn_on", "squeeze", "stir", "pour", "lower_into"} & basic
     full, _ = names(ALL_CAPABILITIES)
     assert {"turn_on", "turn_off", "lower_into", "lift_out", "squeeze", "release", "stir", "pour"} <= full
     stationary, _ = names({GRASP})
-    assert "go_to" not in stationary and "pick" in stationary
+    assert "go_to" not in stationary and "pick_up" in stationary
 
 
 def test_runs_can_withhold_tools():
     tools, registry = names(ALL_CAPABILITIES, exclude=("pour", "stir"))
     assert "pour" not in tools and "stir" not in tools and "squeeze" in tools
     assert registry.dispatch("pour", {"id": "x"}).error == "unknown_tool"
-    only, _ = names(ALL_CAPABILITIES, only=("go_to", "detect", "pick", "place"))
-    assert only == {"go_to", "detect", "pick", "place"}
+    only, _ = names(ALL_CAPABILITIES, only=("go_to", "detect", "pick_up", "place"))
+    assert only == {"go_to", "detect", "pick_up", "place"}
 
 
 def test_the_prompt_explains_only_the_tools_offered():
-    assert "HANDHELD TOOLS" not in system_prompt({"go_to", "pick"})
-    assert "HANDHELD TOOLS" in system_prompt({"go_to", "pick", "stir"})
+    assert "HANDHELD TOOLS" not in system_prompt({"go_to", "pick_up"})
+    assert "HANDHELD TOOLS" in system_prompt({"go_to", "pick_up", "stir"})
     assert "TRIGGER TOOLS" in system_prompt({"squeeze"}) and "TRIGGER TOOLS" not in system_prompt({"stir"})
     assert system_prompt({"stir", "pour"}).count("HANDHELD TOOLS") == 1

@@ -42,7 +42,7 @@ def test_its_settings_and_loop_are_what_the_config_loaders_default_to():
 
 def test_its_prompts_are_the_ones_the_harness_uses_by_default():
     a = agents.load(agents.DEFAULT)
-    for tools in (set(), {"go_to", "pick"}, {"stir", "squeeze"}):
+    for tools in (set(), {"go_to", "pick_up"}, {"stir", "squeeze"}):
         assert system_prompt(tools, a.prompts_dir) == system_prompt(tools)
 
 

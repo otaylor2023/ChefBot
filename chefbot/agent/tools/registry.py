@@ -1,7 +1,7 @@
 """Tool registry: function-calling schemas for the LLM, and dispatch.
 
 The workflow the descriptions teach:
-    go_to -> detect -> align -> pick -> go_to -> detect -> align -> place
+    go_to -> detect -> align -> pick_up -> go_to -> detect -> align -> place
 
 Constructed with a RobotAPI and a Detector; it never knows which env is behind them. The tools that do
 not move the robot (detect, wait, the plan's and time's) are defined in chefbot/tools; the ones that do
@@ -45,7 +45,7 @@ def _tool(name: str, description: str, properties: dict | None = None, required:
 
 # The tools that move the robot are skills (skills/<name>/robotapi_v1, robot-api-v1: run(ctx, **args) in this
 # process); the rest are chefbot/tools'. In the order the LLM sees them.
-ROBOT_SKILLS = ("go_to", "align", "pick", "place", "open", "close", "turn_on", "turn_off",
+ROBOT_SKILLS = ("go_to", "align", "pick_up", "place", "open", "close", "turn_on", "turn_off",
                 "lower_into", "lift_out", "squeeze", "release", "stir", "pour")  # fmt: skip
 SKILLS = {name: skills.load(f"{name}/robotapi_v1") for name in ROBOT_SKILLS}
 
@@ -69,7 +69,7 @@ TOOL_SCHEMAS: list[dict] = [
     toolbox.schema("get_status"),
     toolbox.schema("stop"),
     toolbox.schema("get_pose"),
-    *(SKILLS[name].schema for name in ("pick", "place", "open", "close", "turn_on", "turn_off")),
+    *(SKILLS[name].schema for name in ("pick_up", "place", "open", "close", "turn_on", "turn_off")),
     toolbox.schema("holding"),
 ]
 

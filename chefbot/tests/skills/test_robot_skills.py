@@ -30,9 +30,9 @@ def test_the_registry_offers_their_schemas():
 
 
 def test_a_skills_needs_decide_whether_it_is_offered():
-    assert SKILLS["go_to"].needs == {BASE} and SKILLS["pick"].needs == {GRASP}
+    assert SKILLS["go_to"].needs == {BASE} and SKILLS["pick_up"].needs == {GRASP}
     stationary, _ = names({GRASP})
-    assert "pick" in stationary and "go_to" not in stationary and "stir" not in stationary
+    assert "pick_up" in stationary and "go_to" not in stationary and "stir" not in stationary
 
 
 def test_dispatch_runs_the_skills_main():
@@ -70,7 +70,8 @@ def test_each_main_calls_its_tools_method_on_the_right_owner(name):
             for a, spec in s.args.items()}  # fmt: skip
     assert s.function()(Ctx(log), **args).success
     [(owner, method, passed)] = log
-    assert method == name and hasattr(OWNERS[owner], name)
+    method_of = {"pick_up": "pick"}.get(name, name)  # the pick_up skill runs the agent's pick tool
+    assert method == method_of and hasattr(OWNERS[owner], method_of)
     assert passed == tuple(args.values())
 
 

@@ -73,7 +73,7 @@ class TaskState:
         # Unproductive calls over the whole run (the window only keeps the last few):
         # key -> [count, last time, what happened].
         self._fruitless: dict[str, list] = {}
-        # go_to visits since the last progress (a pick, place, open/close, turn on/off or completed step).
+        # go_to visits since the last progress (a pick_up, place, open/close, turn on/off or completed step).
         self._visits: dict[str, int] = {}
 
     def record(self, tool: str, args: dict, result: ToolResult) -> None:
@@ -124,7 +124,7 @@ class TaskState:
                 lines.append(f"  {call} {outcome} x{count}, last {_duration(self._clock.now() - last)} ago")
             if circling:
                 lines.append("  went to " + ", ".join(f"{p} {n}x" for p, n in sorted(circling, key=lambda pn: -pn[1]))
-                             + " since your last progress (pick, place, open/close, turn on/off, complete)")  # fmt: skip
+                             + " since your last progress (pick_up, place, open/close, turn on/off, complete)")  # fmt: skip
         lines += ["", *self._kitchen_lines()]
         lines += ["", "EVENTS SINCE LAST TURN"]
         lines += [f"  [{e.kind}] {e.message}" for e in events] or ["  none"]
@@ -328,7 +328,7 @@ def _row(indent: str, place: str, contents: str, width: int = 30) -> str:
     return f"{head:<{width}}  {contents}" if len(head) < width else f"{head}   {contents}"
 
 
-_PROGRESS = {"pick", "place", "open", "close", "turn_on", "turn_off", "complete"}
+_PROGRESS = {"pick_up", "place", "open", "close", "turn_on", "turn_off", "complete"}
 _OPENABLE = {"fridge", "cabinet", "microwave", "oven", "drawer", "dishwasher"}
 _CONTAINERS = {"fridge", "cabinet", "microwave", "drawer", "oven", "toaster", "pan", "pot", "bowl", "mug", "sink", "egg cracker"}
 _DID = {"open": "opened", "closed": "closed", "on": "turned on", "off": "turned off"}

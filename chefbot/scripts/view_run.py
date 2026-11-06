@@ -4,7 +4,7 @@
     python -m chefbot.scripts.view_run runs/<dir> --text   # summary + the timeline as text
 
 Mismatches between what a tool said and what ground truth shows are flagged:
-a pick that succeeded with nothing becoming held, a place that succeeded with
+a pick_up that succeeded with nothing becoming held, a place that succeeded with
 the object still held. (The judge's input and verdict for every check are in
 the expanded rows.)
 """
@@ -37,8 +37,8 @@ def mismatches(timeline: list[dict], observed: bool = True) -> list[tuple[dict, 
         if (r.get("data") or {}).get("status") == "moving":
             continue  # woken by an event before the motion ended: nothing to compare yet
         diff = r.get("world_diff") or []
-        if r["tool"] == "pick" and not any(d.startswith("+ held:") and "nothing" not in d for d in diff):
-            found.append((r, "pick succeeded, nothing became held"))
+        if r["tool"] == "pick_up" and not any(d.startswith("+ held:") and "nothing" not in d for d in diff):
+            found.append((r, "pick_up succeeded, nothing became held"))
         if r["tool"] == "place" and not any(d.startswith("+ held: nothing") for d in diff):
             found.append((r, "place succeeded, the object is still held"))
     return found

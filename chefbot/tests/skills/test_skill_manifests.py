@@ -8,7 +8,7 @@ import yaml
 
 from chefbot import skills
 
-ROBOT = [f"{n}/robotapi_v1" for n in ("align", "close", "go_to", "lift_out", "lower_into", "open", "pick", "place", "pour",
+ROBOT = [f"{n}/robotapi_v1" for n in ("align", "close", "go_to", "lift_out", "lower_into", "open", "pick_up", "place", "pour",
                                      "release", "squeeze", "stir", "turn_off", "turn_on")]  # the agent's, robot-api-v1  # fmt: skip
 LAB = ["bringup/v1", "pick_up/astra_v19", "pick_up/chefbot_v30", "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1",
               "pick_up/run1_v32", "tongs_lift/mujoco_tongs1_v34", "tongs_lift/mujoco_tongs2_v17", "tongs_lift/mujoco_tongs3_v59"]  # fmt: skip

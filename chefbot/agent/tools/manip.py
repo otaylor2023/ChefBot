@@ -1,4 +1,4 @@
-"""Manipulation tools: pick, place, open, close, holding.
+"""Manipulation tools: pick (the pick_up skill), place, open, close, holding.
 
 Like the nav tools, these only choose what to act on (a visible id); the
 robot layer decides how. Nothing here knows a grasp pose or a joint angle.
@@ -43,7 +43,7 @@ class ManipTools:
             nav.record_pick(nav.held["id"])
 
         self._robot.pick(_detection(entry))
-        return nav.motion_tool_result(wait, f'pick("{id}")', {"id": id}, on_done)
+        return nav.motion_tool_result(wait, f'pick_up("{id}")', {"id": id}, on_done)
 
     def place(self, id: str, wait: bool = True) -> ToolResult:
         nav = self._nav

@@ -43,7 +43,7 @@ def manip_trace(run: Run, world_map: WorldMap | None = None, counter: str = "cou
         return False
     seen = step("detect", classes=["egg"])
     egg = first(seen, "egg") if seen else None
-    if egg is None or not step("align", id=egg) or not step("pick", id=egg):
+    if egg is None or not step("align", id=egg) or not step("pick_up", id=egg):
         return False
     # The detect above also saw the fridge itself, so it can be closed by name.
     if not step("close", id="fridge") or not step("go_to", place=counter):

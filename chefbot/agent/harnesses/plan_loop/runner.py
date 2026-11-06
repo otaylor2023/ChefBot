@@ -330,6 +330,6 @@ class AgentRunner:
 
 
 # Successful calls that change the kitchen: noted on the active step.
-_NOTED = {"pick", "place", "open", "close", "turn_on", "turn_off", "lower_into", "squeeze", "stir", "pour"}
+_NOTED = {"pick_up", "place", "open", "close", "turn_on", "turn_off", "lower_into", "squeeze", "stir", "pour"}
 # Tools during which a monitor check counts as "monitor" in the log (time passes inside them).
-_MOTION_TOOLS = {"go_to", "align", "pick", "place", "open", "close", "turn_on", "turn_off"}
+_MOTION_TOOLS = {"go_to", "align", "pick_up", "place", "open", "close", "turn_on", "turn_off"}

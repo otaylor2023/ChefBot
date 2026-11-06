@@ -10,7 +10,7 @@ robot: any
 needs:
 - base
 description: >-
-  Fine positioning: move the base so the arm can reach one specific item. Do this before pick, place,
+  Fine positioning: move the base so the arm can reach one specific item. Do this before pick_up, place,
   open or close. The id must be a visible item from nearby() (which includes everything the last detect
   returned). Fails with unknown_id (the message lists what is nearby), not_visible (go_to it first), too_far
   (go_to first), unreachable (no place to stand from which the arm reaches it), no_path, blocked, timeout

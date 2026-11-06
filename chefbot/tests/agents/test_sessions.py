@@ -55,13 +55,13 @@ def test_a_chefbot_v1_session_would_offer_only_the_tools_that_need_no_robot_api(
 def test_the_agent_chooses_its_skills(tmp_path):
     def few(m):
         m.update(name="mover")
-        m["skills"]["include"] = ["go_to/*", "pick/robotapi_v1"]
+        m["skills"]["include"] = ["go_to/*", "pick_up/robotapi_v1"]
 
     d = _copy(tmp_path, few).rename(tmp_path / "mover")
     llm, start = _run(tmp_path / "runs", agent=str(d))
     offered = {t["function"]["name"] for t in llm.requests[0]["tools"]}
-    assert offered & set(ROBOT_SKILLS) == {"go_to", "pick"} and len(offered) == 16 + 2
-    assert start["session"]["skills"] == ["go_to/robotapi_v1", "pick/robotapi_v1"]
+    assert offered & set(ROBOT_SKILLS) == {"go_to", "pick_up"} and len(offered) == 16 + 2
+    assert start["session"]["skills"] == ["go_to/robotapi_v1", "pick_up/robotapi_v1"]
 
 
 @pytest.mark.parametrize(
