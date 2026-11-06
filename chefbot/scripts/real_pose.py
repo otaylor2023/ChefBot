@@ -7,7 +7,7 @@ It sends only heartbeats, and the server halts nothing on disconnect for a clien
 commanded (onboard/server.py), so the drivers' goals stay as they were.
 
 Each line: the base's mocap pose (x, y in m, yaw in deg), how long since the mocap pose last changed,
-the publisher's tracking flag, and the odometry pose in the mocap world if the base driver is up.
+the publisher's tracking flag, and the base driver's odometry if it is up.
 Every sample also goes to runs/real_pose/<time>.jsonl. At the end, a summary: how much of the time
 the pose was live, its spread while live (jitter, if the robot stood still), and the longest
 stretch without a live pose.
@@ -37,7 +37,7 @@ def line(loc: Localization) -> str:
     age = "   -  " if loc.mocap_age_s is None else f"{loc.mocap_age_s * 1000:5.0f}ms"
     status = "LIVE" if loc.live else ("stale" if not loc.mocap_fresh else "lost ")
     return (f"{status:5}  mocap {_pose(loc.mocap_pose)}  age {age}  valid {int(loc.mocap_valid)}  "
-            f"odom->world {_pose(loc.base_pose)}{'' if loc.localized else ' (not localized)'}")  # fmt: skip
+            f"odometry {_pose(loc.odom_pose)}")  # fmt: skip
 
 
 def record(loc: Localization, t: float) -> dict:
@@ -45,8 +45,8 @@ def record(loc: Localization, t: float) -> dict:
         return None if p is None else [p.x, p.y, p.yaw]
 
     return {"t": t, "seq": loc.seq, "live": loc.live, "mocap_pose": pose(loc.mocap_pose), "mocap_valid": loc.mocap_valid,
-            "mocap_fresh": loc.mocap_fresh, "mocap_age_s": loc.mocap_age_s, "base_pose": pose(loc.base_pose),
-            "localized": loc.localized, "state_age_s": loc.state_age_s}  # fmt: skip
+            "mocap_fresh": loc.mocap_fresh, "mocap_age_s": loc.mocap_age_s, "odom_pose": pose(loc.odom_pose),
+            "state_age_s": loc.state_age_s}  # fmt: skip
 
 
 def summarize(samples: list[dict]) -> str:

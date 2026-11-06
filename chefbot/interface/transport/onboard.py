@@ -20,14 +20,14 @@ ARM_POSE = "arm_pose"  # position (3,), orientation (3, 3): the arm controller's
 GRIPPER = "gripper"  # closed: bool (a grasp, or a move to full width, at the onboard config's speed and force)
 GRIPPER_MOVE = "gripper_move"  # width (m), speed (m/s): libfranka's move
 GRIPPER_GRASP = "gripper_grasp"  # speed (m/s), force (N): libfranka's grasp
-BASE_TARGET = "base_target"  # pose: (x, y, yaw) world, max_vel: (vx, vy, vyaw); refused without live mocap
-BASE_TARGET_ODOM = "base_target_odom"  # pose: (x, y, yaw) in the base driver's odometry, max_vel; needs the driver only
+BASE_TARGET_ODOM = "base_target_odom"  # pose: (x, y, yaw) in the base driver's odometry, max_vel: (vx, vy, vyaw); needs
+# the driver only (the client ties odometry to mocap itself: robot/localization.py)
 BASE_HOLD = "base_hold"
 HALT = "halt"
 RGBD = "rgbd"  # id, camera
 CAMERAS_KEEP = "cameras_keep"  # cameras: names opened now and kept open (not closed when idle) until another list or the client goes
 
-COMMANDS = frozenset({ARM_JOINTS, ARM_POSE, GRIPPER, GRIPPER_MOVE, GRIPPER_GRASP, BASE_TARGET, BASE_TARGET_ODOM, BASE_HOLD, HALT})
+COMMANDS = frozenset({ARM_JOINTS, ARM_POSE, GRIPPER, GRIPPER_MOVE, GRIPPER_GRASP, BASE_TARGET_ODOM, BASE_HOLD, HALT})
 
 # robot -> client
 STATE = "state"

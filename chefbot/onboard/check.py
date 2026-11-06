@@ -47,10 +47,9 @@ def main() -> None:
     odom = r.get(K.BASE_POSE)
     line("hb1 base driver", odom is not None, f"odometry = {odom or '-'}")
     line("Mocap", s["mocap_valid"], f"position = {r.get(K.MOCAP_POSITION) or '-'}, tracking_valid = {r.get(K.MOCAP_VALID) or '-'}")
-    if s["base_pose"] is not None:
-        x, y, yaw = s["base_pose"]
-        frame = "world (mocap)" if s["localized"] else "odometry (no mocap yet)"
-        print(f"\nBase pose in {frame}: x = {x:.3f}, y = {y:.3f}, yaw = {math.degrees(yaw):.1f} deg")
+    if s["mocap_pose"] is not None:
+        x, y, yaw = s["mocap_pose"]
+        print(f"\nBase pose by mocap: x = {x:.3f}, y = {y:.3f}, yaw = {math.degrees(yaw):.1f} deg")
 
     print("\nCameras:")
     if not cameras.cameras:

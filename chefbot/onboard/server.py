@@ -127,8 +127,6 @@ class OnboardServer:
                 self.robot.gripper_move(float(m["width"]), float(m["speed"]))
             elif op == P.GRIPPER_GRASP:
                 self.robot.gripper_grasp(float(m["speed"]), float(m["force"]))
-            elif op == P.BASE_TARGET:
-                self.robot.base_target(m["pose"], m["max_vel"])
             elif op == P.BASE_TARGET_ODOM:
                 self.robot.base_target_odom(m["pose"], m["max_vel"])
             elif op == P.BASE_HOLD:

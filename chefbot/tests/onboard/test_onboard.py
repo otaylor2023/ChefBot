@@ -77,32 +77,26 @@ def test_marker_offsets_give_the_base_pose():
     assert (x, y) == pytest.approx((1.0, 0.9))  # the marker is 0.1 m ahead of the center, which faces +y
 
 
-def test_world_and_odometry_round_trip_through_the_tie():
-    frames = BaseFrames()
-    frames.tie([3.0, 4.0, 1.0], [1.0, 2.0, 0.5])
-    np.testing.assert_allclose(frames.to_world([1.0, 2.0, 0.5]), [3.0, 4.0, 1.0], atol=1e-12)
-    goal = np.array([5.0, -1.0, 2.0])
-    np.testing.assert_allclose(frames.to_world(frames.to_odom(goal)), goal, atol=1e-12)
-
-
 # -- robot_io -----------------------------------------------------------------------
 
 
-def test_state_is_in_the_mocap_world_and_carries_on_through_odometry():
+def test_state_reports_odometry_and_mocap_each_as_they_are():
+    # No tie on this side: the robot layer ties them (robot/localization.py).
     redis = FakeRedis(driver_values())
     robot = build(CONFIG, redis).robot
     s = live_state(robot, redis)
-    np.testing.assert_allclose(s["base_pose"], [3.0, 4.0, 1.0], atol=1e-9)
+    np.testing.assert_allclose(s["odom_pose"], [1.0, 2.0, 0.5], atol=1e-9)
     np.testing.assert_allclose(s["mocap_pose"], [3.0, 4.0, 1.0], atol=1e-9)
-    assert s["localized"] and s["mocap_valid"] and s["mocap_fresh"]
+    assert s["mocap_valid"] and s["mocap_fresh"] and "base_pose" not in s
     np.testing.assert_allclose(s["arm_q"], Q)
     assert s["gripper_width"] == pytest.approx(0.0791)
     # Mocap lost; the wheels move the base 0.5 m forward along its odometry heading.
     moved = compose([1.0, 2.0, 0.5], [0.5, 0.0, 0.0])
     redis.values.update({K.MOCAP_VALID: "false", K.BASE_POSE: json.dumps(moved.tolist())})
+    beat(redis)
     s = robot.read_state()
-    assert not s["mocap_valid"] and s["localized"]
-    np.testing.assert_allclose(s["base_pose"], compose([3.0, 4.0, 1.0], [0.5, 0.0, 0.0]), atol=1e-9)
+    assert not s["mocap_valid"] and s["mocap_pose"] is None
+    np.testing.assert_allclose(s["odom_pose"], moved, atol=1e-9)
 
 
 def beat(redis: FakeRedis) -> None:
@@ -110,14 +104,14 @@ def beat(redis: FakeRedis) -> None:
     redis.values[K.BASE_HEARTBEAT] = str(int(redis.values[K.BASE_HEARTBEAT]) + 1)
 
 
-def test_without_mocap_ever_the_world_is_odometry():
+def test_without_mocap_odometry_still_comes():
     redis = FakeRedis(driver_values(valid=False))
     robot = build(CONFIG, redis).robot
     robot.read_state()
     beat(redis)
     s = robot.read_state()
-    assert not s["localized"] and s["base_driver_live"]
-    np.testing.assert_allclose(s["base_pose"], [1.0, 2.0, 0.5])
+    assert s["mocap_pose"] is None and s["base_driver_live"]
+    np.testing.assert_allclose(s["odom_pose"], [1.0, 2.0, 0.5])
 
 
 def test_a_pose_left_in_redis_by_a_dead_publisher_is_never_trusted():
@@ -127,12 +121,12 @@ def test_a_pose_left_in_redis_by_a_dead_publisher_is_never_trusted():
     for _ in range(3):
         s = robot.read_state()
         assert s["mocap_valid"] and not s["mocap_fresh"] and s["mocap_age_s"] is None
-        assert s["mocap_pose"] is None and not s["localized"]
+        assert s["mocap_pose"] is None
         beat(redis)  # the base driver is running
-    np.testing.assert_allclose(s["base_pose"], [1.0, 2.0, 0.5])  # plain odometry
+    np.testing.assert_allclose(s["odom_pose"], [1.0, 2.0, 0.5])
 
 
-def test_a_publisher_that_stops_goes_stale_and_the_world_carries_on_through_odometry():
+def test_a_publisher_that_stops_goes_stale():
     now = [0.0]
     redis = FakeRedis(driver_values())
     robot = build(CONFIG, redis).robot
@@ -141,7 +135,7 @@ def test_a_publisher_that_stops_goes_stale_and_the_world_carries_on_through_odom
     new_frame(redis)
     now[0] = 0.1
     s = robot.read_state()
-    assert s["mocap_fresh"] and s["mocap_age_s"] == pytest.approx(0.0) and s["localized"]
+    assert s["mocap_fresh"] and s["mocap_age_s"] == pytest.approx(0.0)
     # The publisher dies here. Within stale_after_s it cannot be told from a still robot: the frozen
     # pose still counts (the residual window, at most driver_max_vel_xy * stale_after_s of error).
     now[0] = 0.3
@@ -150,13 +144,6 @@ def test_a_publisher_that_stops_goes_stale_and_the_world_carries_on_through_odom
     now[0] = 0.4
     s = robot.read_state()
     assert not s["mocap_fresh"] and s["mocap_valid"] and s["mocap_pose"] is None
-    # From then on the wheels move the base 0.5 m forward and the world pose follows them, not the frozen mocap.
-    moved = compose([1.0, 2.0, 0.5], [0.5, 0.0, 0.0])
-    redis.values[K.BASE_POSE] = json.dumps(moved.tolist())
-    now[0] = 1.0
-    s = robot.read_state()
-    assert s["localized"] and not s["mocap_fresh"]
-    np.testing.assert_allclose(s["base_pose"], compose([3.0, 4.0, 1.0], [0.5, 0.0, 0.0]), atol=1e-9)
 
 
 def test_mocap_alone_gives_the_pose_without_the_base_driver():
@@ -164,7 +151,7 @@ def test_mocap_alone_gives_the_pose_without_the_base_driver():
     values.pop(K.BASE_POSE)
     redis = FakeRedis(values)
     s = live_state(build(CONFIG, redis).robot, redis)
-    assert s["base_pose"] is None and not s["localized"]
+    assert s["odom_pose"] is None
     np.testing.assert_allclose(s["mocap_pose"], [3.0, 4.0, 1.0], atol=1e-9)
 
 
@@ -191,15 +178,15 @@ def test_commands_are_written_in_the_drivers_formats_and_repeats_are_not():
 def test_base_targets_go_to_the_driver_in_odometry_and_never_faster_than_it():
     redis = FakeRedis(driver_values())
     robot = build(CONFIG, redis).robot
-    live_state(robot, redis)  # ties world (3, 4, 1) to odometry (1, 2, 0.5)
-    robot.base_target([3.0, 4.0, 1.0], (1.0, 1.0, 1.0))
+    live_state(robot, redis)
+    robot.base_target_odom([1.0, 2.0, 0.5], (1.0, 1.0, 1.0))
     odom = [float(v) for v in redis.values[K.BASE_DESIRED_POSE].strip("[]").split(",")]
     np.testing.assert_allclose(odom, [1.0, 2.0, 0.5], atol=1e-9)
     assert redis.values[K.BASE_MAX_VEL_SCALE] == "1.000"
     from chefbot.interface.limits import base_cap
 
     cap = base_cap("tidybot_fr3")["vel"]  # the driver runs at the robot's hard base cap
-    robot.base_target([3.0, 4.0, 1.0], (cap[0] / 2, cap[1] / 2, cap[2] / 2))
+    robot.base_target_odom([1.0, 2.0, 0.5], (cap[0] / 2, cap[1] / 2, cap[2] / 2))
     assert redis.values[K.BASE_MAX_VEL_SCALE] == "0.500"
 
 
@@ -272,7 +259,7 @@ def wait_until(condition, timeout_s=2.0):
 
 def test_real_env_reads_the_robot_and_commands_it(served):
     server, env, redis = served
-    wait_until(lambda: env.localization().localized)
+    wait_until(lambda: env.localization().live)
     state = env.get_state()
     # The base pose is the driver's odometry; mocap is its own reading (the world).
     assert state.base_pose.x == pytest.approx(1.0) and state.base_pose.yaw == pytest.approx(0.5)
@@ -316,7 +303,7 @@ def test_a_silent_client_is_halted_and_told(served):
 
 def test_disconnecting_after_commanding_halts_and_frees_the_server_for_the_next_client(served):
     server, env, _ = served
-    wait_until(lambda: env.localization().localized)
+    wait_until(lambda: env.localization().live)
     env.set_base_target(Pose2D(3.0, 4.0, 1.0), (0.1, 0.1, 0.3))
     wait_until(lambda: server.commanded)
     env.close()
@@ -331,7 +318,7 @@ def test_a_client_that_only_watched_leaves_the_drivers_alone(served):
     wait_until(lambda: env.localization().live)
     loc = env.localization()
     assert loc.mocap_pose.x == pytest.approx(3.0) and loc.mocap_pose.yaw == pytest.approx(1.0)
-    assert loc.mocap_fresh and loc.mocap_valid and loc.localized and loc.state_current
+    assert loc.mocap_fresh and loc.mocap_valid and loc.state_current
     time.sleep(0.4)  # longer than the watchdog: heartbeats only
     env.close()
     time.sleep(0.3)
@@ -421,21 +408,21 @@ def test_odometry_left_in_redis_by_a_stopped_driver_is_not_used():
     redis.values[K.BASE_HEARTBEAT] = "1"
     s = robot.read_state()
     assert s["mocap_pose"] is not None and not s["base_driver_live"]
-    assert s["base_pose"] is None and not s["localized"]  # no tie to the frozen odometry
+    assert s["odom_pose"] is None  # not the frozen odometry
 
 
-def test_base_targets_need_live_mocap_and_a_live_driver():
+def test_base_targets_need_a_live_driver_and_each_bumps_the_sequence():
     from chefbot.onboard.robot_io import NotLocalized
 
     redis = FakeRedis(driver_values())
     robot = build(CONFIG, redis).robot
     robot.read_state()  # nothing live yet
     with pytest.raises(NotLocalized):
-        robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
+        robot.base_target_odom([1.0, 2.0, 0.5], (0.1, 0.1, 0.3))
     assert K.BASE_DESIRED_POSE not in redis.values and K.BASE_CMD_SEQ not in redis.values
     live_state(robot, redis)
-    robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
-    robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
+    robot.base_target_odom([1.0, 2.0, 0.5], (0.1, 0.1, 0.3))
+    robot.base_target_odom([1.0, 2.0, 0.5], (0.1, 0.1, 0.3))
     assert redis.values[K.BASE_CMD_SEQ] == "2"  # every target bumps the sequence the driver watches
 
 
@@ -451,8 +438,6 @@ def test_odometry_targets_need_only_the_driver_and_go_to_it_as_they_are():
     s = robot.read_state()
     assert s["base_driver_live"] and s["mocap_pose"] is None
     assert s["odom_pose"] == pytest.approx([1.0, 2.0, 0.5])  # the driver's own odometry, no mocap in it
-    with pytest.raises(NotLocalized):  # a world target means nothing without mocap
-        robot.base_target([3.0, 4.0, 1.0], (0.1, 0.1, 0.3))
     robot.base_target_odom([1.2, 2.0, 0.5], (0.1, 0.1, 0.3))  # the client localizes, and refuses, itself
     assert json.loads(redis.values[K.BASE_DESIRED_POSE]) == pytest.approx([1.2, 2.0, 0.5])
     assert redis.values[K.BASE_CMD_SEQ] == "1"
@@ -460,10 +445,9 @@ def test_odometry_targets_need_only_the_driver_and_go_to_it_as_they_are():
 
 def test_the_server_reports_a_refused_target_and_does_not_count_it_as_commanding(served):
     server, env, redis = served
-    env.publisher.stop()
-    redis.values[K.MOCAP_VALID] = "false"
-    wait_until(lambda: not env.localization().mocap_valid)
-    env.set_base_target_world(Pose2D(3.0, 4.0, 1.0), (0.1, 0.1, 0.3))  # a world target: refused without mocap
+    env.publisher.stop()  # the base driver's heartbeat stops with it
+    wait_until(lambda: not env.raw_state().get("base_driver_live"))
+    env.set_base_target(Pose2D(1.0, 2.0, 0.5), (0.1, 0.1, 0.3))  # refused: no driver to take it
     wait_until(lambda: env.errors)
     assert "refused" in env.errors[-1] and not server.commanded
     assert K.BASE_CMD_SEQ not in redis.values

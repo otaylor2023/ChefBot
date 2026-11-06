@@ -51,12 +51,11 @@ def main() -> None:
         s = env.raw_state()
         print(f"Robot: {cfg.arm_name} + {cfg.gripper_name}; server cameras: {env.server_cameras or 'none'}")
         print(f"  controller: {s['controller'] or '-'}    gripper: width {s['gripper_width']}, ready {s['gripper_ready']}")
-        if s["base_pose"] is not None:
-            x, y, yaw = s["base_pose"]
-            where = "world (mocap)" if s["localized"] else "odometry: no mocap yet"
-            print(f"  base: x {x:.3f}, y {y:.3f}, yaw {math.degrees(yaw):.1f} deg  [{where}]")
-        else:
-            print("  base: no pose (is the hb1 driver up?)")
+        for what, p in (("odometry", s.get("odom_pose")), ("mocap", s.get("mocap_pose"))):
+            if p is not None:
+                print(f"  base ({what}): x {p[0]:.3f}, y {p[1]:.3f}, yaw {math.degrees(p[2]):.1f} deg")
+            else:
+                print(f"  base ({what}): none" + (" (is the hb1 driver up?)" if what == "odometry" else " (Motive tracking it?)"))
         limit = env.server_limits.get("base_max_vel_xy")
         if limit is not None and cfg.max_lin_vel > limit + 1e-9:
             print(f"  note: robot config max_lin_vel {cfg.max_lin_vel} > the base driver's {limit}; the driver's wins")

@@ -24,7 +24,7 @@ _STATE_KEYS = (
 
 
 class NotLocalized(RuntimeError):
-    """A world-frame base target without a live mocap pose and a live base driver to tie it to."""
+    """A base target without a live base driver to take it."""
 
 
 def _text(raw) -> str | None:
@@ -68,7 +68,6 @@ class RedisRobot:
         self.mocap = mocap or MocapFreshness()
         self.driver = Freshness(stale_after_s=0.25)  # the base driver's heartbeat (100 Hz when it runs)
         self.arm = Freshness(stale_after_s=0.25)  # the arm driver's joint readings (1 kHz, sensor noise, when it runs)
-        self.live_for_targets = False  # at the last state read: mocap valid and fresh, the driver live, and tied
         self.driver_live = False  # at the last state read: the base driver's heartbeat changing
         self.gripper_speed = float(gripper["speed"])
         self.gripper_force = float(gripper["force"])
@@ -97,20 +96,14 @@ class RedisRobot:
         mocap_pose = None
         if mocap_valid and mocap_fresh and position is not None and quat is not None:
             mocap_pose = self.frames.base_from_mocap(position, quat)
-            if odom is not None:
-                self.frames.tie(mocap_pose, odom[:3])
-        self.live_for_targets = bool(mocap_pose is not None and odom is not None and self.frames.tied)
         self.driver_live = bool(driver_live)
         base_velocity = _array(v[K.BASE_VELOCITY]) if driver_live else None
         cart_position, cart_orientation = _array(v[K.CARTESIAN_CURRENT_POSITION]), _array(v[K.CARTESIAN_CURRENT_ORIENTATION])
         return {
-            "base_pose": None if odom is None else self.frames.to_world(odom[:3]),
-            # The driver's own odometry and its velocity, as it reports them (no mocap in them): the client ties them
-            # to the world itself with mocap_pose (robot/localization.py) and sends base_target_odom.
+            # The driver's own odometry and its velocity, as it reports them (no mocap in them), and mocap's base pose
+            # on its own: the client ties the two (robot/localization.py, its one tie) and sends base_target_odom.
             "odom_pose": None if odom is None else [float(v) for v in odom[:3]],
             "odom_velocity": None if base_velocity is None else [float(v) for v in base_velocity[:3]],
-            "base_velocity": None if base_velocity is None else self.frames.velocity_to_world(base_velocity[:3]),
-            "localized": self.frames.tied,  # False: never seen mocap; the world frame is odometry
             "mocap_valid": mocap_valid,  # the publisher's tracking flag, as stored (may be stale)
             "mocap_fresh": mocap_fresh,  # the pose changed within mocap.stale_after_s
             "mocap_age_s": mocap_age,  # seconds since the pose last changed; None: not since the server started
@@ -176,22 +169,10 @@ class RedisRobot:
         self.r.set(K.GRIPPER_DESIRED_FORCE, str(min(max(float(force), 0.1), 70.0)))
         self.r.set(K.GRIPPER_MODE, mode)
 
-    def base_target(self, pose_world, max_vel) -> None:
-        """Drive to a world pose within `max_vel` (never faster than the driver's own limits). Refused (NotLocalized)
-        unless the last state read had a live mocap pose and a live base driver: a world target means nothing
-        without both. Each target bumps hb1::cmd_seq; ChefBot's driver brakes once it stops changing."""
-        if not self.live_for_targets:
-            raise NotLocalized("no live mocap pose and base driver: base target refused")
-        scale = min(float(max_vel[0]) / self.base_max_vel[0], float(max_vel[2]) / self.base_max_vel[1], 1.0)
-        self._set_on_change(K.BASE_MAX_VEL_SCALE, f"{max(scale, 0.1):.3f}")
-        x, y, yaw = self.frames.to_odom(pose_world)
-        self.r.set(K.BASE_DESIRED_POSE, f"[{x}, {y}, {yaw}]")
-        self.r.incr(K.BASE_CMD_SEQ)
-        self._written.pop(K.BASE_STOP, None)
-
     def base_target_odom(self, pose_odom, max_vel) -> None:
-        """Drive to a pose in the driver's own odometry within `max_vel`. Needs only a live base driver: the client
-        that sends it localizes (and refuses without mocap) itself. Bumps hb1::cmd_seq like base_target."""
+        """Drive to a pose in the driver's own odometry within `max_vel` (never faster than the driver's own limits).
+        Needs only a live base driver: the client that sends it localizes (and refuses without mocap) itself. Each
+        target bumps hb1::cmd_seq; ChefBot's driver brakes once it stops changing."""
         if not self.driver_live:
             raise NotLocalized("the base driver is not running: base target refused")
         scale = min(float(max_vel[0]) / self.base_max_vel[0], float(max_vel[2]) / self.base_max_vel[1], 1.0)

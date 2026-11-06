@@ -10,8 +10,7 @@ frame: `flange_to_control`), so the server passes them through. get_state's base
 driver's odometry, and mocap is its own reading (EnvState.localization): the robot layer ties the
 two (robot/localization.py), sends base targets in odometry, and refuses to drive without mocap.
 Camera poses come from their mounts here (`cameras`), in odometry like the base, as the server
-sends images only. set_base_target_world / localization() are the scripts' world-frame view (the
-server ties odometry to mocap and refuses world targets without it).
+sends images only. localization() is the scripts' read-only view of mocap's status.
 """
 
 from __future__ import annotations
@@ -59,17 +58,16 @@ class Localization:
     """Where the base is and how much to trust it, from the latest state (RealEnv.localization).
 
     `mocap_pose` is the base pose from mocap alone, None unless the publisher is live (`mocap_fresh`) and
-    tracking (`mocap_valid`). `base_pose` is the base driver's odometry carried into the mocap world through
-    the latest live mocap sample (`localized`), or plain odometry if there never was one; None without the
-    base driver. `state_age_s`: how old this state message is; `state_current`: within RealEnv's max_state_age_s.
+    tracking (`mocap_valid`). `odom_pose` is the base driver's odometry as it reports it (None without the
+    driver); the robot layer ties the two (robot/localization.py). `state_age_s`: how old this state message
+    is; `state_current`: within RealEnv's max_state_age_s.
     """
 
     mocap_pose: Pose2D | None
     mocap_valid: bool
     mocap_fresh: bool
     mocap_age_s: float | None
-    base_pose: Pose2D | None
-    localized: bool
+    odom_pose: Pose2D | None
     state_age_s: float
     state_current: bool
     seq: int
@@ -174,8 +172,7 @@ class RealEnv(Env):
             mocap_valid=bool(s.get("mocap_valid")),
             mocap_fresh=bool(s.get("mocap_fresh")),
             mocap_age_s=None if age is None else float(age),
-            base_pose=pose(s.get("base_pose")),
-            localized=bool(s.get("localized")),
+            odom_pose=pose(s.get("odom_pose")),
             state_age_s=state_age,
             state_current=state_age <= self.max_state_age_s,
             seq=int(s.get("seq", -1)),
@@ -232,11 +229,6 @@ class RealEnv(Env):
         self._send({"op": P.BASE_TARGET_ODOM, "pose": [pose.x, pose.y, pose.yaw], "max_vel": [float(v) for v in max_vel]})
         self._base_holding = False
         return True
-
-    def set_base_target_world(self, pose: Pose2D, max_vel) -> None:
-        """A target in the mocap world: the server ties it to odometry itself, and refuses it without live mocap."""
-        self._send({"op": P.BASE_TARGET, "pose": [pose.x, pose.y, pose.yaw], "max_vel": [float(v) for v in max_vel]})
-        self._base_holding = False
 
     def set_arm_joint_targets(self, q: np.ndarray) -> None:
         self._send({"op": P.ARM_JOINTS, "q": np.asarray(q, dtype=float)})
