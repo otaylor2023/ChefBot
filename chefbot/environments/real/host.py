@@ -186,7 +186,7 @@ class RealHost:
         """env: the robot's Env (default: RealEnv from environments/real/config.yaml; tests give a fake).
         cameras: the skill's (its manifest's), held open on the robot for the run; None: all of them.
         base_map: with base=True, a map folder (maps/README.md) the base must keep its plate out of. With base=True
-        the base is guarded by the robot layer's base stops (embodiments/wholebody.py base_guard): never without live
+        the base is guarded by the robot layer's base stops (the embodiment's base_guard): never without live
         mocap, and with a map, never into it and no faster than it can stop."""
         self.robot, self.out, self.record, self.log, self.setup = robot, Path(out_dir), record, log, None
         self.confirm, self.dry_run, self.n_moves = confirm, dry_run, 0
@@ -206,9 +206,7 @@ class RealHost:
         self.env = GuardedEnv(self.raw_env, robot, base=base, dry_run=dry_run, flange_z_min=flange_z_min)
         guard = None
         if base and not dry_run:  # (a dry run never moves the base)
-            from chefbot.embodiments.wholebody import base_guard
-
-            guard = base_guard(robot, base_map, getattr(self.raw_env, "server_limits", None))
+            guard = robot.base_guard(base_map)
         self.ctl = WholeBodyController(self.env, robot, speed, guard=guard)
         self.hz = self.ctl.hz
         self.cond = threading.Condition()

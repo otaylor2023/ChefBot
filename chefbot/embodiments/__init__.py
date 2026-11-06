@@ -29,6 +29,7 @@ SPEED_PROFILES = ROOT / "speed_profiles.yaml"
 # The controller's IK steps are a few mm: tighter than the robot layer's execution tolerance, or a step would count as
 # reached at its seed and never move.
 IK_POS_TOLERANCE, IK_ROT_TOLERANCE = 0.0005, math.radians(0.3)
+LOW_CLEARANCE_M = 0.05  # an arm point passes over a low obstacle only with its underside this much above its top
 
 
 def names() -> list[str]:
@@ -106,6 +107,73 @@ class Robot:
         vel = limits.base_profile(base_name, self.name)[0] if use_base else (0.0, 0.0, 0.0)
         label = arm_name if (arm_name == base_name or not use_base) else (base_name if not use_arm else f"arm {arm_name}, base {base_name}")
         return Speed(label, tuple(float(v) for v in vel), arm_lin, arm_ang, joint)
+
+    # -- the base: what the robot layer drives it with ----------------------------------------------------------
+
+    def footprint_below(self, arm_q=None):
+        """footprint_below(top) for the robot layer (robot/robot.py, robot/nav/footprint.py): the robot seen from above,
+        what of it is lower than an obstacle's top (inf: all of it, a wall). With a body (robot.yaml `body:`): the
+        plate's outline, plus for joints `arm_q` the arm's points whose underside is under top + LOW_CLEARANCE_M
+        (interface/workspace.py Body.footprint); without one, a circle of the config's footprint_radius."""
+        from chefbot.interface.workspace import Footprint
+
+        body = self.body
+        if body is None:
+            radius = self.config.footprint_radius
+            return lambda top=math.inf: Footprint((0.0, 0.0, 0.0, 0.0), np.array([[0.0, 0.0, radius]]))
+        q = None if arm_q is None else np.asarray(arm_q, dtype=float)
+        return lambda top=math.inf: body.footprint(q, below=None if math.isinf(top) else top + LOW_CLEARANCE_M)
+
+    def stop_model(self):
+        """The base's measured stop (robot.yaml control.limits base_stop_*; robot/nav/speed.py StopModel), or None."""
+        from chefbot.interface import limits
+        from chefbot.robot.nav.speed import StopModel
+
+        stop = limits.base_stop(self.name)
+        return StopModel.from_limits(stop) if stop else None
+
+    @property
+    def base_accel(self) -> float:
+        """The base's planar acceleration (m/s^2): its hard cap's (control.limits base_max_accel), else 0.1."""
+        lim = (self.raw.get("control") or {}).get("limits") or {}
+        return float(lim["base_max_accel"][0]) if "base_max_accel" in lim else 0.1
+
+    def navigator(self, env, grid, speed: Speed, *, arm_q=None, config: dict | None = None, **robot_kwargs):
+        """The robot layer's Robot (robot/robot.py) on `env` and map `grid`, built the one way every caller that drives
+        this robot's base gets it: its footprint (footprint_below; with `arm_q`, the arm as it stands, which then stays
+        as it is while the base drives: tuck_arm False), its measured stop and acceleration, `speed`'s base speeds
+        (Robot.speed: refused over the hard cap). `config`: RobotConfig fields to set for this run (tolerances,
+        margins); robot_kwargs go to Robot (reachability, proposers, centre_limit, drive_log), and may replace the
+        footprint or the stop for a trial (real_trials' scaled footprint)."""
+        from dataclasses import replace
+
+        from chefbot.robot.robot import Robot as RobotLayer
+
+        vel = speed.base_max_vel
+        if not (vel[0] > 0 and vel[2] > 0):
+            raise ValueError(f"speed {speed.name} gives the base no speed: navigation needs one")
+        cfg = replace(self.config, max_lin_vel=float(vel[0]), max_ang_vel=float(vel[2]), **(config or {}))
+        kw = {"footprint_below": self.footprint_below(arm_q), "stop_model": self.stop_model(), "base_accel": self.base_accel,
+              "tuck_arm": arm_q is None} | robot_kwargs  # fmt: skip
+        return RobotLayer(env, grid, cfg, **kw)
+
+    def base_guard(self, map_dir=None):
+        """A BaseGuard (robot/safety.py) for the whole-body controller driving the base (the real host with --base): it
+        never drives without the env's localization (mocap); with a map folder (maps/README.md), also not into it
+        (the plate at its heading: the arm moves with the skill and is the host's own guard's) and no faster than it
+        can stop in the free space ahead (stop_model)."""
+        from pathlib import Path
+
+        from chefbot.robot.nav.footprint import FootprintSpace
+        from chefbot.robot.nav.grid import OccupancyGrid
+        from chefbot.robot.safety import BaseGuard
+
+        space = None
+        if map_dir is not None:
+            if self.body is None:
+                raise ValueError(f"{self.name} has no body: (its footprint) to guard the base on a map with")
+            space = FootprintSpace.by_height(OccupancyGrid.load(Path(map_dir) / "grid.npy"), self.footprint_below())
+        return BaseGuard(space, stop_model=self.stop_model(), accel=self.base_accel, arm_moved_rad=None)
 
 
 class Kinematics:

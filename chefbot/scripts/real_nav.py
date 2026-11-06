@@ -96,23 +96,34 @@ def relative_point(origin: dict, forward: float, left: float, turn_deg: float) -
 
 
 
-LOW_CLEARANCE_M = 0.05  # an arm point passes over a low obstacle only with its underside this much above its top
+EMBODIMENT = "tidybot_fr3"
+
+
+def embodiment():
+    from chefbot import embodiments
+
+    return embodiments.load(EMBODIMENT)
+
+
+def robot_stop():
+    """The robot's measured stop and its acceleration (robot.yaml control.limits; refuses without a measured stop)."""
+    e = embodiment()
+    stop = e.stop_model()
+    if stop is None:
+        raise SystemExit(f"refusing: {EMBODIMENT} has no measured stop (robot.yaml control.limits base_stop_*)")
+    return stop, e.base_accel
 
 
 def robot_footprints(raw: dict, arm: str = "auto"):
     """The robot's footprint from its measured body (embodiments/tidybot_fr3/robot.yaml `body:`, interface/workspace.py),
     as a function of an obstacle's top: the plate's outline, plus the arm's points (from its joints, with --arm auto and
-    readings to go on) whose underside is lower than the top + LOW_CLEARANCE_M (all of them for inf, a wall). Returns
-    (footprint_below, info)."""
-    from chefbot.interface.workspace import load_body
-
-    body = load_body()
+    readings to go on) whose underside is lower than the top + LOW_CLEARANCE_M (all of them for inf, a wall): the
+    embodiment's footprint_below (embodiments/__init__.py, what the robot layer drives with). Returns (footprint_below,
+    info)."""
     q = raw.get("arm_q") if arm == "auto" else None
     known = q is not None and len(q) == 7
     q = q if known else None
-
-    def footprint_below(top: float = math.inf):
-        return body.footprint(q, below=None if math.isinf(top) else top + LOW_CLEARANCE_M)
+    footprint_below = embodiment().footprint_below(q)
 
     if arm != "auto":
         note = "arm off (--arm off): the plate only"
@@ -247,34 +258,35 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
                settle_s: float = 0.5, still_mps: float | None = None, lookahead: float = 0.12,
                timeout_s: float | None = None, centre_limit=None, footprint_below=None, stop_model="robot", accel=None,
                arrive_hold: bool = False, path_clearance: float = 0.0, turn_in_room: bool = False):  # fmt: skip
-    """The robot layer on the real robot: Robot(RealEnv) on `grid` with the robot's footprint (robot_footprints), its
-    measured stop and acceleration as the onboard server reports them (stop_model="robot"; None: none), the run's
-    speeds and tolerances. The base drives with the arm as it is (tuck_arm=False: real_nav never moves the arm; the
-    footprint covers it and the arm moving stops the drive). Every stop is the robot layer's (robot/safety.py BaseGuard
-    and Robot's drive): lost mocap, the footprint on the map, the fence, the arm moving, off the path (corridor),
-    moving away, the timeout, a halt from the server."""
-    from dataclasses import replace
-
-    from chefbot import embodiments
-    from chefbot.robot.nav.speed import StopModel
-    from chefbot.robot.robot import Robot
+    """The robot layer on the real robot: the embodiment's navigator (embodiments/__init__.py: Robot(RealEnv) on `grid`
+    with the robot's footprint, its measured stop and acceleration from robot.yaml), the run's speeds and tolerances.
+    The base drives with the arm as it is (real_nav never moves the arm; the footprint covers it and the arm moving
+    stops the drive). Every stop is the robot layer's (robot/safety.py BaseGuard and Robot's drive): lost mocap, the
+    footprint on the map, the fence, the arm moving, off the path (corridor), moving away, the timeout, a halt from the
+    server. footprint_below / stop_model=None / accel: a trial's own (real_trials)."""
+    from chefbot.embodiments import Speed
 
     env.require_arm = False  # base moves need no arm driver (its last readings, if any, still give its footprint)
-    cfg = replace(embodiments.load("tidybot_fr3").config, max_lin_vel=float(speed), max_ang_vel=float(yaw_speed),
-                  pos_tolerance=float(tol), yaw_tolerance=math.radians(yaw_tol_deg), deviation_threshold=float(corridor),
-                  safety_margin=float(margin), snap_radius=0.0, arrive_settle_s=float(settle_s), arrive_still_mps=still_mps,
-                  lookahead=float(lookahead), control_rate=20.0, motion_timeout_s=float(timeout_s or 3600.0),
-                  arrive_hold=bool(arrive_hold), path_clearance_m=float(path_clearance), turn_in_room=bool(turn_in_room))  # fmt: skip
-    if footprint_below is None:
-        footprint_below = robot_footprints(env.raw_state(), arm)[0]
     limits = env.server_limits
     if "base_max_vel_xy" in limits:
         check_server_cap(limits, float(speed), float(yaw_speed))  # over the robot's cap: refused (ValueError), not clipped
-    if stop_model == "robot":
-        stop_model = StopModel.from_limits(limits) if "base_stop_tau_s" in limits else None
-    accel = float(limits.get("base_max_accel_xy", 0.1)) if accel is None else float(accel)
-    return Robot(env, grid, cfg, _ByRule(), footprint_below=footprint_below, stop_model=stop_model, base_accel=accel,
-                 centre_limit=centre_limit, tuck_arm=False)  # fmt: skip
+    raw = env.raw_state()
+    q = raw.get("arm_q") if arm == "auto" else None
+    q = q if q is not None and len(q) == 7 else None
+    kw = {"centre_limit": centre_limit, "reachability": _ByRule(), "tuck_arm": False}
+    if footprint_below is not None:
+        kw["footprint_below"] = footprint_below
+    if stop_model != "robot":
+        kw["stop_model"] = stop_model
+    if accel is not None:
+        kw["base_accel"] = float(accel)
+    config = {"pos_tolerance": float(tol), "yaw_tolerance": math.radians(yaw_tol_deg), "deviation_threshold": float(corridor),
+              "safety_margin": float(margin), "snap_radius": 0.0, "arrive_settle_s": float(settle_s),
+              "arrive_still_mps": still_mps, "lookahead": float(lookahead), "control_rate": 20.0,
+              "motion_timeout_s": float(timeout_s or 3600.0), "arrive_hold": bool(arrive_hold),
+              "path_clearance_m": float(path_clearance), "turn_in_room": bool(turn_in_room)}  # fmt: skip
+    speeds = Speed("real_nav", (float(speed), float(speed), float(yaw_speed)), 0.0, 0.0, 0.0)
+    return embodiment().navigator(env, grid, speeds, arm_q=q, config=config, **kw)
 
 
 def drive(robot, env: RealEnv, goal: Pose2D, *, approach_m: float = 0.0, confirm=input, log_dir: Path | None = None,
@@ -493,10 +505,7 @@ def park(env: RealEnv, args) -> list[dict]:
     from chefbot.scripts.real_map import load as load_map
 
     grid, _ = load_map(args.map)
-    from chefbot.robot.nav.speed import StopModel
-
-    stop_model = StopModel.from_limits(env.server_limits)  # refuses when the robot reports no measured stop
-    accel = float(env.server_limits.get("base_max_accel_xy", 0.1))
+    stop_model, accel = robot_stop()
     robot = map_robot(env, args, grid, settle_s=0.2, still_mps=0.01, arrive_hold=args.hold,
                       path_clearance=args.clearance, turn_in_room=args.turn_in_room)
     print(f"stop model: tau {stop_model.tau_s:.3f} s, brake {stop_model.brake_mps2:.2f} m/s^2 "

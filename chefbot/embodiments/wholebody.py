@@ -51,7 +51,7 @@ def wrap(a: float) -> float:
 
 class WholeBodyController:
     def __init__(self, env: Env, robot: Robot, speed: Speed, tick_s: float = 0.05, on_tick=None, guard=None):
-        """guard: robot/safety.py BaseGuard (base_guard below): the base's stops and speed limit, checked every tick
+        """guard: robot/safety.py BaseGuard (the embodiment's base_guard): the base's stops and speed limit, checked every tick
         before the base is commanded (a stop raises BaseStopped). None: the base is not guarded (an arm-only host,
         whose base holds, or a sim)."""
         self.env, self.robot, self.kin, self.speed = env, robot, robot.kin, speed
@@ -233,26 +233,3 @@ class WholeBodyController:
         p = self.env.get_state().base_pose
         return p.x, p.y
 
-
-def base_guard(robot: Robot, map_dir=None, stop_limits: dict | None = None):
-    """A BaseGuard (robot/safety.py) for the whole-body controller driving the base: it never drives without the env's
-    localization (mocap); with a map folder (maps/README.md), also not into it (the base's plate at its heading: the
-    arm, which moves with the skill, is the host's own guard's), and with the robot's measured stop (stop_limits: the
-    onboard server's hello limits), at most as fast as it can stop in the free space ahead."""
-    from pathlib import Path
-
-    from chefbot.robot.nav.footprint import FootprintSpace
-    from chefbot.robot.nav.grid import OccupancyGrid
-    from chefbot.robot.nav.speed import StopModel
-    from chefbot.robot.safety import BaseGuard
-
-    space = None
-    if map_dir is not None:
-        grid = OccupancyGrid.load(Path(map_dir) / "grid.npy")
-        body = robot.body
-        if body is None:
-            raise ValueError(f"{robot.name} has no body: (its footprint) to guard the base on a map with")
-        space = FootprintSpace.by_height(grid, lambda top=math.inf: body.footprint())
-    limits = stop_limits or {}
-    stop_model = StopModel.from_limits(limits) if "base_stop_tau_s" in limits else None
-    return BaseGuard(space, stop_model=stop_model, accel=float(limits.get("base_max_accel_xy", 0.1)), arm_moved_rad=None)
