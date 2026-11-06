@@ -50,45 +50,73 @@ Tools: `go_to`, `detect`, `nearby`, `align`, `pick_up`, `place`, `open`, `close`
 `holding`, `wait`, `get_status`, `stop`, `get_pose`. The workflow they are built
 around is `go_to -> detect -> align -> pick_up -> go_to -> detect -> align -> place`.
 
-## This branch: agents-skills-registry
+## This branch: harness-memory-planner
 
 The agent loop on `main` (AGENT_SPEC v0.1, Olivia's) is kept as it is: one tool call per turn, the last 8 calls, a
-TASK STATE rebuilt every turn, a judge on every step, the same executor and judge prompts. This branch puts it in a
-form that runs different agents, in sim and on the real robot. The full account is [HARNESS.md](HARNESS.md); the same
-summary, with more detail, is on the branch's page (private on claude.ai until shared:
-https://claude.ai/artifact/JntFqAif1VJYG25Zc7uQfM).
-
-| Part | On main | On this branch |
-|---|---|---|
-| The loop | `agent/loop/`, one agent | the same code, the named harness `agent/harnesses/plan_loop/` |
-| An agent | code plus `config/agent.yaml` | a definition, `agents/<name>/agent.yaml` (harness, robot APIs, prompts, skills, tools, models, limits): `kitchen_planner` (sim) and `real_arm` (robot) |
-| System prompts | `agent/loop/prompts/` | with each agent (`agents/<name>/prompts/`); the executor's text unchanged except `pick` → `pick_up` |
-| Tool descriptions | 30 schemas written in `registry.py` | 16 tools as one YAML each (`tools/<group>/`); 14 robot moves as skills (`skills/<name>/robotapi_v1/skill.yaml`), each with what the LLM reads and where it can run |
-| Where it runs | symbolic, RoboCasa | a session = agent + environment + robot API; also the real robot (`run_agent --env real`) through sandboxed skills |
-| The judge | Haiku on the simulator's state | the same in sim; on the real robot a completed step is taken as done and logged unchecked |
-| Safety | the real host's guard | the arm refuses a move into the robot's own body before sending it; real speed limits enforced; `ready/v1` takes the arm home around the body |
-
-```sh
-python -m chefbot.scripts.run_agent --task chefbot/jobs/fried_sausage.yaml --agent kitchen_planner      # sim, as before
-python -m chefbot.scripts.run_agent --env real --agent real_arm --task chefbot/jobs/real_pick.yaml --dry-run   # the robot, nothing sent
-```
-
-Every step kept the agent's runs byte-identical (its first LLM request, the tool schemas, a scripted run) unless
-changing them was the point. Real robot status: the read-only check passed; the dry run found the pole D455 missing
-on USB (so `real_arm` uses the wrist camera only) and a keep-out graze on the way home (so `ready/v1`); a live pick is
-not run yet.
+TASK STATE rebuilt every turn, a judge on every step, the same executor and judge prompts. Two branches build on it:
+`agents-skills-registry` makes it run different agents in sim and on the real robot; this one, on top of it, starts a
+run from what the user types, gives the agent memory beyond its window, measures every change, and shows a run as a
+conversation. The full account is [HARNESS.md](HARNESS.md), the numbers [EVALUATION.md](EVALUATION.md). The same
+summary, with the video synced to the run's log, is on this branch's page (private on claude.ai until shared:
+https://claude.ai/artifact/WSLfZ4THhzqaNgLnZJx3oe); the first branch's step-by-step log is
+https://claude.ai/artifact/JntFqAif1VJYG25Zc7uQfM.
 
 ### The video
 
 [![The agent in RoboCasa with its conversation](docs/videos/fried_sausage_chat.png)](docs/videos/fried_sausage_chat.mp4)
 
 [`docs/videos/fried_sausage_chat.mp4`](docs/videos/fried_sausage_chat.mp4) (3.5 min, download to play): a RoboCasa
-run started from the typed request "Can you fry the sausage and put it on the plate?". On the right, the conversation
-as it happened: the planner's and the executor's system prompts, the executor's tools and the judge's prompt; the
-request, the planner's reply and plan; then every turn (the TASK STATE sent, the executor's reasoning and tool call,
-the judge's verdict, the robot's result). The plain simulation is
-[`docs/videos/fried_sausage_sim.mp4`](docs/videos/fried_sausage_sim.mp4). The run used this branch's loop, registry
-and skills with the next branch's additions (the planner from a typed request, narration): `harness-memory-planner`.
+run started from the typed request "Can you fry the sausage and put it on the plate?", ground truth success, 50
+turns, $0.34. On the right, the conversation as it happened: first what each LLM is told (the planner's and the
+executor's system prompts, the executor's 28 tools, the judge's prompt); then the request, what the planner receives,
+its reasoning and plan, and the check's "Accepted"; then every turn: the TASK STATE sent, the executor's reasoning and
+tool call, the judge's verdict, the robot's result. Left: the simulation and the plan as the executor sees it. The
+plain simulation is [`docs/videos/fried_sausage_sim.mp4`](docs/videos/fried_sausage_sim.mp4).
+
+### Compared with main
+
+| Part | On main (Olivia) | agents-skills-registry | harness-memory-planner (this branch) |
+|---|---|---|---|
+| How a run starts | a plan written in the job file | same | the user's typed request, turned into a checked plan by a planner LLM that can ask or refuse |
+| The loop | `agent/loop/` | the same code, the named harness `plan_loop` | plus: failed attempts kept per step, `complete` blocked after 2 refusals, LEARNED BY DOING, a doors check at `finish` |
+| Agents | one, in code and `config/agent.yaml` | `agents/<name>/agent.yaml`: `kitchen_planner`, `real_arm` | same |
+| System prompts | executor (`system.md` + sections), judge | moved to each agent; `pick` → `pick_up`; `real_arm`'s own | plus the planner's (`planner.md`), the simulated user's, narration (`narrate.md`) |
+| Tool descriptions | 30 schemas in `registry.py` | 16 tools as YAML files, 14 robot moves as skills in the lab's registry | the planner reads the same descriptions |
+| Where it runs | symbolic, RoboCasa | plus the real robot: sessions, sandboxed skills, keep-out check, real limits, `ready/v1` | same |
+| Memory | the window and the TASK STATE | same | plus the kitchen remembered across runs (`--memory`) |
+| Seeing a run | `report.html` | same | the live chat, `conversation.html`, the request in the report, `chat_video.mp4`, raw LLM outputs saved |
+| Evaluation | 17 cooking jobs | same | 6 sets after MessyMem, BUMBLE, the Orchestration Gap, SayPlan and HW1; about 340 runs, every change measured before and after |
+
+### Who is told what
+
+| LLM | System prompt | Its user message | Its tools | Answers with |
+|---|---|---|---|---|
+| Planner (Sonnet 5.5) | `agents/kitchen_planner/prompts/planner.md` | REQUEST, KITCHEN (what the robot knows), ROBOT (one line per skill) | `ask_user`, `cannot_do`, `submit_plan` | one tool call per turn; the plan is checked by code and sent back with its problems |
+| Executor (Sonnet 5.5) | `system.md` + `handheld.md` / `trigger_tools.md` (+ `narrate.md`) | its last 8 calls, then the TASK STATE | the session's skills and tools (28 in RoboCasa) | one tool call per reply, after a sentence saying what and why (with narration) |
+| Judge (Haiku 5.5) | `JUDGE_PROMPT` in `agent/check/checker.py` | CONDITION (the step's done_when), STATE (the simulator's) | none | `{"passed": ..., "reason": ...}` |
+| Simulated user (Haiku 5.5, evaluations) | `PROMPT` in `agent/plan/simulated_user.py` | the planner's question | none | one sentence |
+
+### Try it
+
+```sh
+python -m chefbot.scripts.chat                                   # type a request, watch the planner and executor live (HW1-style)
+python -m chefbot.scripts.chat --env robocasa --video            # the same in RoboCasa, recorded
+python -m chefbot.scripts.run_agent --task chefbot/jobs/fried_sausage.yaml --plan-from prompt --prompt "Fry me the sausage"
+python -m chefbot.scripts.chat_video runs/<run>                  # a recorded run's video with its conversation beside it
+# every run: runs/<run>/conversation.html (who said what), report.html, requests/ (every LLM call), planner.json
+```
+
+### Results (symbolic kitchen; EVALUATION.md)
+
+| Set | Result |
+|---|---|
+| Requests, planned from the typed request (21 jobs × 2) | 29/42 → 32/42 → 39/42 → **41/42** as the planner's prompt improved; hand-written plans 33/34 |
+| Ambiguous requests | 6/6 with a user to ask, 0/6 without |
+| Impossible request (pancakes) | refused 2/2 |
+| Recovery, injected failures (7 × 3) | 20/21 → **21/21** |
+| Finding moved objects (4 × 3) | 8/12 → **12/12** |
+| Memory: the second task of a sequence | 17 turns with the kitchen remembered, 31 without |
+| Window of calls kept (6 long jobs × 2) | 4: 6/12; **8: 10/12**; 16: 11/12; 32: 11/12 at 80% more cost. 8 kept |
 
 ## Setup
 
