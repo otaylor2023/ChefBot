@@ -49,8 +49,11 @@ def clear(q) -> bool:
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.arm import _inside, arm_points, in_keep_out
 
+    from chefbot.onboard.calibration.arm import above_table
+
     camera = (fr3.flange(q) @ wrist_mount())[:3, 3]
-    return not in_keep_out(q) and not _inside(camera[None], CAMERA_MARGIN)[0] and arm_points(q)[2:, 2].min() > PLATE_CLEAR
+    return (not in_keep_out(q) and not _inside(camera[None], CAMERA_MARGIN)[0] and arm_points(q)[2:, 2].min() > PLATE_CLEAR
+            and above_table(q))  # fmt: skip
 
 
 def path_ok(q0, q1, samples: int = 30) -> bool:

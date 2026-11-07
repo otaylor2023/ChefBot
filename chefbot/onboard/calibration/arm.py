@@ -31,11 +31,42 @@ STALL_S = 4.0  # no progress for this long: settled there, or stuck
 STEP_TIMEOUT_S = 30.0
 
 
+# A table (a counter) the arm works over, when a calibration knows its height (set_table: from a card lying on it): every
+# arm point off the base's plate stays this far above it, the links by their thickness and the fingertips less.
+TABLE = {"z": None}
+TABLE_CLEAR_LINKS = 0.08  # m above the table: the links' centerlines (the links ~6 cm thick, and the table's height
+TABLE_CLEAR_HAND = 0.03  # is the camera's estimate: ~2 cm); the fingertips and the hand
+
+
+def set_table(z: float | None) -> None:
+    """The table's height in the arm base frame (m), or None: no table."""
+    TABLE["z"] = None if z is None else float(z)
+    if z is not None:
+        print(f"the table at {z:.3f} m (arm base): the arm keeps {TABLE_CLEAR_LINKS * 100:.0f} cm above it "
+              f"({TABLE_CLEAR_HAND * 100:.0f} cm the hand)")  # fmt: skip
+
+
+def above_table(q) -> bool:
+    """Every arm point off the plate (the base column bar) above the table by its clearance; True with no table."""
+    z = TABLE["z"]
+    if z is None:
+        return True
+    P = arm_points(np.asarray(q, float), BODY.hand_m)
+    need = np.full(len(P), TABLE_CLEAR_LINKS)
+    need[[7, 8, 16]] = TABLE_CLEAR_HAND  # the flange, the fingertips and the point between (arm_points' order)
+    off = ~BODY.over_plate(P)
+    off[:2] = False
+    return bool(np.all(P[off, 2] >= z + need[off]))
+
+
 def around(q0, q1, margin: float = 0.0) -> list | None:
-    """Joint waypoints from q0 to q1 (the last is q1) clear of the keep-out (path_clear, the hand's grown by margin):
-    interface/workspace.py's joint_path, the planner the real host goes to the ready position with."""
+    """Joint waypoints from q0 to q1 (the last is q1) clear of the keep-out (path_clear, the hand's grown by margin)
+    and, with a table set, above it all the way: interface/workspace.py's joint_path, the planner the real host goes
+    to the ready position with."""
     lim = np.column_stack([LIMITS[:, 0] + MARGIN, LIMITS[:, 1] - MARGIN])
-    return joint_path(q0, q1, lambda v: not in_keep_out(v, margin), lambda a, b: path_clear(a, b, margin=margin), lim)
+    point = lambda v: not in_keep_out(v, margin) and above_table(v)  # noqa: E731
+    segment = lambda a, b: path_clear(a, b, margin=margin) and all(above_table(a + (b - a) * t) for t in np.linspace(0, 1, 30))  # noqa: E731
+    return joint_path(q0, q1, point, segment, lim)
 
 
 class Stop(Exception):
@@ -81,7 +112,7 @@ class Arm:
         q0 = self.q()
         route = around(q0, target, margin)
         if route is None:
-            raise ValueError(f"no clear way there around the keep-out (the pole, its camera): {np.round(target, 3)}")
+            raise ValueError(f"no clear way there around the keep-out (the pole, its camera){' and above the table' if TABLE['z'] is not None else ''}: {np.round(target, 3)}")
         if len(route) > 1:
             print(f"\n{label}: the straight way passes the keep-out; going around, through {np.round(route[0], 3).tolist()}")
             self._leg(route[0], f"{label} (around the keep-out, 1/2)", confirm, settle_s)

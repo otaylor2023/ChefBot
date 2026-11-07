@@ -98,6 +98,13 @@ def plan_views(card: np.ndarray, q_start, n: int = VIEWS) -> list[np.ndarray]:
     return poses
 
 
+def from_here_table(card) -> bool:
+    """Whether the card lies flat on a table in front of the arm (its face up, beyond the plate), not on the base."""
+    from chefbot.interface.workspace import BODY
+
+    return bool(card[2, 2] > 0.9 and not BODY.over_plate(card[:3, 3][None])[0] and card[0, 3] > BODY.plate_x[1])
+
+
 def record(out: Path, from_here: bool = False) -> None:
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.arm import Arm, Stop
@@ -121,6 +128,10 @@ def record(out: Path, from_here: bool = False) -> None:
             raise SystemExit("the wrist camera doesn't see both of the base card's markers (ids 1, 2) from here"
                              + ("" if from_here else ": put the arm where it does and use --from-here"))
         card = fr3.flange(arm.q()) @ wrist_mount() @ _card_pose(c, cam.K, cam.D)  # roughly: through the old calibration
+        from chefbot.onboard.calibration.arm import set_table
+
+        if from_here_table(card):
+            set_table(card[2, 3])  # the card lies on the table: every view, and every move between, keeps above it
         print("planning the views (up to a minute)...", flush=True)
         poses = plan_views(card, arm.q())
         print(f"the card at {np.round(card[:3, 3], 3).tolist()} m; {len(poses)} views")

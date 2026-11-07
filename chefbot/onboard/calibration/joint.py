@@ -62,6 +62,7 @@ def config_poses() -> dict:
             "card": np.array(cams["pole"]["track"]["T_flange_card"], float)}  # fmt: skip
 
 
+
 def record(out: Path) -> None:
     import cv2
 
@@ -69,7 +70,7 @@ def record(out: Path) -> None:
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.arm import Arm, Stop
     from chefbot.onboard.calibration.camera import POLE_D455, WRIST_D405, Camera
-    from chefbot.onboard.calibration.wrist_base import _detector, plan_views
+    from chefbot.onboard.calibration.wrist_base import _detector, from_here_table, plan_views
 
     arm, det = Arm(), _detector()
     base_pts, hand_pts = base_card_points(), hand_card_points()
@@ -82,6 +83,10 @@ def record(out: Path) -> None:
         if corners(pcam, det, base_pts, need=len(base_pts)) is None:
             print("note: the pole camera doesn't see the card from here; it may from other views")
         card = fr3.flange(q0) @ wrist_mount() @ _pnp(c, base_pts, wcam.K, wcam.D)  # roughly: through the old calibration
+        from chefbot.onboard.calibration.arm import set_table
+
+        if from_here_table(card):
+            set_table(card[2, 3])  # the card lies on the table: every view, and every move between, keeps above it
         print("planning the views (up to a minute)...", flush=True)
         poses = plan_views(card, q0)
         print(f"the card at {np.round(card[:3, 3], 3).tolist()} m (arm base); {len(poses)} views")
