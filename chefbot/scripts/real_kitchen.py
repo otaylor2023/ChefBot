@@ -99,7 +99,7 @@ class RealKitchen:
         from chefbot.scripts.real_nav import make_robot
 
         robot = make_robot(self.env, self.grid, speed=self.speed, yaw_speed=self.yaw_speed, margin=0.10, settle_s=0.2,
-                           still_mps=0.01, allow_arm_env=True)  # fmt: skip
+                           still_mps=0.01, allow_arm_env=True, turn_in_room=True)  # fmt: skip
         robot._cfg = replace(robot._cfg, transient_retries=2)  # a link stall or a brief mocap dropout: the same goal again
         return robot
 

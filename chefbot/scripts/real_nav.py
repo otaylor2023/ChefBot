@@ -487,6 +487,9 @@ def main() -> None:
     q.add_argument("--turn", type=float, default=0.0, help="deg, counter-clockwise")
     g = sub.add_parser("go")
     g.add_argument("name")
+    g.add_argument("--no-turn-in-room", action="store_true",
+                   help="with --map: turn evenly along the path (the default turns where it has room: a short path from "
+                        "beside a counter can't turn round as it starts)")
     g.add_argument("--straight", action="store_true",
                    help="straight there on open floor (no A*, the map's obstacles not used): within --max-dist only")
     add_go_args(g)
@@ -547,7 +550,7 @@ def main() -> None:
         if not args.straight:
             log_dir = REPO / "runs" / "real_nav" / stamp
             log_dir.mkdir(parents=True, exist_ok=True)
-            robot = map_robot(env, args, grid)
+            robot = map_robot(env, args, grid, turn_in_room=not args.no_turn_in_room)
             result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, robot=robot, log_dir=log_dir,
                                 approach_m=float(p.get("approach_m", 0.0)))  # fmt: skip
             (log_dir / "result.json").write_text(json.dumps(result, indent=2, default=str))

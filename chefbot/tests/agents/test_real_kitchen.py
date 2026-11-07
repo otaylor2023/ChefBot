@@ -132,3 +132,27 @@ def test_a_dry_run_of_the_job(tmp_path, monkeypatch):
     assert oks[1:5] == [True, True, True, True], llm.results  # ready, go_to, find, approach
     assert "island" in llm.results[4]["message"] and fake.sent["base"] == 0 and fake.sent["arm"] == 0
     assert Path(result["run_dir"]).exists()
+
+
+def test_every_place_of_the_work_map_reaches_every_other(tmp_path):
+    # The base turns where the path has room (scripts/real_kitchen.py, real_nav go --map): from beside a counter a short
+    # path can't turn round as it starts (counter_north to island_south, 180 deg in 0.9 m, failed turning evenly).
+    from chefbot.robot.nav.heading_plan import escape_start, plan_at_headings
+
+    k = RealKitchen(Host(FakeKitchen()), MAP, FakeVision(), tmp_path)
+    names = [n for n in sorted(k.places) if not k.places[n].get("relative_to")]
+    pose = {n: Pose2D(k.places[n]["x"], k.places[n]["y"], math.radians(k.places[n]["yaw_deg"])) for n in names}
+    failed = []
+    for a in names:
+        k.env.mocap = pose[a]
+        robot = k._robot()
+        body, plan = robot._space, robot._space.with_margin(robot._cfg.safety_margin)
+        for b in names:
+            if a == b:
+                continue
+            g, m = pose[b], k.places[b].get("approach_m", 0.0)
+            pre = Pose2D(g.x - m * math.cos(g.yaw), g.y - m * math.sin(g.yaw), g.yaw)
+            begin = escape_start(plan.at(pose[a].yaw), body.at(pose[a].yaw), (pose[a].x, pose[a].y))
+            if plan_at_headings(plan, body, pose[a], begin, pre, g.yaw, style=robot._style())[0] is None:
+                failed.append((a, b))
+    assert len(names) == 5 and failed == []

@@ -42,7 +42,7 @@ from chefbot.robot.nav.base_controller import BaseController
 from chefbot.robot.nav.goal import Reachability, select_standoff, snap_to_free, standoff_candidates
 from chefbot.robot.nav.footprint import FootprintSpace
 from chefbot.robot.nav.grid import OccupancyGrid
-from chefbot.robot.nav.heading_plan import PathStyle, escape_start, headings, plan_at_headings, subdivide
+from chefbot.robot.nav.heading_plan import PathStyle, escape_start, headings, plan_at_headings, segment_m, subdivide
 from chefbot.robot.safety import BaseGuard, base_at_rest, require_base_at_rest, tuck_arm_for_driving
 from chefbot.robot.skills.common import ArmStack
 from chefbot.robot.skills.pick import run_pick
@@ -320,7 +320,7 @@ class Robot(RobotAPI):
         if points is None:
             blocking = self._doors_in_the_way(lambda planner: _has_path(planner, pose, goal))
             return self._result(MotionStatus.NO_PATH, why + blocking)
-        path = headings(pose, subdivide(points, 1.0), goal.yaw, self._style(), body)
+        path = headings(pose, subdivide(points, segment_m(self._style())), goal.yaw, self._style(), body)
         if self._tuck_arm:
             # Interlock: the arm is tucked (carrying, if it holds something) before the base moves.
             tucked = tuck_arm_for_driving(self._arm.arm, self._cfg, self._held, preempt)

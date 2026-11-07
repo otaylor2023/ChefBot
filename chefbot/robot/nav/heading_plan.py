@@ -31,6 +31,12 @@ def escape_start(plan_grid, body_grid, start, max_m: float = 0.3):
     return tuple(p) if body_grid.segment_free(tuple(start), tuple(p)) else None
 
 
+def segment_m(style: "PathStyle | None") -> float:
+    """How finely a path is cut for its headings: with turn_in_room, finely enough that a short path can still put
+    its turn where there is room (a 0.9 m path in two points turns from its very start), else 1 m."""
+    return 0.2 if style is not None and style.turn_in_room else 1.0
+
+
 def subdivide(points, max_segment: float) -> list:
     out = _subdivide(points, max_segment)
     if getattr(points, "turn", None) is not None:
@@ -218,7 +224,7 @@ def _plan_at_headings(plan, space, start: Pose2D, begin, pre: Pose2D, goal_yaw: 
             return None, f"no path: {exc}"
         found = _Points(found)
         found.turn = turn
-        sub = _Points(subdivide(found, 1.0))
+        sub = _Points(subdivide(found, segment_m(style)))
         sub.turn = turn
         poses = [(p.x, p.y, p.yaw) for p in headings(start, sub, goal_yaw, style, space)]
         bad = plan.first_blocked(poses[1:] if escaped else poses) or space.first_blocked(poses)
