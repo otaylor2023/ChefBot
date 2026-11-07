@@ -156,6 +156,10 @@ class OllamaExtractor(CappedExtractor):
         prompt_tokens_est = (len(system) + len(user)) // 3
         num_ctx = self.num_ctx_override or min(131072, 1024 * -(-(prompt_tokens_est + self.cap + 512) // 1024))
         options = {"num_ctx": num_ctx, "num_predict": self.cap}
+        # OLLAMA_OPTIONS (JSON) adds runtime options that change speed and heat, not the output: e.g.
+        # {"num_gpu": 20, "num_batch": 128} keeps some layers on the CPU and prefills in small chunks (cooler GPU).
+        if os.environ.get("OLLAMA_OPTIONS"):
+            options.update(json.loads(os.environ["OLLAMA_OPTIONS"]))
         if self.temperature is not None:
             options["temperature"] = self.retry_temperature if self.retrying else self.temperature
         body = {"model": self.local_model, "stream": False, "format": self.schema, "options": options,
