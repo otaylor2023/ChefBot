@@ -7,6 +7,7 @@
     python -m chefbot.scripts.real_nav go stove --map maps/src_kitchen   # A* around the map's obstacles; Enter, Ctrl-C stops
     python -m chefbot.scripts.real_nav go A --map maps/src_kitchen --straight   # straight on open floor, no A*
     python -m chefbot.scripts.real_nav arm                                     # the arm's outline over the floor, now
+    python -m chefbot.scripts.real_nav where --map maps/src_kitchen            # where the base is on the map, and clear?
     (Parking for counter targets, and its trials: scripts/real_park.py.)
 
 Places are the map's (maps/README.md): built from its spec (places.yaml) or marked here (marked.yaml), base poses in
@@ -253,6 +254,35 @@ def fence_cells(fence: Fence, grid, margin: float = 0.05):
     return OccupancyGrid((np.abs(u) > fence.half + margin) | (np.abs(v) > fence.half + margin), grid.resolution, grid.origin)
 
 
+def where(env: RealEnv, map_dir: Path, margin: float = 0.10, arm: str = "auto") -> dict:
+    """Where the base is (mocap) on the map: the nearest place, whether its footprint (the plate and the arm as it is)
+    is clear of the map there, with and without the planning margin, and if not, the nearest clear spot at this heading."""
+    from chefbot.scripts.real_map import load as load_map
+
+    loc = env.localization()
+    p = loc.mocap_pose
+    if p is None:
+        return {"live": False, "reason": "no mocap pose"}
+    grid, places = load_map(map_dir)
+    space, info = nav_space(grid, env.raw_state(), arm)
+    plan = space.with_margin(margin)
+    out = {"live": bool(loc.live), "x": round(p.x, 3), "y": round(p.y, 3), "yaw_deg": round(math.degrees(p.yaw), 1),
+           "footprint": info["note"], "reach_m": round(info["radius_m"], 3), "clear": space.is_free(p.x, p.y, p.yaw),
+           f"clear_with_{margin:.2f}_margin": plan.is_free(p.x, p.y, p.yaw)}  # fmt: skip
+    if places:
+        near = sorted(places, key=lambda n: math.hypot(places[n]["x"] - p.x, places[n]["y"] - p.y))[:3]
+        out["nearest_places"] = {n: round(math.hypot(places[n]["x"] - p.x, places[n]["y"] - p.y), 2) for n in near}
+    if not out[f"clear_with_{margin:.2f}_margin"]:
+        free = ~plan.at(p.yaw).occupied
+        cells = np.argwhere(free)
+        if len(cells):
+            xy = np.array([plan.at(p.yaw).cell_to_world(tuple(c)) for c in cells])
+            k = int(np.argmin(np.hypot(xy[:, 0] - p.x, xy[:, 1] - p.y)))
+            out["nearest_clear"] = {"x": round(float(xy[k, 0]), 3), "y": round(float(xy[k, 1]), 3),
+                                    "away_m": round(float(np.hypot(xy[k, 0] - p.x, xy[k, 1] - p.y)), 3)}  # fmt: skip
+    return out
+
+
 def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3, tol: float = 0.03,
                yaw_tol_deg: float = 3.0, corridor: float = 0.15, margin: float = 0.10, arm: str = "auto",
                settle_s: float = 0.5, still_mps: float | None = None, lookahead: float = 0.12,
@@ -461,6 +491,10 @@ def main() -> None:
                    help="straight there on open floor (no A*, the map's obstacles not used): within --max-dist only")
     add_go_args(g)
     sub.add_parser("arm")
+    w = sub.add_parser("where")
+    w.add_argument("--map", type=Path, required=True)
+    w.add_argument("--margin", type=float, default=0.10)
+    w.add_argument("--arm", choices=("auto", "off"), default="auto")
     args = ap.parse_args()
 
     if args.cmd == "point":
@@ -496,7 +530,10 @@ def main() -> None:
             mark(env, args.name, args.map)
             return
         if args.cmd == "arm":
-            print(json.dumps(robot_footprints(env.raw_state())[2], indent=2))
+            print(json.dumps(robot_footprints(env.raw_state())[1], indent=2))
+            return
+        if args.cmd == "where":
+            print(json.dumps(where(env, args.map, args.margin, args.arm), indent=2))
             return
         if args.map is None:
             raise SystemExit("go needs --map: its places are where it goes (real_nav mark NAME --map DIR adds one)")
