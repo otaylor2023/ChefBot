@@ -13,7 +13,7 @@ bounds: [[-2.00, -4.95], [4.60, 4.32]]
 obstacles:
   - name: kitchen_island_countertop     # Motive body ID 26: 4 corner markers, measured 2026-11-05 12:59
     box: {center: [1.305, -2.087], size: [2.224, 0.961], yaw_deg: -2.96}
-    height_m: 0.91
+    height_m: 0.895  # its flat corner stickers, 2026-11-06 (0.89-0.90; Jack's body 0.91; the ball markers read 1-2 cm high)
     fixture: island
   # The L counter (Jack, 2026-11-05): leg 1 along the south with the stove (Motive body 27), leg 2 along the east joined
   # to it at the corner (body 28, "2-corner-connected-1-and-fridge"), ending in the fridge. Leg 2's depth is assumed
@@ -24,7 +24,7 @@ obstacles:
     # (1.33, -4.29) and (2.23, -4.34)); counter_north is on the counter west of it (right of it, facing it). The fridge's
     # front face agrees with the box below within 2 cm (stickers (3.60, -2.00), (3.63, -1.12) at 1.76 m).
     box: {center: [1.767, -4.629], size: [4.165, 0.632], yaw_deg: -2.96}  # was (1.936, -4.638), 3.826 long
-    height_m: 0.83
+    height_m: 0.81   # its flat stickers on the front edge, 2026-11-06 (0.80-0.82), the stove the same; was 0.83
     fixture: stove_counter
   - name: 2-corner-connected-1-and-fridge   # leg 2, body 28: front edge at kitchen-x 3.68, from the corner to the fridge
     box: {center: [3.816, -3.556], size: [0.632, 2.987], yaw_deg: -2.96}
@@ -48,7 +48,7 @@ obstacles:
   - name: Chef-botcounter-top           # the test counter (HT-4..6), from its 4 corner stickers (2026-11-06 21:00:
     # (0.37, 1.70), (2.58, 1.59), (2.62, 2.42), (0.41, 2.53), tops 0.94-0.95); was maps/src_counter's (1.49, 2.06), 2.26 x 0.96, 0 deg
     box: {center: [1.495, 2.06], size: [2.213, 0.831], yaw_deg: -2.85}
-    height_m: 0.93
+    height_m: 0.93   # its flat corner stickers, 2026-11-06 (0.93)
     fixture: counter
 stations:
   - {obstacle: kitchen_island_countertop, prefix: island, standoff: 0.45, approach: 0.25, sides: [north, south]}
