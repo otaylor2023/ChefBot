@@ -1,6 +1,6 @@
 """The wrist D405's pose on the flange (eye-in-hand), from an ArUco marker lying still in front of the robot.
 
-    python -m chefbot.onboard.calibration.wrist look [--pose ready|forward]  # moves the arm (Enter first), then says
+    python -m chefbot.onboard.calibration.wrist look [--pose skills|ready|forward]  # moves the arm (Enter first), says
                                                                              # which markers the camera sees (look.png)
     python -m chefbot.onboard.calibration.wrist record out.json [--dict DICT_4X4_50 --id 0 --size 0.127]
         # from where the marker is in view: orbits the camera around it (Enter once), corners per pose
@@ -22,6 +22,10 @@ import numpy as np
 
 # Looking at the board: ready (the hand pointing down, ~0.5 m ahead of the arm base), or tipped forward from it.
 LOOK_POSES = {
+    # skills: the ready position the skills observe from (interface/workspace.py READY: looking forward and 35 deg down
+    # at a counter ahead); a calibration from views around it fits where the camera is used (2026-11-06: one from the
+    # base card, behind the arm, was 2 cm off there)
+    "skills": [0.0, -1.34, 0.0, -2.01, 0.0, 1.62, 0.785],
     "ready": [0.0, -0.75, 0.0, -2.16, 0.0, 1.41, 0.785],
     "forward": [0.0, -0.45, 0.0, -2.0, 0.0, 1.95, 0.785],
 }
@@ -265,6 +269,11 @@ def record(out: Path, dictionary: str = DICTIONARY, marker_id: int = MARKER_ID, 
             out.write_text(json.dumps({"K": cam.K.tolist(), "D": cam.D.tolist(), "marker": marker, "samples": samples}, indent=1))
             print(f"{len(samples)} poses in {out}")
         arm.move_to(q_look, "back to the look pose", confirm=False)
+    if len(samples) >= 6:  # the fit, at once (solve again with --skip to drop poses)
+        print("\nsolving:", flush=True)
+        solve(out, size=size)
+    else:
+        print(f"only {len(samples)} poses: not enough to solve")
 
 
 def _object_points(size: float) -> np.ndarray:
@@ -398,7 +407,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("look")
-    a.add_argument("--pose", choices=sorted(LOOK_POSES), default="ready")
+    a.add_argument("--pose", choices=sorted(LOOK_POSES), default="skills")
     a.add_argument("--out", type=Path, default=Path("look.png"))
     b = sub.add_parser("record")
     b.add_argument("out", type=Path)
