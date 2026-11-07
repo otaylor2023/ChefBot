@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation
 PADS = 0.130  # PORT: the real pads' middle out from the flange (sim 0.091): the fingertips 0.148 by touch (calibration/tcp.py, 2026-11-06), the pads' middle 18.3 mm above them
 FINGER_BAND = (.075 + .039, .115 + .039)  # PORT: where the open fingers are, out from the flange (sim .075-.115; the pads 3.9 cm further out)
 MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing (the lab's: n+50)
+REFINE = False  # PORT: the lab's kinematic refinement (its own IK, sent as joints) bypasses the robot's planner and its keep-out: off (2026-11-06: it drove toward the pole's keep-out and the host held the arm)
 # PORT: an object further than this from the wrist camera is measured from the close view (0.30 m) as the pole's
 # choice is: the real D405 (18 mm stereo baseline) flattens a small object beyond ~0.5 m (2026-11-06: an egg at 0.70 m
 # read 1.5-2.2 cm tall, lying ~4.3; a card at 0.25 m read within 0.3 mm)
@@ -82,7 +83,7 @@ def move(robot, F, g, n=30, settle=True):
         p=r['proprio'];actual=np.array(p['flange_pose_odom'])
         err=np.linalg.norm(actual[:3,3]-F[:3,3])
         predicted=kinematics.fk(p['arm_q']);measured=np.array(p['flange_pose_root'])
-        if .003<err<.04 and np.linalg.norm(predicted[:3,3]-measured[:3,3])<.002:
+        if REFINE and .003<err<.04 and np.linalg.norm(predicted[:3,3]-measured[:3,3])<.002:
             root=planar(*p['base_pose_odom'])
             q=kinematics.solve(np.linalg.inv(root)@F,p['arm_q'])
             if q is not None:

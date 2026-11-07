@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation
 
 PADS = 0.130  # PORT: the real pads' middle out from the flange (sim 0.091): the fingertips 0.148 by touch (calibration/tcp.py, 2026-11-06), the pads' middle 18.3 mm above them
 MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing (the lab's: n+50)
+REFINE = False  # PORT: the lab's kinematic refinement (its own IK, sent as joints) bypasses the robot's planner and its keep-out: off (2026-11-06: it drove toward the pole's keep-out and the host held the arm)
 BASE = [0.,0.,0.]
 
 def row(F,g):
@@ -44,7 +45,7 @@ def move(robot, F, g, n=30, settle=True):
         p=r['proprio'];actual=np.array(p['flange_pose_odom'])
         err=np.linalg.norm(actual[:3,3]-F[:3,3])
         predicted=kinematics.fk(p['arm_q']);measured=np.array(p['flange_pose_root'])
-        if .003<err<.04 and np.linalg.norm(predicted[:3,3]-measured[:3,3])<.002:
+        if REFINE and .003<err<.04 and np.linalg.norm(predicted[:3,3]-measured[:3,3])<.002:
             root=planar(*p['base_pose_odom'])
             q=kinematics.solve(np.linalg.inv(root)@F,p['arm_q'])
             if q is not None:
