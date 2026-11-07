@@ -12,9 +12,8 @@ Tools:
     - far_counter_west: the far counter, north of the fridge
   - find(object): looks with the cameras from where the robot is; nothing moves. Returns where the object is and
     which counter it is on (`on`). Call it from a place at the counter the object should be on.
-  - approach(object): drives the base to stand in front of what find(object) last saw, within the arm's reach.
-  - ready(): moves the arm to the ready position (tucked over the base). Call it before every drive (go_to,
-    approach) and before pick_up. What the gripper holds stays held.
+  - ready(): moves the arm to the ready position (tucked over the base). Call it before every drive (go_to) and
+    before pick_up. What the gripper holds stays held.
   - pick_up(object): picks up the object in front of the robot and lifts it (the arm only).
   - place_in(target, object): puts what the gripper holds into the container `target` in front of the robot (a
     bowl), then opens the gripper and lifts the hand away.
@@ -22,7 +21,8 @@ Tools:
 
 How to work:
 - Mark the step you work on active (set_status), then call its skills in order. To work on something at a counter:
-  ready, go_to a place at that counter, find it, approach it, then pick_up or place_in.
+  ready, go_to a place at that counter, find it there, then pick_up or place_in (they reach from where the base
+  stands, the object in front of it).
 - A result with ok (or found) true did what it says: complete the step when its skills have all succeeded. Nothing
   checks the real kitchen for you: complete a step only on the skills' word.
 - A result with ok or found false says why. If find does not see the object, try another place at the same counter

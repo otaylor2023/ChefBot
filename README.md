@@ -73,8 +73,8 @@ not run yet.
 
 ### The real kitchen agent (the tomato demo)
 
-`agents/real_kitchen` drives across the SRC kitchen (`maps/src_kitchen`, by mocap): `go_to` a place, `find` a thing
-with the cameras (placed in the map's frame), `approach` it (square to its counter, in reach), `pick_up`
+`agents/real_kitchen` drives across the SRC kitchen (`maps/src_kitchen_work`, by mocap): `go_to` a place, `find` a thing
+with the cameras (placed in the map's frame, to see it is there), `pick_up`
 (`kitchen_use/run1_v155_fr3`, use hold) and `place_in` (`place_in/v1`), with `ready` (the arm tucked) before every
 drive and pick. The base, finding and the ready position are `host-v1` skills: functions in the agent's process on
 the real host (`scripts/real_kitchen.py`); the pick and the place are sandboxed `chefbot-v1` episodes on it. A base

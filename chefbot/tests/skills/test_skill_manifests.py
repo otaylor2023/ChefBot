@@ -12,7 +12,7 @@ ROBOT = [f"{n}/robotapi_v1" for n in ("align", "close", "go_to", "lift_out", "lo
                                      "release", "squeeze", "stir", "turn_off", "turn_on")]  # the agent's, robot-api-v1  # fmt: skip
 LAB = ["bringup/v1", "hand_eye_check/v1", "kitchen_use/astra_run1_v87_fr3", "kitchen_use/run1_v155_fr3",
        "pick_up/chefbot_v30_fr3", "pick_up/gemini_v1", "place_in/v1", "ready/v1", "tongs_lift/mujoco_tongs3_v59_fr3"]  # fmt: skip
-HOST = ["approach/host_v1", "find/host_v1", "go_to/host_v1", "ready/host_v1"]  # host-v1: on the real host, in the agent's process
+HOST = ["find/host_v1", "go_to/host_v1", "ready/host_v1"]  # host-v1: on the real host, in the agent's process
 REGISTERED = sorted(LAB + ROBOT + HOST)
 IMPORTED: set = set()  # wholebody-v2, imported and not run (none now: the labs moved to agentic-skills-exploration)
 
@@ -28,7 +28,7 @@ def test_every_registered_skill_loads():
 def test_the_catalog_lists_by_interface():
     assert [s.path for s in skills.catalog(interface="chefbot-v1")] == sorted(LAB + HOST)  # host-v1 in chefbot-v1 sessions
     assert [s.path for s in skills.catalog(interface="robot-api-v1")] == ROBOT
-    assert len(skills.catalog()) == 27
+    assert len(skills.catalog()) == 26
 
 
 def test_the_catalog_lists_by_env():

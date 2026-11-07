@@ -1,12 +1,11 @@
-"""The real kitchen for an agent's host-v1 skills (skills/*/host_v1): the base driven to the map's places and to
-counter stances by the robot layer (scripts/real_nav.py, robot/nav/goal.py counter_stance), and things found with the
+"""The real kitchen for an agent's host-v1 skills (skills/*/host_v1): the base driven to the map's places by the
+robot layer (scripts/real_nav.py), the arm to the ready position, and things found with the
 cameras and the vision models, placed in the mocap world the map is in. Runs on the laptop, in the agent's process,
 on the same real host (environments/real/host.py) the sandboxed skills run their episodes on.
 
     kitchen = RealKitchen(host, REPO / "maps/src_kitchen", vision, out)
     kitchen.go_to("island_north")          # A* on the map to a place, the footprint clear, mocap live
     kitchen.find("tomato")                 # {found, world: [x, y, z], on: "island", camera, ...}
-    kitchen.approach("tomato")             # to the stance in front of where it was found, square to that counter
 
 A base move first stops the host's control (it holds the flange still in odom, which would pull the arm back as the
 base drives), holds the arm at its joints, drives, and starts the host's control again where the base ended: the
@@ -176,27 +175,6 @@ class RealKitchen:
         return {"ok": bool(r.get("ok")), "reason": r.get("reason"), "at": self.where(),
                 "final_error_m": r.get("final_error_m")}  # fmt: skip
 
-    def approach(self, object: str | None = None, x: float | None = None, y: float | None = None) -> dict:
-        """To the stance for working on a counter target: where find() last saw `object`, or (x, y) in the world.
-        Square to the counter it is on, its centre 0.45 m out from the edge, the target straight ahead."""
-        from chefbot.robot.nav.goal import counter_stance
-
-        if x is None or y is None:
-            seen = self.found.get(object or "")
-            if seen is None:
-                return {"ok": False, "reason": f"no {object!r} found yet: find it first (or give x, y)"}
-            x, y = seen["world"][:2]
-        name = self.counter_at((x, y))
-        if name is None:
-            return {"ok": False, "reason": f"({x:.2f}, {y:.2f}) is on no counter of the map"}
-        robot = self._robot()
-        pose, info = counter_stance(robot, self.counters()[name], (x, y), approach=0.25)
-        if pose is None:
-            return {"ok": False, "reason": f"no stance at the {name} for ({x:.2f}, {y:.2f}): {info}"}
-        r = self.drive(pose, 0.25, f"{name}_{info['side']}")
-        return {"ok": bool(r.get("ok")), "reason": r.get("reason"), "counter": name, "side": info["side"],
-                "target_inset_m": round(info["inset_m"], 3), "at": self.where(), "final_error_m": r.get("final_error_m")}  # fmt: skip
-
     # -- looking --------------------------------------------------------------------------
 
     def _vision(self, op: str, image: np.ndarray, **args) -> dict:
@@ -294,7 +272,6 @@ def main() -> None:
         python -m chefbot.scripts.real_kitchen find tomato        # nothing moves: where it is on the map
         python -m chefbot.scripts.real_kitchen ready              # the arm to READY (Enter first)
         python -m chefbot.scripts.real_kitchen go_to island_south # Enter first
-        python -m chefbot.scripts.real_kitchen approach tomato    # finds it, then drives to its stance (Enter first)
         python -m chefbot.scripts.real_kitchen where
     """
     import argparse
@@ -307,8 +284,8 @@ def main() -> None:
 
     repo = Path(__file__).resolve().parents[2]
     ap = argparse.ArgumentParser(description=main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=("find", "ready", "go_to", "approach", "where"))
-    ap.add_argument("arg", nargs="?", default=None, help="the object (find, approach) or the place (go_to)")
+    ap.add_argument("what", choices=("find", "ready", "go_to", "where"))
+    ap.add_argument("arg", nargs="?", default=None, help="the object (find) or the place (go_to)")
     ap.add_argument("--map", type=Path, default=repo / "maps" / "src_kitchen_work")
     ap.add_argument("--dry-run", action="store_true", help="plan, drive and move nothing")
     a = ap.parse_args()
@@ -325,12 +302,8 @@ def main() -> None:
             r = k.find(a.arg)
         elif a.what == "ready":
             r = k.ready()
-        elif a.what == "go_to":
-            r = k.go_to(a.arg)
         else:
-            f = k.find(a.arg)
-            print(json.dumps(f, indent=2))
-            r = k.approach(a.arg) if f.get("found") else {"ok": False, "reason": "not found"}
+            r = k.go_to(a.arg)
         print(json.dumps(r, indent=2, default=str))
         print(f"files: {out}")
     finally:

@@ -10,13 +10,12 @@ prompts: prompts
 skills:                     # its registry: the name it calls each by -> one registered version (chefbot/skills)
   go_to: go_to/host_v1
   find: find/host_v1
-  approach: approach/host_v1
   ready: ready/host_v1
   pick_up:
     path: kitchen_use/run1_v155_fr3
     description: >-
       Pick up an object in front of the robot with the gripper and lift it (the wrist and pole cameras find it; the
-      arm only, the base stays). Start from the ready position, the base parked in front of the object (approach).
+      arm only, the base stays). Start from the ready position, the base at a place facing the object's counter (go_to).
       Returns {ok, reason}: ok when the fingers closed on something.
     args:
       object: "what to pick up, in a few words ('tomato')"
