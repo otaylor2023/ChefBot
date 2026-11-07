@@ -78,6 +78,7 @@ class Robot(RobotAPI):
         centre_limit: OccupancyGrid | None = None,
         tuck_arm: bool = True,
         drive_log: Callable[[dict], None] | None = None,
+        body=None,
     ):
         """footprint_below(top) -> interface/workspace.py Footprint: what of the robot is lower than an obstacle's top
         (inf: all of it), seen from above in the base frame (default: a circle of the config's footprint_radius).
@@ -85,7 +86,9 @@ class Robot(RobotAPI):
         space ahead and the carrot sized for it (none: full speed, the config's lookahead). centre_limit: cells the
         base's centre may not enter (a fence). tuck_arm=False: the base drives with the arm as it is (its footprint
         covers it; the arm moving stops the drive) instead of first moving it to its driving posture. drive_log: called
-        with a dict per control tick while the base drives (and as it comes to rest)."""
+        with a dict per control tick while the base drives (and as it comes to rest). body: the robot's own parts the
+        arm keeps clear of (interface/workspace.py Body, an embodiment's robot.yaml `body:`); its planned arm moves into
+        them are refused. None: no body (RoboCasa's PandaOmron)."""
         from chefbot.robot.kinematics.collision import ArmCollisionModel
         from chefbot.robot.kinematics.reachability import ReachabilityChecker
 
@@ -98,9 +101,9 @@ class Robot(RobotAPI):
         self._planner = AStarPlanner(grid.inflate(self._cfg.inflation_radius))
         frames = ReachabilityChecker(self._cfg)
         self._reachability = reachability or frames
+        arm = ArmController(env, frames.ik, self._cfg, *_constraints_of(body))
         self._arm = ArmStack(
-            env, self._cfg, frames.ik, ArmController(env, frames.ik, self._cfg), Gripper(env, self._cfg), frames,
-            ArmCollisionModel(frames.ik.model),
+            env, self._cfg, frames.ik, arm, Gripper(env, self._cfg), frames, ArmCollisionModel(frames.ik.model),
         )  # fmt: skip
         self._grasp_proposer = grasp_proposer
         self._placement_proposer = placement_proposer
@@ -654,3 +657,10 @@ def _has_path(planner: AStarPlanner, start: Pose2D, goal: Pose2D) -> bool:
     except NoPath:
         return False
     return True
+
+
+def _constraints_of(body) -> tuple[list, float]:
+    """The arm's constraints and hand length for a body (none without one)."""
+    from chefbot.embodiments.constraints import for_robot
+
+    return for_robot(body), (body.hand_m if body is not None else 0.0)

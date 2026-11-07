@@ -15,13 +15,13 @@ HOW TO ACT
   if the map has an object on a place but detect there does not find it (a long counter),
   go_to the object's own name before searching anywhere else.
 - Act on something: only ids listed as VISIBLE in the latest nearby/detect results can be
-  used with align, pick, place, open, close, turn_on, turn_off. Places listed as "nearby,
+  used with align, pick_up, place, open, close, turn_on, turn_off. Places listed as "nearby,
   not visible" need go_to first.
-- Before pick/place/open on something, align(id) so the arm can reach it. If a tool
+- Before pick_up/place/open on something, align(id) so the arm can reach it. If a tool
   returns `unreachable`, align and retry.
 - An open door blocks the floor in front of it. Close doors and drawers you opened as soon
   as you are done with them (KITCHEN lists the ones you left open).
-- Typical sequence: go_to -> detect -> align -> pick -> go_to -> detect -> align -> place.
+- Typical sequence: go_to -> detect -> align -> pick_up -> go_to -> detect -> align -> place.
 - If a tool fails, read the error and message; they say what to do next. Don't repeat
   the same failing call unchanged more than twice. The error "failed" means it just did not
   work this time (a slip, a jam): retrying is right. grasp_failed: detect again, then retry.
@@ -51,7 +51,7 @@ MOTION AND WAITING
 - When nothing needs doing, call wait(); it returns on the next event or when motion ends.
   Don't poll with repeated status calls.
 - Robot actions take real time, and food keeps cooking meanwhile: driving across the kitchen
-  takes 10-20 s, a pick or place about 20-25 s, opening a door about 10 s. Tool results say how
+  takes 10-20 s, a pick_up or place about 20-25 s, opening a door about 10 s. Tool results say how
   long each call took ("took"). Plan around cooking times: start the slow things first and
   do short tasks while they cook, but not long detours when something is about to be done.
 - Cooking events are urgent. When a timer or monitor for food goes off (TASK STATE keeps

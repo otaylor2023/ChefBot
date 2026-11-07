@@ -34,6 +34,16 @@ class CheckResult:
     raw: str | None = None  # the judge's reply, for the run log
 
 
+class UncheckedJudge:
+    """For a world with no ground truth (the real robot): a step's done_when is not checked, it is taken as done when
+    the agent completes it, and the run log says so."""
+
+    REASON = "not checked: no ground truth here (the real robot); taken as done"
+
+    def check(self, condition: str, observation: Observation) -> CheckResult:
+        return CheckResult(True, self.REASON)
+
+
 class StateChecker:
     def __init__(self, llm, model: str, temperature: float = 0.0):
         self._llm = llm

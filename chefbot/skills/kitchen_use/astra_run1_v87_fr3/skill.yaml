@@ -2,6 +2,8 @@ name: kitchen_use
 version: astra_run1_v87_fr3
 entry: main.py:run
 interface: chefbot-v1
+envs: [real]
+sandboxed: true
 robot: tidybot_fr3
 arm_only: true      # the base holds where it starts (the lab's Astra chose base moves of up to 6 cm forward and 35 cm sideways: see provenance)
 cameras: [wrist, pole]

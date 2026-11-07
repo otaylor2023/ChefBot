@@ -1,0 +1,29 @@
+name: lower_into
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- handheld_tools
+description: >-
+  Lower the tool or container you are holding into (or just over) a visible container: a whisk into a
+  bowl, an egg cracker over a bowl or pan. Align to the container first. It stays there until lift_out,
+  or until you drive off (it is lifted out first). Fails with not_holding, unknown_id, not_visible, unreachable
+  (align first) or no_placement.
+args:
+  id:
+    type: string
+    description: The container, e.g. "bowl" or "pan_1".
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's lower_into tool (agent/tools/manip.py HandheldTools.lower_into), registered as
+    a skill 2026-11-05

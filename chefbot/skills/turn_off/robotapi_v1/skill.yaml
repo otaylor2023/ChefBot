@@ -1,0 +1,26 @@
+name: turn_off
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- appliances
+description: >-
+  Turn off a burner or an appliance. Same rules and errors as turn_on.
+args:
+  id:
+    type: string
+    description: A visible id, e.g. "burner_2".
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's turn_off tool (agent/tools/manip.py KitchenTools.turn_off), registered as a skill
+    2026-11-05

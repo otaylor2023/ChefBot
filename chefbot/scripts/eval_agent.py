@@ -72,6 +72,8 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=1, help="runs per task (seeds 0..runs-1)")
     parser.add_argument("--jobs", type=int, default=4, help="runs in parallel")
     parser.add_argument("--model")
+    parser.add_argument("--agent", help="the agent (chefbot/agents/<name>; run_agent's default if not given)")
+    parser.add_argument("--interface", help="the session's robot API (run_agent's default if not given)")
     parser.add_argument("--max-cost", type=float, default=3.0, help="per-run LLM cost limit (USD)")
     parser.add_argument("--summarize", type=Path, help="print the table of an earlier eval and exit")
     parser.add_argument("--noise", choices=["off", "task", "on"], default="task",
@@ -84,6 +86,8 @@ def main() -> int:
     out = REPO / "runs" / f"eval_{dt.datetime.now().strftime('%Y-%m-%d_%H%M%S')}_noise-{args.noise}"
     out.mkdir(parents=True, exist_ok=True)
     extra = ["--max-cost", str(args.max_cost), "--noise", args.noise] + (["--model", args.model] if args.model else [])
+    extra += ["--agent", args.agent] if args.agent else []
+    extra += ["--interface", args.interface] if args.interface else []
     jobs = [(TASKS / f"{n}.yaml", seed) for n in names for seed in range(args.runs)]
     results = []
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:

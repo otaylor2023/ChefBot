@@ -15,23 +15,25 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from chefbot.agent.loop.perception import Perception
+from chefbot.agent.harnesses.plan_loop.perception import Perception
 from chefbot.agent.plan.model import ACTIVE, DONE, FAILED, PAUSED, PAUSING, PENDING, SKIPPED, WAITING
 from chefbot.agent.plan.store import PlanStore
 from chefbot.agent.world.kitchen import SEEN, YOU
 from chefbot.agent.world.map import label_of
 from chefbot.interface.types import MotionStatus, ToolResult
 
-SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "system.md"
+# The agent's prompts folder (agent.yaml `prompts:`); with none given, the default agent's.
+PROMPTS_DIR = Path(__file__).resolve().parents[3] / "agents" / "kitchen_planner" / "prompts"
 # Extra sections, included when the registry offers their tools.
 PROMPT_SECTIONS = {"stir": "handheld.md", "pour": "handheld.md", "squeeze": "trigger_tools.md"}
 
 
-def system_prompt(tool_names: set[str]) -> str:
-    """The system prompt for a run: the base plus a section for each kind of tool offered."""
-    text = SYSTEM_PROMPT_PATH.read_text()
+def system_prompt(tool_names: set[str], prompts_dir: Path | None = None) -> str:
+    """The system prompt for a run: the base (system.md) plus a section for each kind of tool offered."""
+    prompts_dir = Path(prompts_dir or PROMPTS_DIR)
+    text = (prompts_dir / "system.md").read_text()
     for name in dict.fromkeys(f for tool, f in PROMPT_SECTIONS.items() if tool in tool_names):
-        text += (SYSTEM_PROMPT_PATH.parent / name).read_text()
+        text += (prompts_dir / name).read_text()
     return text
 REPROMPT = "Respond with exactly one tool call."
 
@@ -71,7 +73,7 @@ class TaskState:
         # Unproductive calls over the whole run (the window only keeps the last few):
         # key -> [count, last time, what happened].
         self._fruitless: dict[str, list] = {}
-        # go_to visits since the last progress (a pick, place, open/close, turn on/off or completed step).
+        # go_to visits since the last progress (a pick_up, place, open/close, turn on/off or completed step).
         self._visits: dict[str, int] = {}
 
     def record(self, tool: str, args: dict, result: ToolResult) -> None:
@@ -122,7 +124,7 @@ class TaskState:
                 lines.append(f"  {call} {outcome} x{count}, last {_duration(self._clock.now() - last)} ago")
             if circling:
                 lines.append("  went to " + ", ".join(f"{p} {n}x" for p, n in sorted(circling, key=lambda pn: -pn[1]))
-                             + " since your last progress (pick, place, open/close, turn on/off, complete)")  # fmt: skip
+                             + " since your last progress (pick_up, place, open/close, turn on/off, complete)")  # fmt: skip
         lines += ["", *self._kitchen_lines()]
         lines += ["", "EVENTS SINCE LAST TURN"]
         lines += [f"  [{e.kind}] {e.message}" for e in events] or ["  none"]
@@ -326,7 +328,7 @@ def _row(indent: str, place: str, contents: str, width: int = 30) -> str:
     return f"{head:<{width}}  {contents}" if len(head) < width else f"{head}   {contents}"
 
 
-_PROGRESS = {"pick", "place", "open", "close", "turn_on", "turn_off", "complete"}
+_PROGRESS = {"pick_up", "place", "open", "close", "turn_on", "turn_off", "complete"}
 _OPENABLE = {"fridge", "cabinet", "microwave", "oven", "drawer", "dishwasher"}
 _CONTAINERS = {"fridge", "cabinet", "microwave", "drawer", "oven", "toaster", "pan", "pot", "bowl", "mug", "sink", "egg cracker"}
 _DID = {"open": "opened", "closed": "closed", "on": "turned on", "off": "turned off"}

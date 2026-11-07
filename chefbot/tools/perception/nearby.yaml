@@ -1,0 +1,10 @@
+name: nearby
+description: >-
+  List what is around the robot right now, nearest first, without looking again. "visible" items were
+  seen by the last detect and can be passed to align. "not_visible" items are on the map and close by
+  but were not seen (behind the robot, hidden, for example inside a closed fridge, or missed): go_to them
+  first, then detect again. Also says what the gripper is holding.
+entry: nav.nearby
+needs: []
+interfaces:
+- robot-api-v1

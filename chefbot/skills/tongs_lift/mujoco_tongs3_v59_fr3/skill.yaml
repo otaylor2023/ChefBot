@@ -2,6 +2,8 @@ name: tongs_lift
 version: mujoco_tongs3_v59_fr3
 entry: main.py:run
 interface: chefbot-v1
+envs: [real]                          # ported to the real FR3 (its lab: mujoco_tongs, in agentic-skills-exploration)
+sandboxed: true
 robot: tidybot_fr3
 arm_only: true      # the base holds where it starts (the lab's moved it; see main.py)
 cameras: [pole, wrist]

@@ -48,7 +48,7 @@ class Perception:
             self.pose, self.calls_since = pose, 0
             return
         self.calls_since += 1
-        if tool == "pick" and result.success:
+        if tool == "pick_up" and result.success:
             picked = args.get("id")
             self.visible = [d for d in self.visible if d.get("id") != picked]
 

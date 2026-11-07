@@ -1,4 +1,5 @@
-"""Agent-layer configuration (agent.yaml)."""
+"""Agent-layer configuration: an agent's agent.yaml (chefbot/agents/<name>/), its `settings:` and `loop:`.
+With no path, the default agent's (chefbot/agents/kitchen_planner)."""
 
 from __future__ import annotations
 
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "config" / "agent.yaml"
+DEFAULT_PATH = Path(__file__).resolve().parent.parent / "agents" / "kitchen_planner" / "agent.yaml"
 
 
 @dataclass(frozen=True)
@@ -21,12 +22,11 @@ class AgentConfig:
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "AgentConfig":
-        raw = yaml.safe_load(Path(path or DEFAULT_PATH).read_text())
-        raw.pop("loop", None)  # LoopConfig
+        raw = dict(yaml.safe_load(Path(path or DEFAULT_PATH).read_text()).get("settings") or {})
         known = {f.name for f in fields(cls)}
         unknown = set(raw) - known
         if unknown:
-            raise ValueError(f"unknown keys in agent config: {sorted(unknown)}")
+            raise ValueError(f"unknown keys in agent.yaml settings: {sorted(unknown)}")
         raw["default_vocab"] = tuple(raw.get("default_vocab", ()))
         return cls(**raw)
 

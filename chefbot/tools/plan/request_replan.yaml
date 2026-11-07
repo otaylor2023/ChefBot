@@ -1,0 +1,14 @@
+name: request_replan
+description: >-
+  Ask for a new plan when this one cannot work (an ingredient is missing, the dish has to change). Do
+  not improvise a different dish.
+parameters:
+  reason:
+    type: string
+required:
+- reason
+entry: plan.request_replan
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

@@ -1,0 +1,29 @@
+name: pick_up
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- grasp
+description: >-
+  Pick up one visible object with the gripper and lift it. Align to the object first: pick_up does not move
+  the base. Only one object can be held at a time. Fails with unknown_id, not_visible, already_holding
+  (place what you hold first), no_grasp (the id is not something the gripper can pick up, such as a counter),
+  unreachable (align to it first), grasp_failed (the gripper closed on nothing or the object slipped;
+  detect and try again), collision (the arm touched something and stopped where it was), stopped or timeout.
+args:
+  id:
+    type: string
+    description: A visible id from nearby(), e.g. "egg_1" or "mug".
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's pick tool (agent/tools/manip.py ManipTools.pick), registered as a skill 2026-11-05, named pick_up (the pick_up family) the same day

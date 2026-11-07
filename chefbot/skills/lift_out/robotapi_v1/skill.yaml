@@ -1,0 +1,23 @@
+name: lift_out
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- handheld_tools
+description: >-
+  Lift the held tool back out of the container it is lowered into.
+args:
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's lift_out tool (agent/tools/manip.py HandheldTools.lift_out), registered as a skill
+    2026-11-05

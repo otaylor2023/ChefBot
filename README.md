@@ -21,6 +21,10 @@ onboard (chefbot/onboard) on the robot computer: the drivers' state and commands
 
 The arm and gripper are config (`embodiments/arms/`, `embodiments/grippers/`), picked in
 `config/robot.yaml` (`hardware:`); `config/robot_real.yaml` is the real robot.
+The robot's body (`body:`: the pole, the camera clamp, the base's plate) is avoided by the skill hosts'
+controller (`embodiments/wholebody.py`) and guarded by the real host; the agent's arm (`robot/arm/arm_controller.py`)
+refuses a planned move whose path goes into it, by the same rule (`Robot(..., body=...)`; RoboCasa's
+PandaOmron has none).
 
 Skills are developed in agentic-skills-exploration's labs (`chefbot_labs/` there: the research loop, lab configs,
 tasks, setups, suites, generators, evals and the MuJoCo kitchens), on this repo's robot and skill runtime; the ones that
@@ -35,9 +39,49 @@ run on the robot are released into `skills/` here. This repo, one folder per con
 | `interface/` | `Env`, types, transport, and `skill_api.py`: the skill-side robot API (`chefbot-v1`) |
 | `jobs/` | The cooking agent's jobs (`fried_egg.yaml`, ...): goal, plan and success conditions |
 
-Tools: `go_to`, `detect`, `nearby`, `align`, `pick`, `place`, `open`, `close`,
+Tools: `go_to`, `detect`, `nearby`, `align`, `pick_up`, `place`, `open`, `close`,
 `holding`, `wait`, `get_status`, `stop`, `get_pose`. The workflow they are built
-around is `go_to -> detect -> align -> pick -> go_to -> detect -> align -> place`.
+around is `go_to -> detect -> align -> pick_up -> go_to -> detect -> align -> place`.
+
+## Agents (Simone's agents-skills-registry, merged 2026-11-06)
+
+The agent loop (AGENT_SPEC v0.1) is kept as it was: one tool call per turn, the last 8 calls, a
+TASK STATE rebuilt every turn, a judge on every step, the same executor and judge prompts. It is now in a
+form that runs different agents, in sim and on the real robot. The full account is [HARNESS.md](HARNESS.md); the same
+summary, with more detail, is on the branch's page (private on claude.ai until shared:
+https://claude.ai/artifact/JntFqAif1VJYG25Zc7uQfM).
+
+| Part | Before | Now |
+|---|---|---|
+| The loop | `agent/loop/`, one agent | the same code, the named harness `agent/harnesses/plan_loop/` |
+| An agent | code plus `config/agent.yaml` | a definition, `agents/<name>/agent.yaml` (harness, robot APIs, prompts, skills, tools, models, limits): `kitchen_planner` (sim) and `real_arm` (robot) |
+| System prompts | `agent/loop/prompts/` | with each agent (`agents/<name>/prompts/`); the executor's text unchanged except `pick` → `pick_up` |
+| Tool descriptions | 30 schemas written in `registry.py` | 16 tools as one YAML each (`tools/<group>/`); 14 robot moves as skills (`skills/<name>/robotapi_v1/skill.yaml`), each with what the LLM reads and where it can run |
+| Where it runs | symbolic, RoboCasa | a session = agent + environment + robot API; also the real robot (`run_agent --env real`) through sandboxed skills |
+| The judge | Haiku on the simulator's state | the same in sim; on the real robot a completed step is taken as done and logged unchecked |
+| Safety | the real host's guard | the arm refuses a move into the robot's own body before sending it; real speed limits enforced; `ready/v1` takes the arm home around the body |
+
+```sh
+python -m chefbot.scripts.run_agent --task chefbot/jobs/fried_sausage.yaml --agent kitchen_planner      # sim, as before
+python -m chefbot.scripts.run_agent --env real --agent real_arm --task chefbot/jobs/real_pick.yaml --dry-run   # the robot, nothing sent
+```
+
+Every step kept the agent's runs byte-identical (its first LLM request, the tool schemas, a scripted run) unless
+changing them was the point. Real robot status: the read-only check passed; the dry run found the pole D455 missing
+on USB (so `real_arm` uses the wrist camera only) and a keep-out graze on the way home (so `ready/v1`); a live pick is
+not run yet.
+
+### The video
+
+[![The agent in RoboCasa with its conversation](docs/videos/fried_sausage_chat.png)](docs/videos/fried_sausage_chat.mp4)
+
+[`docs/videos/fried_sausage_chat.mp4`](docs/videos/fried_sausage_chat.mp4) (3.5 min, download to play): a RoboCasa
+run started from the typed request "Can you fry the sausage and put it on the plate?". On the right, the conversation
+as it happened: the planner's and the executor's system prompts, the executor's tools and the judge's prompt; the
+request, the planner's reply and plan; then every turn (the TASK STATE sent, the executor's reasoning and tool call,
+the judge's verdict, the robot's result). The plain simulation is
+[`docs/videos/fried_sausage_sim.mp4`](docs/videos/fried_sausage_sim.mp4). The run used this branch's loop, registry
+and skills with the next branch's additions (the planner from a typed request, narration): `harness-memory-planner`.
 
 ## Setup
 
@@ -136,6 +180,12 @@ Skills may call Gemini (metered, with budgets) and the vision models (`chefbot/r
 env with torch + transformers; set `VISION_URL`). On macOS skills run under `sandbox-exec` plus an in-process guard
 (no network, no subprocesses, nothing of the repo); on Linux under bubblewrap.
 
+A skill's `skill.yaml` says which robot API it is written against (`interface`: `chefbot-v1`, a sandboxed process;
+`robot-api-v1`, a function in the agent's process, never sandboxed; `wholebody-v2`, imported and not run), where it
+could run (`envs`: symbolic, robocasa, mujoco_kitchen, real) and `sandboxed`. A robot-api-v1 skill also has the
+`description` the LLM reads and the robot capabilities it `needs`. `skills.load` refuses a manifest that contradicts
+itself or has a key it does not know; `skills.catalog(env=..., interface=...)` lists the skills that could run there.
+
 ## The agent loop (AGENT_SPEC.md)
 
 An LLM (OpenRouter; key in `OPENROUTER_API_KEY` or `.env`) works through a
@@ -165,7 +215,7 @@ scored by.
 
 | Task | What it tests |
 |---|---|
-| `mug_to_counter` | the basics: go_to, detect, align, pick, place, complete |
+| `mug_to_counter` | the basics: go_to, detect, align, pick_up, place, complete |
 | `egg_to_pan` | fridge open / close, dependencies |
 | `fried_egg` | burners, timers or monitors, a waiting step done in parallel with another |
 | `fried_egg_pause` | a long second task; the egg is ready partway through it |
@@ -188,8 +238,45 @@ burners, spoons (lower_into, stir, lift_out) and pouring, not trigger tools
 utensils and pans have an adaptive handle: they lock in the closed gripper (as
 a form-fit or magnetic handle would) instead of pivoting in a two-finger pinch. A run
 can withhold more: `tools: {exclude: [...], only: [...]}` in a task file, or
-`tools_exclude` / `tools_only` in `agent.yaml`. The system prompt gets a
-section for each kind of tool offered (`agent/loop/prompts/`).
+`tools_exclude` / `tools_only` in the agent's `agent.yaml`. The system prompt gets a
+section for each kind of tool offered (the agent's `prompts/`).
+
+**Agents** are definitions, one folder each in `chefbot/agents/`: `agent.yaml` names
+the harness the agent runs in (`agent/harnesses/`: `plan_loop` is the loop above), the
+robot APIs it runs with, its prompts, the `tools:` it gets, its tools' `settings:` and
+its `loop:` settings. Today's agent is `kitchen_planner`, the default; `run_agent --agent
+<name>` picks another. It selects its skills with `skills: include:` patterns on their paths
+(`*/robotapi_v1`). A run is a **session** (`agents/session.py`): an agent, an env and one robot
+API (`--interface`, the agent's first by default). The session offers the selected skills that
+could run in that env and speak that API, and the listed tools that work with that API, and
+`start.json` records it. In a chefbot-v1 session each skill call is one sandboxed episode on a
+host kept open for the run, continuing its scene (`runtime/agent_skills.py`, `run_episode(restart=False)`).
+
+**The real robot** (`--env real`): `real_arm` is the first agent for it, the arm only (the base
+held), with `bringup/v1` and `pick_up/gemini_v1`. Everything runs on the laptop; the robot runs only
+the onboard server. Nothing judges a step there: one the agent completes is taken as done, unchecked.
+
+```bash
+ssh -L 8765:localhost:8765 tidybot01        # the onboard server running there (bringup/README.md)
+python -m chefbot.scripts.run_agent --env real --agent real_arm --task chefbot/jobs/real_pick.yaml --dry-run
+python -m chefbot.scripts.run_agent --env real --agent real_arm --task chefbot/jobs/real_pick.yaml --confirm
+```
+
+`--dry-run` sends nothing to the arm or the gripper (the cameras are real); `--confirm` asks before
+each move; `--speed` (default slow) is clipped to the robot's real limits. Needs `OPENROUTER_API_KEY`
+(the agent) and `GEMINI_API_KEY` (pick_up) in `.env`.
+
+**Tools** that do not move the robot are defined one file each in `chefbot/tools/<group>/`
+(perception: detect, nearby, holding, get_pose; motion: wait, get_status, stop; plan:
+complete, set_status, add_step, skip_step, request_replan, finish; time: set_timer,
+cancel_timer, watch). A file holds the schema the LLM sees, its handler (`entry`), the
+robot capabilities it `needs` and the robot APIs it works with (`interfaces`). An agent
+lists the ones it gets. The 14 that move the robot (go_to, align, pick_up, place, open,
+close, turn_on, turn_off, lower_into, lift_out, squeeze, release, stir, pour) are skills,
+`skills/<name>/robotapi_v1/` (pick_up's is `skills/pick_up/robotapi_v1`, beside the lab's pick_up
+versions; it runs the agent's pick code): robot-api-v1, not sandboxed, `envs: [symbolic, robocasa]`, a
+`main.py` whose `run(ctx, ...)` calls the agent's tool code (`agent/tools/`) on the session's
+RobotAPI.
 
 **Handheld tools** go through one `RobotAPI` call, `use_tool(action, target,
 seconds)`: `lower_into` a container, `lift_out`, `squeeze` / `release` the
@@ -290,7 +377,7 @@ Things that differ from the spec, or that it did not anticipate:
   it). Each turn's task state shows it as the KITCHEN block, with doors and
   burners as the agent last left them or saw them (`Detection.state`).
 - **Start set.** Egg, mug, bowl (rim), bottle and pan (handle) can be picked;
-  the cutting board is a place target only (`pick` returns `no_grasp`).
+  the cutting board is a place target only (`pick_up` returns `no_grasp`).
 - **Physics settings.** MuJoCo's no-slip solver is on (`noslip_iterations`):
   without it a held mug creeps out of the fingers within seconds. With it, the
   base's joint friction is a hard threshold, so the mobile base's own geoms are

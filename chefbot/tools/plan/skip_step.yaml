@@ -1,0 +1,16 @@
+name: skip_step
+description: Skip a step that is not needed, with the reason.
+parameters:
+  step_id:
+    type: string
+    description: A step id from the plan, e.g. "s3".
+  reason:
+    type: string
+required:
+- step_id
+- reason
+entry: plan.skip_step
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

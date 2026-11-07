@@ -2,6 +2,13 @@ name: pick_up
 version: gemini_v1
 entry: main.py:run
 interface: chefbot-v1
+envs: [real]                          # written for environments/real/host.py
+sandboxed: true
+description: >-
+  Pick up the named object (a few words: "apple", "red cup") from the surface in front of the arm: it goes to the
+  ready pose (the hand pointing down), finds the object in the wrist camera, grasps it from above and lifts it 5 cm.
+  Returns {ok, reason}: reason "held" when it holds it; otherwise why not (not seen, no depth at the point,
+  closed on nothing, ...).
 robot: tidybot_fr3
 arm_only: true
 cameras: [wrist]

@@ -1,0 +1,18 @@
+name: detect
+description: >-
+  Look through the robot's camera from where it stands and find instances of the given classes (parts
+  and loose objects such as burners, handles, pans). Returns an id for each instance found, nearest first,
+  e.g. "burner_1". An empty list means none are in view from here. Each call replaces the results of the
+  previous one, so ids from an earlier detect are no longer valid. Call it after go_to, and again whenever
+  the robot has moved or turned.
+parameters:
+  classes:
+    type: array
+    items:
+      type: string
+    description: >-
+      What to look for, e.g. ["burner", "pan"]. Omit to use the default kitchen vocabulary.
+entry: nav.detect
+needs: []
+interfaces:
+- robot-api-v1

@@ -1,5 +1,5 @@
-# RealEnv: the real robot through the onboard server. The robot itself (arm, gripper, limits) is
-# config/robot_real.yaml; the onboard server's side is chefbot/onboard/config.yaml.
+# RealEnv: the real robot through the onboard server. The robot itself (arm, gripper, body, real-only limits) is
+# embodiments/tidybot_fr3/robot.yaml; the onboard server's side is chefbot/onboard/config.yaml.
 
 url: ws://127.0.0.1:8765     # after `ssh -L 8765:localhost:8765 tidybot01`
 velocity_horizon_s: 0.5      # a base velocity command becomes a pose target this far ahead

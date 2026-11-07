@@ -5,7 +5,9 @@ targets, or, on an arm whose own controller moves to poses (a real arm's
 driver, Env.set_arm_pose_target), the flange poses along a planned line. Lines
 are still planned with our IK, which checks they are reachable. Every tick it
 checks for a stop request and for unexpected contact, and it never leaves the
-arm chasing a target after it returns.
+arm chasing a target after it returns. A move whose path would take the arm into
+the robot's own body (its constraints, embodiments/constraints.py: the pole,
+the camera clamp, the base's plate) is refused before it starts.
 """
 
 from __future__ import annotations
@@ -67,8 +69,9 @@ def slerp_pose(start: np.ndarray, goal: np.ndarray, s: float) -> np.ndarray:
 
 
 class ArmController:
-    def __init__(self, env: Env, ik: ArmIK, config: RobotConfig):
+    def __init__(self, env: Env, ik: ArmIK, config: RobotConfig, constraints: list = (), hand_m: float = 0.0):
         self._env = env
+        self._constraints, self._hand_m = list(constraints), hand_m  # the robot's body; none: nothing refused
         self._ik = ik
         self._cfg = config
         self._target: np.ndarray | None = None  # last joint target sent
@@ -115,6 +118,9 @@ class ArmController:
         if not self._ik.within_limits(goal, margin=1e-6):
             return ArmResult(MotionStatus.UNREACHABLE, "joint goal is outside the joint limits")
         start = self.current_target()
+        blocked = self._into_body([start, goal])
+        if blocked is not None:
+            return blocked
         distance = float(np.abs(goal - start).max())
         duration = move_duration(distance, cfg.max_joint_vel, cfg.max_joint_acc)
         return self._run(lambda s: start + s * (goal - start), duration, goal, preempt, expect_contact)
@@ -127,6 +133,9 @@ class ArmController:
         cfg = self._cfg
         if len(waypoints) < 2:
             return OK
+        blocked = self._into_body(waypoints)
+        if blocked is not None:
+            return blocked
         points = np.asarray(waypoints, dtype=float)
         length = float(np.linalg.norm(self._ik.fk(points[-1])[:3, 3] - self._ik.fk(points[0])[:3, 3]))
         joint_distance = float(np.abs(np.diff(points, axis=0)).sum(axis=0).max())
@@ -159,6 +168,17 @@ class ArmController:
         return bool(np.abs(self._env.get_state().arm_q - np.asarray(q)).max() <= self._cfg.joint_tolerance)
 
     # -- internals --------------------------------------------------------------
+
+    def _into_body(self, waypoints) -> ArmResult | None:
+        """UNREACHABLE if the path goes into the robot's own body, else None."""
+        if not self._constraints:
+            return None
+        from chefbot.embodiments.constraints import path_violation
+
+        where = path_violation(self._constraints, self._hand_m, waypoints)
+        if where is None:
+            return None
+        return ArmResult(MotionStatus.UNREACHABLE, f"the arm would go into {where}")
 
     def _env_moves_poses(self) -> bool:
         """Whether the env's arm takes pose targets. Asked once, with the pose the arm is at."""

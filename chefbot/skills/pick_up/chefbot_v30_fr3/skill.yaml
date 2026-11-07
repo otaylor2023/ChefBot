@@ -2,6 +2,8 @@ name: pick_up
 version: chefbot_v30_fr3
 entry: main.py:run
 interface: chefbot-v1
+envs: [real]                          # ported for the real Franka Hand
+sandboxed: true
 robot: tidybot_fr3
 arm_only: true
 cameras: [wrist, pole]  # wrist to perceive; both at the hover (saved images)

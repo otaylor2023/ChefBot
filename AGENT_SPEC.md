@@ -51,7 +51,7 @@ chefbot/
 
 Boundary additions (to `tests/test_boundaries.py`):
 - `Observer` output goes **only** to the `StateChecker` and the run log. It never enters the agent's LLM context. Test: the context builder imports nothing from `check/` or `interface/observer.py`.
-- The LLM client lives only under `agent/loop/` and `agent/check/`.
+- The LLM client lives only under `agent/loop/`, the harnesses (`agent/harnesses/`) and `agent/check/`.
 
 ## 3. Time
 

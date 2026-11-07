@@ -2,6 +2,8 @@ name: hand_eye_check
 version: v1
 entry: main.py:run
 interface: chefbot-v1
+envs: [real]
+sandboxed: true
 robot: tidybot_fr3
 arm_only: true
 cameras: [wrist, pole]

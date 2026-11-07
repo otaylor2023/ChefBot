@@ -1,0 +1,28 @@
+name: stir
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- handheld_tools
+description: >-
+  Stir with the held spoon or spatula, lowered into a bowl or pan first, for `seconds`. In a bowl it mixes
+  (cracked eggs get beaten, more slowly than with a whisk); in a pan on a lit burner it scrambles eggs
+  as they cook. The robot stirs the whole time; an event can wake you early (the stirring then goes on
+  until the time is up or you stop).
+args:
+  seconds:
+    type: number
+    description: How long to stir, up to 300.
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's stir tool (agent/tools/manip.py HandheldTools.stir), registered as a skill 2026-11-05

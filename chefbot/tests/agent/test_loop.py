@@ -9,8 +9,8 @@ from chefbot.agent.check.checker import CheckResult, parse_verdict
 from chefbot.agent.config import LoopConfig
 from chefbot.agent.logging.run_log import read_timeline
 from chefbot.agent.loop.llm import LLMResponse, ToolCall
-from chefbot.agent.loop.perception import CLEARED, FRESH, STALE, FreshnessConfig, Perception
-from chefbot.agent.loop.runner import AgentRunner, AgentSession
+from chefbot.agent.harnesses.plan_loop.perception import CLEARED, FRESH, STALE, FreshnessConfig, Perception
+from chefbot.agent.harnesses.plan_loop.runner import AgentRunner, AgentSession
 from chefbot.agent.plan.model import Plan
 from chefbot.interface.clock import ManualClock
 from chefbot.interface.observer import Observation, Observer
@@ -89,7 +89,7 @@ MUG_RUN = [
     call("go_to", text="the mug is on the counter", place="counter_1"),
     call("detect", classes=["mug", "counter"]),
     call("align", id="mug_1"),
-    call("pick", id="mug_1"),
+    call("pick_up", id="mug_1"),
     call("complete", text="too early", step_id="s1"),
     call("align", id="counter_1"),
     call("place", id="counter_1"),
@@ -106,7 +106,7 @@ def test_a_scripted_run_finishes_and_logs_every_action(tmp_path):
     timeline = read_timeline(s.log.dir)
     actions = [r for r in timeline if r["kind"] == "action"]
     assert [a["tool"] for a in actions] == [c.tool_calls[0].name for c in MUG_RUN]
-    pick = next(a for a in actions if a["tool"] == "pick")
+    pick = next(a for a in actions if a["tool"] == "pick_up")
     assert pick["world_diff"] == ["- held: nothing", "- mug: on counter_2", "+ held: mug", "+ mug: held"]
     early = actions[5]
     assert early["result"]["error"] == "check_failed" and "mug: held" in early["result"]["message"]
@@ -130,7 +130,7 @@ def test_viewer_renders_the_run(tmp_path):
     assert "1 check failure" in text and "mismatches: 0" in text
     assert "first failed action: turn 6 complete" in text
     lines = timeline_text(timeline)
-    assert 'pick(id="mug_1") ✓' in lines and "world: + held: mug" in lines
+    assert 'pick_up(id="mug_1") ✓' in lines and "world: + held: mug" in lines
     page = report_html(start, end, timeline)
     assert page.startswith("<!doctype html>") and "Plan over time" in page and "check failed" not in page[:200]
 
@@ -140,7 +140,7 @@ def test_viewer_flags_a_pick_that_held_nothing(tmp_path):
     robot.pick = lambda target: robot._start(robot.pose)  # "succeeds" without holding anything
     runner.run()
     start, end, timeline = load(s.log.dir)
-    assert "mismatches: 1 (turn 5: pick succeeded, nothing became held)" in summary(start, end, timeline)
+    assert "mismatches: 1 (turn 5: pick_up succeeded, nothing became held)" in summary(start, end, timeline)
 
 
 def test_context_keeps_a_static_prefix_a_window_and_only_the_newest_task_state(tmp_path):
@@ -238,7 +238,7 @@ def test_perception_freshness():
     for _ in range(3):
         p.update("get_pose", {}, ToolResult(True), pose)
     assert p.freshness(pose) == (STALE, "3 calls ago")
-    p.update("pick", {"id": "mug"}, ToolResult(True), pose)
+    p.update("pick_up", {"id": "mug"}, ToolResult(True), pose)
     assert "mug (held)" in p.block(pose, held="mug") and "visible:      mug (held)" in p.block(pose, held="mug")
 
 
@@ -315,5 +315,5 @@ def test_the_active_step_records_what_was_done_for_it(tmp_path):
     s, runner, llm, robot = session(tmp_path, MUG_RUN[:8] + [call("finish", summary="x", abandon=True)])
     runner.run()
     state = llm.requests[-1]["messages"][-1]["content"]
-    assert 'done so far: pick("mug_1") -> success; place("counter_1") -> success' in state
+    assert 'done so far: pick_up("mug_1") -> success; place("counter_1") -> success' in state
     assert s.store.live.step("s1").log is None  # "did:" notes are a record, not the step's log line

@@ -3,6 +3,8 @@
   symbolic   the symbolic kitchen (task file `symbolic:` section)
   robocasa   a RoboCasa kitchen (task file `robocasa:` section: layout, style,
              objects to spawn, success rules, timing)
+  real       the real robot (tidybot_fr3), its skills chefbot-v1 episodes on the real host (a session's skills);
+             no map, no detector, no ground truth (environments/real/agent_world.py)
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ class EnvRun:
     info: dict = field(default_factory=dict)  # for start.json
     stack: Any = None  # RoboCasa: for the video recorder
     close: Callable[[], None] = lambda: None
+    skills: Any = None  # the real robot: its chefbot-v1 skills' runner (runtime/agent_skills.py EpisodeSkills)
 
 
 def symbolic(task_path: Path, seed: int, noise: str) -> EnvRun:
@@ -101,4 +104,46 @@ def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
     )  # fmt: skip
 
 
-ENVS = {"symbolic": symbolic, "robocasa": robocasa}
+def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: bool = False, confirm: bool = False,
+         url: str | None = None, speed: str = "slow", model_usd: float = 0.5, env=None) -> EnvRun:
+    """The real robot through the onboard server (ssh -L 8765:localhost:8765 tidybot01). The arm only, the base held;
+    every move checked by the real host's guard, at the robot's real limits. dry_run: nothing is sent to the arm or
+    the gripper (the cameras are real). env: a stand-in for RealEnv (tests)."""
+    import os
+    import tempfile
+
+    from chefbot import embodiments
+    from chefbot.environments.real.agent_world import (NoDetector, NoGroundTruth, StationaryRobot, WallClock,
+                                                       no_safety_events, unjudged)  # fmt: skip
+    from chefbot.environments.real.host import RealHost
+    from chefbot.environments.symbolic.scenario import load_yaml
+    from chefbot.runtime import models as M
+    from chefbot.runtime.agent_skills import EpisodeSkills
+
+    task = load_yaml(task_path)
+    M.load_env(REPO / ".env")
+    robot = embodiments.load("tidybot_fr3")
+    missing = []  # what a skill needs and this machine lacks: refused before the robot is touched
+    for s in skills:
+        try:
+            s.check(robot.name, os.environ.get("VISION_URL"))
+        except Exception as e:  # skills.MissingRequirement
+            missing.append(str(e))
+    if missing:
+        raise SystemExit("can't run on the real robot: " + "; ".join(missing))
+    wanted = [s.cameras for s in skills]
+    cameras = None if any(c is True for c in wanted) else sorted({n for c in wanted if isinstance(c, list) for n in c})
+    out = Path(tempfile.mkdtemp(prefix="chefbot_real_"))  # run_agent points it into the run's folder
+    host = RealHost(robot, robot.speed(speed), out, dry_run=dry_run, confirm=confirm, url=url, env=env, cameras=cameras,
+                    log=(lambda *a: None) if env is not None else print)  # fmt: skip
+    vision = M.Vision(os.environ.get("VISION_URL")) if any(s.access()["vision"] for s in skills) else None
+    runner = EpisodeSkills(host, out, M.Ledger(out / "model_ledger.jsonl", model_usd), vision, confirm=confirm)
+    return EnvRun(
+        task.get("name", task_path.stem), task, StationaryRobot(host), NoDetector(), WorldMap.from_dict({}), WallClock(),
+        NoGroundTruth(), no_safety_events, unjudged, host.halt,
+        info={"env": "real", "robot": robot.name, "dry_run": dry_run, "speed": speed, "confirm": confirm},
+        close=host.close, skills=runner,
+    )  # fmt: skip
+
+
+ENVS = {"symbolic": symbolic, "robocasa": robocasa, "real": real}

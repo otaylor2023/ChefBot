@@ -1,0 +1,23 @@
+name: ready
+version: v1
+entry: main.py:run
+interface: chefbot-v1
+envs: [mujoco_kitchen, real]   # the FR3's ready pose: tidybot_fr3's sim twin and the real robot
+sandboxed: true
+description: >-
+  Move the arm to its ready pose (the hand pointing straight down, in front of the robot), going around the robot's
+  own body (the pole, the camera on its clamp) on the way. The start pose of pick_up: call it first, and again
+  whenever a skill stopped because the arm would go into a keep-out. Returns {ok, reason}.
+robot: tidybot_fr3
+arm_only: true
+cameras: false
+args:
+  max_s:
+    type: number
+    default: 30.0
+    doc: give up after this many seconds of moving
+models: {}
+assumes: the arm anywhere it can move from; the base held
+privileged: false
+provenance:
+  written: by hand, 2026-11-05, after pick_up/gemini_v1's straight joint-space move home was refused on the real robot (it grazed the pole camera's keep-out); the controller's router goes around it (checked offline from that pose, 14.6 s, 0.5 cm clear)

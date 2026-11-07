@@ -7,7 +7,7 @@ import pytest
 
 from chefbot.agent.config import AgentConfig, LoopConfig
 from chefbot.agent.logging.run_log import read_timeline
-from chefbot.agent.loop.runner import AgentRunner, AgentSession
+from chefbot.agent.harnesses.plan_loop.runner import AgentRunner, AgentSession
 from chefbot.agent.plan.model import Plan
 from chefbot.agent.world.map import WorldMap
 from chefbot.environments.symbolic.scenario import Scenario
@@ -110,12 +110,12 @@ FRIED_EGG_TRUTH = {
 
 FRIED_EGG_SCRIPT = [
     ("set_status", {"step_id": "s1", "status": "active"}),
-    ("go_to", {"place": "pan"}), ("detect", {"classes": ["pan"]}), ("align", {"id": "pan"}), ("pick", {"id": "pan"}),
+    ("go_to", {"place": "pan"}), ("detect", {"classes": ["pan"]}), ("align", {"id": "pan"}), ("pick_up", {"id": "pan"}),
     ("go_to", {"place": "stove"}), ("detect", {"classes": ["burner"]}), first("burner", "align"), first("burner", "place"),
     ("complete", {"step_id": "s1"}),
     ("set_status", {"step_id": "s2", "status": "active"}),
     ("go_to", {"place": "fridge"}), ("detect", {"classes": ["fridge handle"]}), first("fridge handle", "align"),
-    first("fridge handle", "open"), ("detect", {"classes": ["egg"]}), ("align", {"id": "egg"}), ("pick", {"id": "egg"}),
+    first("fridge handle", "open"), ("detect", {"classes": ["egg"]}), ("align", {"id": "egg"}), ("pick_up", {"id": "egg"}),
     ("close", {"id": "fridge"}),
     ("go_to", {"place": "stove"}), ("detect", {"classes": ["pan", "burner"]}), first("pan", "align"), first("pan", "place"),
     ("complete", {"step_id": "s2"}),
@@ -124,7 +124,7 @@ FRIED_EGG_SCRIPT = [
     ("set_status", {"step_id": "s3", "status": "waiting", "note": "egg in the pan on a lit burner"}),
     ("set_timer", {"name": "egg", "seconds": EGG["set"] + 10, "step_id": "s3"}),
     ("set_status", {"step_id": "s4", "status": "active"}),
-    ("go_to", {"place": "plate"}), ("detect", {"classes": ["plate"]}), ("align", {"id": "plate"}), ("pick", {"id": "plate"}),
+    ("go_to", {"place": "plate"}), ("detect", {"classes": ["plate"]}), ("align", {"id": "plate"}), ("pick_up", {"id": "plate"}),
     ("go_to", {"place": "table"}), ("detect", {"classes": ["table"]}), ("align", {"id": "table"}), ("place", {"id": "table"}),
     ("complete", {"step_id": "s4"}),
     ("wait", {}),
@@ -133,7 +133,7 @@ FRIED_EGG_SCRIPT = [
     ("go_to", {"place": "stove"}), ("detect", {"classes": ["pan", "burner"]}), nearest("burner", "pan", "align"),
     nearest("burner", "pan", "turn_off"), ("complete", {"step_id": "s5"}),
     ("set_status", {"step_id": "s6", "status": "active"}),
-    ("detect", {"classes": ["egg"]}), first("egg", "align"), first("egg", "pick"),
+    ("detect", {"classes": ["egg"]}), first("egg", "align"), first("egg", "pick_up"),
     ("go_to", {"place": "table"}), ("detect", {"classes": ["plate"]}), first("plate", "align"), first("plate", "place"),
     ("complete", {"step_id": "s6"}),
     ("finish", {"summary": "egg served"}),
@@ -309,9 +309,9 @@ def test_the_agent_keeps_track_of_the_egg_in_the_held_cracker(tmp_path):
     script = [
         ("go_to", {"place": "egg_cracker"}), ("detect", {"classes": ["egg cracker"]}), ("align", {"id": "egg_cracker"}),
         ("go_to", {"place": "fridge"}), ("detect", {"classes": ["fridge handle"]}), first("fridge handle", "align"),
-        first("fridge handle", "open"), ("detect", {"classes": ["egg"]}), ("align", {"id": "egg"}), ("pick", {"id": "egg"}),
+        first("fridge handle", "open"), ("detect", {"classes": ["egg"]}), ("align", {"id": "egg"}), ("pick_up", {"id": "egg"}),
         ("go_to", {"place": "egg_cracker"}), ("detect", {"classes": ["egg cracker"]}), ("align", {"id": "egg_cracker"}),
-        ("place", {"id": "egg_cracker"}), ("pick", {"id": "egg_cracker"}), ("detect", {"classes": ["egg", "bowl"]}),
+        ("place", {"id": "egg_cracker"}), ("pick_up", {"id": "egg_cracker"}), ("detect", {"classes": ["egg", "bowl"]}),
         ("finish", {"summary": "x", "abandon": True}),
     ]  # fmt: skip
     sc, session, _ = run_task("scrambled_eggs", script, {}, tmp_path)

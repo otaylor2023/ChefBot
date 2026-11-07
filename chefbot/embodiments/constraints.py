@@ -57,6 +57,35 @@ def for_robot(body: Body | None) -> list:
     return [] if body is None else [KeepOut(body), PlateClearance(body)]
 
 
+def path_violation(constraints, hand_m: float, qs, step: float = 0.02) -> str | None:
+    """Where joints moving along `qs` (waypoints, joined by straight joint lines) first go into a constraint, said,
+    or None. The real host's rule (environments/real/host.py path_clear): never below the start's clearance (from a
+    start inside one, less DEEPER_SLACK_M) or 0, and once it is out, never back in.
+    Sampled so no joint moves more than `step` (rad) between samples. The points are the FR3's (workspace.arm_points),
+    the only arm with a body today."""
+    from chefbot.interface.workspace import DEEPER_SLACK_M, arm_points
+
+    if not constraints:
+        return None
+    qs = [np.asarray(q, dtype=float) for q in qs]
+    samples = [qs[0]]
+    for a, b in zip(qs, qs[1:]):
+        n = max(1, int(np.ceil(np.abs(b - a).max() / step)))
+        samples += [a + (b - a) * (i / n) for i in range(1, n + 1)]
+    floor = None
+    for q in samples:
+        pts = arm_points(q, hand_m)
+        d, _, which = nearest(constraints, pts)
+        here = float(d.min())
+        if floor is not None and here < (floor - DEEPER_SLACK_M if floor < 0 else 0.0) - 1e-5:  # into one, or deeper
+            c = constraints[int(which[int(np.argmin(d))])]
+            what = f"the keep-out of the {c.nearest_part(pts)}" if isinstance(c, KeepOut) else c.name
+            return f"{what} ({-here * 100:.1f} cm in)"
+        floor = min(0.0, here) if floor is None else max(floor, min(0.0, here))
+    return None
+
+
+
 def nearest(constraints, P, margin: float = 0.0):
     """Each point's clearance from the nearest constraint, the direction out of it, and which constraint (index)."""
     P = np.atleast_2d(np.asarray(P, dtype=float))

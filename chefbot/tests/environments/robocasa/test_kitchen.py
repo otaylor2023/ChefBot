@@ -115,7 +115,7 @@ def test_food_rides_in_a_held_pan_and_pours_into_a_bowl(stack):
     call("go_to", place="pan")
     call("detect", classes=["pan"])
     call("align", id="pan")
-    call("pick", id="pan")
+    call("pick_up", id="pan")
     call("go_to", place="bowl")
     egg = env.data.xpos[next(b for _, l, b in scene_objects(env) if l == "egg")]
     assert np.linalg.norm(egg[:2] - env.data.xpos[pan][:2]) < 0.15, "the egg fell out of the pan on the way"

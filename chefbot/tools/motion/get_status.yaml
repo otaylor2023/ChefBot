@@ -1,0 +1,6 @@
+name: get_status
+description: Report the status of the current or last motion without waiting.
+entry: nav.get_status
+needs: []
+interfaces:
+- robot-api-v1

@@ -1,0 +1,26 @@
+name: add_step
+description: Add a step the plan is missing (e.g. clear a burner that is in use). Say why.
+parameters:
+  goal:
+    type: string
+  done_when:
+    type: string
+    description: What must be true in the kitchen for it to be done.
+  reason:
+    type: string
+  after:
+    type: string
+    description: 'Insert after this step id (default: at the end).'
+  depends_on:
+    type: array
+    items:
+      type: string
+required:
+- goal
+- done_when
+- reason
+entry: plan.add_step
+needs: []
+interfaces:
+- robot-api-v1
+- chefbot-v1

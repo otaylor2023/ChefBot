@@ -12,7 +12,7 @@ disturbances, and how ground truth decides success.
         - {at: start, do: remove, object: egg}                 # after the map is built: the map is stale
         - {at: 200, do: move, object: plate, to: {on: counter_2}}
         - {when_step: s3, status: waiting, do: set_power, target: burner_3, on: true}
-        - {after_tool: pick, count: 2, do: close, target: fridge}
+        - {after_tool: pick_up, count: 2, do: close, target: fridge}
       success:
         require: ["egg: on plate", "egg: cook state = set"]   # regexes, each must match a line
         forbid: ["burner_\\\\w+: on", "overcooked|burnt"]       # regexes, none may match

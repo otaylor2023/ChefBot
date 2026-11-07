@@ -69,7 +69,7 @@ def seen(registry):
 def test_pick_hands_the_robot_the_detection_and_records_what_is_held():
     registry, robot, _ = make()
     seen(registry)
-    result = registry.dispatch("pick", {"id": "egg"})
+    result = registry.dispatch("pick_up", {"id": "egg"})
     assert result.success and result.data["id"] == "egg" and result.data["status"] == "success"
     target = robot.picks[-1]
     assert isinstance(target, Detection) and target.label == "egg"
@@ -81,7 +81,7 @@ def test_picked_object_leaves_the_scene_and_nearby_says_holding():
     registry, robot, _ = make()
     seen(registry)
     assert "egg" in ids(registry.dispatch("nearby"))
-    registry.dispatch("pick", {"id": "egg"})
+    registry.dispatch("pick_up", {"id": "egg"})
     view = registry.dispatch("nearby")
     assert "egg" not in ids(view) and "egg" not in ids(view, "not_visible")
     assert view.message.endswith("Holding: egg.")
@@ -95,18 +95,18 @@ def test_picked_object_leaves_the_scene_and_nearby_says_holding():
 
 def test_pick_error_paths():
     registry, robot, _ = make()
-    assert registry.dispatch("pick", {"id": "egg"}).error == "not_visible"  # on the map, not yet seen
-    assert registry.dispatch("pick", {"id": "spoon_1"}).error == "unknown_id"
+    assert registry.dispatch("pick_up", {"id": "egg"}).error == "not_visible"  # on the map, not yet seen
+    assert registry.dispatch("pick_up", {"id": "spoon_1"}).error == "unknown_id"
     seen(registry)
     for status in ("no_grasp", "unreachable", "grasp_failed", "collision", "stopped", "timeout"):
         robot.outcome = status
-        result = registry.dispatch("pick", {"id": "egg"})
+        result = registry.dispatch("pick_up", {"id": "egg"})
         assert not result.success and result.error == status
         assert registry.dispatch("holding").data["holding"] is None
         assert "egg" in ids(registry.dispatch("nearby"))  # still there to try again
     robot.outcome = MotionStatus.SUCCESS
-    assert registry.dispatch("pick", {"id": "egg"}).success
-    held = registry.dispatch("pick", {"id": "mug_1"})
+    assert registry.dispatch("pick_up", {"id": "egg"}).success
+    held = registry.dispatch("pick_up", {"id": "mug_1"})
     assert held.error == "already_holding" and "egg" in held.message
     assert len(robot.picks) == 7  # the last one never reached the robot
 
@@ -115,7 +115,7 @@ def test_pick_without_waiting_records_the_object_once_the_motion_ends():
     registry, robot, _ = make()
     seen(registry)
     robot.hold = True
-    started = registry.dispatch("pick", {"id": "egg", "wait": False})
+    started = registry.dispatch("pick_up", {"id": "egg", "wait": False})
     assert started.success and started.data["status"] == "moving"
     assert registry.dispatch("holding").data["holding"] is None
     assert registry.dispatch("get_status").data["status"] == "moving"
@@ -130,7 +130,7 @@ def test_pick_without_waiting_records_the_object_once_the_motion_ends():
 def test_place_puts_it_on_the_named_surface_and_it_can_be_seen_again():
     registry, robot, detector = make()
     seen(registry)
-    registry.dispatch("pick", {"id": "mug_1"})
+    registry.dispatch("pick_up", {"id": "mug_1"})
     result = registry.dispatch("place", {"id": "counter_1"})
     assert result.success and result.data == {
         "id": "counter_1", "object": "mug_1", "status": "success", "pose": result.data["pose"],
@@ -145,7 +145,7 @@ def test_place_puts_it_on_the_named_surface_and_it_can_be_seen_again():
 def test_an_object_put_down_somewhere_new_keeps_its_name_on_the_map():
     registry, robot, detector = make()
     seen(registry)
-    registry.dispatch("pick", {"id": "egg"})
+    registry.dispatch("pick_up", {"id": "egg"})
     assert registry.tools._map.get("egg") is None  # in the gripper: not a place to go to
     registry.dispatch("place", {"id": "stove"})
     assert registry.tools._map.get("egg").inside == "stove"  # back on the map, where it was put
@@ -161,7 +161,7 @@ def test_place_error_paths():
     seen(registry)
     empty = registry.dispatch("place", {"id": "counter_1"})
     assert empty.error == "not_holding" and robot.places == []
-    registry.dispatch("pick", {"id": "egg"})
+    registry.dispatch("pick_up", {"id": "egg"})
     assert registry.dispatch("place", {"id": "island"}).error == "unknown_id"
     registry.dispatch("go_to", {"place": "stove"})  # the fridge is now nearby-but-unseen... not here
     for status in ("no_placement", "unreachable", "collision", "stopped", "timeout"):
@@ -174,7 +174,7 @@ def test_place_error_paths():
 def test_dropping_the_object_on_the_way_clears_holding():
     registry, robot, _ = make()
     seen(registry)
-    registry.dispatch("pick", {"id": "egg"})
+    registry.dispatch("pick_up", {"id": "egg"})
     robot.outcome = MotionStatus.GRASP_FAILED
     robot.held = None
     result = registry.dispatch("go_to", {"place": "stove"})
@@ -212,7 +212,7 @@ def test_any_visible_id_can_be_passed_to_any_tool():
     registry, robot, _ = make()
     seen(registry)
     robot.outcome = MotionStatus.NO_GRASP
-    assert registry.dispatch("pick", {"id": "counter_1"}).error == "no_grasp"
+    assert registry.dispatch("pick_up", {"id": "counter_1"}).error == "no_grasp"
     assert robot.picks[-1].label == "counter"
 
 
@@ -221,7 +221,7 @@ def test_any_visible_id_can_be_passed_to_any_tool():
 
 def test_manip_tools_validate_arguments():
     registry, _, _ = make()
-    assert registry.dispatch("pick", {}).error == "invalid_arguments"
+    assert registry.dispatch("pick_up", {}).error == "invalid_arguments"
     assert registry.dispatch("place", {"id": 3}).error == "invalid_arguments"
     assert registry.dispatch("open", {"id": "fridge", "force": True}).error == "invalid_arguments"
     assert registry.dispatch("holding", {"id": "egg"}).error == "invalid_arguments"
@@ -230,7 +230,7 @@ def test_manip_tools_validate_arguments():
 def test_stop_reports_base_and_arm_and_keeps_the_object():
     registry, robot, _ = make()
     seen(registry)
-    registry.dispatch("pick", {"id": "egg"})
+    registry.dispatch("pick_up", {"id": "egg"})
     stopped = registry.dispatch("stop")
     assert stopped.success and "arm" in stopped.message and robot.stops == 1
     assert registry.dispatch("holding").data["holding"] == {"id": "egg", "label": "egg"}
@@ -247,6 +247,6 @@ def test_big_surfaces_are_worked_on_at_their_near_point():
     seen(registry)
     registry.dispatch("align", {"id": "counter_1"})
     assert tuple(robot.align_targets[-1]) == tuple(near)
-    registry.dispatch("pick", {"id": "egg"})
+    registry.dispatch("pick_up", {"id": "egg"})
     registry.dispatch("place", {"id": "counter_1"})
     assert tuple(robot.places[-1].position_world) == tuple(near)

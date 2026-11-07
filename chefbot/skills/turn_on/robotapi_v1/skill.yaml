@@ -1,0 +1,28 @@
+name: turn_on
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- appliances
+description: >-
+  Turn on a burner or an appliance (toaster, microwave, kettle, coffee machine), named by its visible
+  id. Align to it first. Scripted for now ("scripted": true). Fails with unknown_id, not_visible, unreachable
+  (align to it first), unsupported (not something that turns on), or stopped.
+args:
+  id:
+    type: string
+    description: A visible id, e.g. "burner_2" or "toaster".
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's turn_on tool (agent/tools/manip.py KitchenTools.turn_on), registered as a skill
+    2026-11-05

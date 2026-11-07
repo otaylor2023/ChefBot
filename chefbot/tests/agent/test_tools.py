@@ -361,7 +361,7 @@ def test_schemas_cover_every_tool_and_state_the_workflow():
     names = [s["function"]["name"] for s in TOOL_SCHEMAS]
     assert names == [
         "go_to", "detect", "nearby", "align", "wait", "get_status", "stop", "get_pose",
-        "pick", "place", "open", "close", "turn_on", "turn_off", "holding",
+        "pick_up", "place", "open", "close", "turn_on", "turn_off", "holding",
     ]  # fmt: skip
     for schema in TOOL_SCHEMAS:
         function = schema["function"]
@@ -369,7 +369,7 @@ def test_schemas_cover_every_tool_and_state_the_workflow():
         assert function["parameters"]["type"] == "object"
         assert set(function["parameters"]["required"]) <= set(function["parameters"]["properties"])
     described = {s["function"]["name"]: s["function"]["description"] for s in TOOL_SCHEMAS}
-    workflow = "go_to a fixture -> detect what you need -> align to it -> pick it -> go_to where it goes"
+    workflow = "go_to a fixture -> detect what you need -> align to it -> pick_up it -> go_to where it goes"
     assert workflow in described["go_to"] and "-> detect -> align to the spot -> place" in described["go_to"]
     assert "visible" in described["align"] and "nearby()" in described["align"]
     for tool in ("open", "close"):

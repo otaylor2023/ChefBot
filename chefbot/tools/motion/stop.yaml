@@ -1,0 +1,8 @@
+name: stop
+description: >-
+  Stop the base and the arm immediately. Works at any time, including in the middle of a motion that was
+  started with wait=false. An object in the gripper stays in the gripper.
+entry: nav.stop
+needs: []
+interfaces:
+- robot-api-v1

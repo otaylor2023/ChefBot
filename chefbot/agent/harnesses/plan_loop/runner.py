@@ -18,10 +18,10 @@ from chefbot.agent.check.checker import CheckResult, StateChecker
 from chefbot.agent.config import AgentConfig, LoopConfig
 from chefbot.agent.events.bus import SAFETY, EventBus
 from chefbot.agent.logging.run_log import RunLog, world_diff
-from chefbot.agent.loop.context import REPROMPT, ContextBuilder, TaskState, tool_message
-from chefbot.agent.loop.context import system_prompt as build_system_prompt
+from chefbot.agent.harnesses.plan_loop.context import REPROMPT, ContextBuilder, TaskState, tool_message
+from chefbot.agent.harnesses.plan_loop.context import system_prompt as build_system_prompt
 from chefbot.agent.loop.llm import LLMError, parse_arguments
-from chefbot.agent.loop.perception import FreshnessConfig, Perception
+from chefbot.agent.harnesses.plan_loop.perception import FreshnessConfig, Perception
 from chefbot.agent.plan.model import Plan
 from chefbot.agent.plan.store import PlanStore
 from chefbot.agent.tools.plan_tools import Operator, PlanTools, terminal_operator
@@ -87,6 +87,10 @@ class AgentSession:
         system_prompt: str | None = None,
         tools_exclude: tuple[str, ...] = (),
         tools_only: tuple[str, ...] | None = None,
+        prompts_dir: str | Path | None = None,
+        agent_tools: tuple[str, ...] | None = None,
+        robot_skills: list | None = None,
+        skill_tools: list = (),
     ) -> "AgentSession":
         config = config or LoopConfig.load()
         log = RunLog(run_dir, clock, observer, config.log_full_requests)
@@ -111,17 +115,20 @@ class AgentSession:
             robot, detector, world_map, agent_config or AgentConfig.load(),
             exclude=tuple(config.tools_exclude) + tuple(tools_exclude),
             only=tuple(tools_only) if tools_only is not None else (tuple(config.tools_only) if config.tools_only else None),
+            agent_tools=agent_tools, robot_skills=robot_skills,
         )  # fmt: skip
         time_tools = TimeTools(robot, bus, clock, store)
         plan_tools = PlanTools(store, check, bus, operator)
         registry.add_loop_tools(plan_tools, time_tools)
+        for schema, handler in skill_tools:  # chefbot-v1 skills: (schema, handler running an episode)
+            registry.add_tool(schema, handler)
         registry.tools.now = clock.now  # the kitchen belief's "N ago" is in run time
         perception = Perception(FreshnessConfig(
             config.stale_after_calls, config.stale_move_m, config.stale_turn_deg,
             config.clear_move_m, config.clear_turn_deg,
         ))  # fmt: skip
         task_state = TaskState(store, bus, perception, registry.tools, robot, world_map, clock, time_tools)
-        prompt = system_prompt if system_prompt is not None else build_system_prompt({s["function"]["name"] for s in registry.schemas})
+        prompt = system_prompt if system_prompt is not None else build_system_prompt({s["function"]["name"] for s in registry.schemas}, prompts_dir)
         context = ContextBuilder(prompt, config.window_n)
         session = cls(registry, store, bus, time_tools, plan_tools, perception, task_state, context, robot, clock, log, config)
         holder["session"] = session
@@ -326,6 +333,6 @@ class AgentRunner:
 
 
 # Successful calls that change the kitchen: noted on the active step.
-_NOTED = {"pick", "place", "open", "close", "turn_on", "turn_off", "lower_into", "squeeze", "stir", "pour"}
+_NOTED = {"pick_up", "place", "open", "close", "turn_on", "turn_off", "lower_into", "squeeze", "stir", "pour"}
 # Tools during which a monitor check counts as "monitor" in the log (time passes inside them).
-_MOTION_TOOLS = {"go_to", "align", "pick", "place", "open", "close", "turn_on", "turn_off"}
+_MOTION_TOOLS = {"go_to", "align", "pick_up", "place", "open", "close", "turn_on", "turn_off"}

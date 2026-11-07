@@ -1,0 +1,23 @@
+name: release
+version: robotapi_v1
+entry: main.py:run
+interface: robot-api-v1
+envs:
+- symbolic
+- robocasa
+sandboxed: false
+robot: any
+needs:
+- trigger_tools
+description: >-
+  Stop squeezing the held tool (an electric whisk stops). You keep holding it.
+args:
+  wait:
+    type: boolean
+    description: >-
+      true (default): block until the motion ends and return its result. false: return immediately with
+      status "moving"; follow up with wait or get_status, or cancel with stop.
+    default: true
+provenance:
+  written: the agent's release tool (agent/tools/manip.py HandheldTools.release), registered as a skill
+    2026-11-05

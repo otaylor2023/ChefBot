@@ -2,6 +2,11 @@ name: bringup
 version: v1
 entry: main.py:run
 interface: chefbot-v1
+envs: [robocasa, mujoco_kitchen, real]  # robot: any; it only lifts the arm 3 cm and back
+sandboxed: true
+description: >-
+  Check the arm works: read where it is, take one frame from each camera, lift the hand lift_m (a few cm) and back,
+  open and close the gripper. Returns {ok, back_within_mm, cameras}: ok when the hand came back within 1 cm.
 robot: any
 arm_only: true
 args:

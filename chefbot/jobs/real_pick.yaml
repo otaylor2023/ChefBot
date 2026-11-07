@@ -1,0 +1,8 @@
+# The first job on the real robot (run_agent --env real --agent real_arm): the arm only, the robot placed with the
+# object on the table under its wrist camera. Nothing judges it: the agent's word and the run's files.
+name: real_pick
+goal: "The apple on the table in front of the robot is held in the gripper"
+steps:
+  - id: s1
+    goal: "Pick up the apple"
+    done_when: "the apple is held in the gripper"

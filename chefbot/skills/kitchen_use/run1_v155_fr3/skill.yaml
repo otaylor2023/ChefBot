@@ -2,6 +2,8 @@ name: kitchen_use
 version: run1_v155_fr3
 entry: main.py:run
 interface: chefbot-v1
+envs: [real]
+sandboxed: true
 robot: tidybot_fr3
 arm_only: true      # the base holds where it starts (the lab's moved it 7 cm forward and sideways: see provenance)
 cameras: [wrist, pole]  # both: the identity check compares them, and the pole can direct a closer wrist view
