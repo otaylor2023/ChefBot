@@ -236,12 +236,36 @@ live_check() {  # before ALL UP: each driver started is publishing (its values c
 	return $ok
 }
 
+GRIP_W="opensai::FrankaRobot::gripper::desired_width" GRIP_V="opensai::FrankaRobot::gripper::desired_speed"
+GRIP_F="opensai::FrankaRobot::gripper::desired_force" GRIP_MODE="opensai::FrankaRobot::gripper::mode"
+GRIP_NOW="opensai::FrankaRobot::gripper::current_width"
+gripper_key() {  # o open, c close gently (a 10 N grasp), [ / ] 1 cm narrower / wider: the hand's fingers don't
+	# backdrive, so floating the arm can't free them; these move them instead (onboard/robot_io.py's keys and limits)
+	local now width
+	now="$(redis-cli --raw GET "$GRIP_NOW" 2>/dev/null)"
+	now="${now:-0.04}"
+	case "$1" in
+		o) width=0.08 ;;
+		c) redis-cli SET "$GRIP_W" 0.0 >/dev/null; redis-cli SET "$GRIP_V" 0.05 >/dev/null; redis-cli SET "$GRIP_F" 10.0 >/dev/null
+		   redis-cli SET opensai::FrankaRobot::gripper::grasp_success pending >/dev/null; redis-cli SET "$GRIP_MODE" g >/dev/null
+		   echo "=== GRIPPER CLOSING (10 N grasp) ==="; return ;;
+		"[") width="$(awk -v w="$now" 'BEGIN { w -= 0.01; if (w < 0) w = 0; printf "%.3f", w }')" ;;
+		"]") width="$(awk -v w="$now" 'BEGIN { w += 0.01; if (w > 0.08) w = 0.08; printf "%.3f", w }')" ;;
+	esac
+	redis-cli SET "$GRIP_W" "$width" >/dev/null
+	redis-cli SET "$GRIP_V" 0.05 >/dev/null
+	redis-cli SET "$GRIP_F" 20.0 >/dev/null
+	redis-cli SET "$GRIP_MODE" m >/dev/null
+	echo "=== GRIPPER TO ${width} m (was ${now}) ==="
+}
+
 watch_parts() {  # until a part exits (then say which, and stop everything); meanwhile f / h float and hold the arm
 	local keys="" pid k
-	if { $OPENSAI || $BASE; } && [[ -t 0 ]]; then
+	if { $OPENSAI || $BASE || $GRIPPER; } && [[ -t 0 ]]; then
 		keys=1
 		$OPENSAI && echo "keys: f floats the arm (move it by hand), h holds it where it is, r takes it to the ready position"
 		$BASE && echo "keys: g gives the base to the gamepad, b gives it back to its driver"
+		$GRIPPER && echo "keys: o opens the gripper, c closes it (gently), [ and ] move the fingers 1 cm closer / apart"
 	fi
 	while true; do
 		for pid in "${PIDS[@]}"; do
@@ -265,6 +289,10 @@ watch_parts() {  # until a part exits (then say which, and stop everything); mea
 				r | R) $OPENSAI && arm_ready ;;
 				g | G) $BASE && gamepad_start ;;
 				b | B) $BASE && gamepad_stop ;;
+				o | O) $GRIPPER && gripper_key o ;;
+				c | C) $GRIPPER && gripper_key c ;;
+				"[") $GRIPPER && gripper_key "[" ;;
+				"]") $GRIPPER && gripper_key "]" ;;
 			esac
 		else
 			sleep 0.5
