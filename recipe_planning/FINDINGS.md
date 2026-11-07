@@ -79,7 +79,19 @@ three runs; the spend cap stopped the rest.)
   of all runs (median output exactly 8,000; luna's is ~3,900) because OpenRouter counts Haiku's hidden reasoning
   (3-5k tokens) toward `max_tokens`. The truncation retry usually rescued it, but at the cost of a failed first try
   and, sometimes, the run. Fixed: OpenRouter calls now get reasoning headroom on top of the answer cap
-  (`OPENROUTER_REASONING_HEADROOM`, default 8,000; billed only if used). Not yet re-measured.
+  (`OPENROUTER_REASONING_HEADROOM`, default 8,000; billed only if used).
+
+**Re-measured with the fix** (Haiku, same 75 tests x 3 runs, `recipe_eval_v1/bench_runs_v08_headroom/`, $1.74):
+
+| claude-haiku-5.5 | mean single run | pass^3 | pass@3 | flaky | never solved | first tries cut off / schema-invalid |
+|---|---|---|---|---|---|---|
+| before (8k cap incl. reasoning) | 79.2% | 59.7% | 95.8% | 26 | 3 | 134 of 222 |
+| after (reasoning headroom) | **93.8%** | **85.3%** | **100%** | 11 | 0 | 14 of 225 |
+
+A one-line harness fix moved Haiku from last to first on reliability (luna: 89.8% single run, 78.7% pass^3). The
+earlier model ranking measured our token budget, not the models. Lesson: before comparing models, check that the
+harness gives every model the same chance (budgets, output modes, retries); per-model failure codes
+(`first_errors`) found this in minutes. Planted gap is now Haiku's weakest variant (3 of 7 always solved).
 
 ## Findings
 
@@ -146,7 +158,7 @@ Example: `examples/jobs/tomato_egg_stir_fry_from_web.yaml`. A job still needs a 
 1. ~~Faithfulness check for cooking verbs~~ done (v0.8). Next: catch evidence taken from tips rather than steps.
 2. ~~Fix duration parsing~~ done (v0.8).
 3. **Grow the gold set** (target 15+, both splits) so the main results are against human answers.
-4. ~~pass^k~~ done for luna and Haiku (above). Next: rerun Haiku with the reasoning headroom (~$2 for pass^3).
+4. ~~pass^k~~ done for luna and Haiku, and Haiku re-measured after the headroom fix (above).
 5. **Full split (178)** for luna and one Claude model with an exact budget check before each call.
 6. **Local models** after setting a GPU power limit; then gpt-oss 20B and gemma on mini.
 7. ~~Compile `actions.json` to ChefBot jobs~~ v0 done. Next: write the `symbolic:` block for one web recipe in
