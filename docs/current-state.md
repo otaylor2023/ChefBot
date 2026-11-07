@@ -363,3 +363,38 @@ See [compute-hosts.md](compute-hosts.md): batcomputer set up at 80f7ad0 on /mnt/
   re-angle: needs the teammate's calibration/pole.py (moves the arm); recorded data reprojects offline with the new T.
 - 16:40 end of day: robot stack shut down (16:05), tunnel and SSH control connection closed. Pages updated. CLAUDE.md
   now opens with a "START HERE" pointer block (backup: CLAUDE.md.bak-2026-11-05).
+
+## 2026-11-06 (offline: kitchen memory map with YOLOE, branch memory-map off kitchen-nav ca6f5ae, uncommitted)
+No robot. Code in chefbot/perception/ (worktree mac_chefbot-movement, branch memory-map); batcomputer copy
+.../Engineering_AI_Agents/ChefBot_memmap (rsync, no .git). Tests: 16 new pass (perception); full suite on batcomputer
+465 passed, 4 failed = the same 4 as kitchen-nav there (autoresearch generators x3, test_real_host table).
+- Pole camera -> world chain (pole_geometry.py) checked against the map, no arm (chain_check.py): with the 11-05 pole T,
+  the ~18 cm arm-base vs turning-centre offset is REAL (points at counter-top height inside their boxes: 29% with no
+  offset, 73% with the assumed 0.1825 m, 91% fitted). Fit (p1+p2, 32 frames): dx 0.198 dy 0.014 dz 0.088 m, roll
+  0.78 deg -> island top 0.908 (0.91), stove counter 0.843 (0.83). Held out p3: inside 0.89, mean |dz| 0.034 m.
+  Stored in chefbot/perception/pole_mount_fit.yaml (only for that T). Marker-PnP check (IR) not done. Probe images:
+  projected entries land on the objects (tomato at 1.09 m, tennis ball at 0.70 m).
+- Detector: YOLOE-26 (ultralytics 8.4.204). batcomputer vision_venv (/mnt/d/.../vision_venv): torch 2.9.1+rocm6.3 on the
+  RX 6800 (ROCm 6.3 was already installed). Mac: ~/.venvs/chefbot_vision (torch 2.15 MPS). Per 1280x800 frame:
+  RX 6800 s@1280 13.6 ms (fp16 11.5); M1 MPS s@1280 136 ms, n@1280 57 ms, s@640 37 ms; CPU s@1280 ~320 ms (both).
+  1280 finds ~40% more than 640. Prompt-free (-pf) labels are junk for this (verbs, "water tank"); text prompts from
+  vocab_kitchen.txt (DRAFT, Jack to prune) give tomato, tongs, spoon, lego brick, controller, sponge ... whisk weak.
+- Memory map (memory_map.py): object = 3D cluster on a counter top (stickers, wall things rejected), label by vote; gone =
+  depth ray reaches the bare counter top at its spot twice -> position unknown; through-the-top depth (stove's black
+  glass) is no evidence. p2 -> p3 replay: tomato lost from the stove counter (n=28) and found on the island (n=66,
+  "seen as bowl at first"); tongs moved along the stove counter. Not scored: needs Jack's object list + what moved.
+  Maps: batcomputer chefbot_data/detections/txt_s_1280/map_*.json (copies in Claude_Code/robot_data/detections/).
+- goto (real_nav goto NAME --map maps/src_kitchen [--objects F]): looks the object up, parks squared up to the nearest
+  side; deep objects move to the nearest legal spot (reported as untrained reach). Resolved offline for tomato, tongs,
+  sponge, bowl ...; not driven.
+- Training data: export_yolo.py -> chefbot_data/datasets/pseudo_txt_s_1280/<pass>/ (pseudo-labels, uncorrected) +
+  data.yaml split (train p1 p2, val p3).
+- 2026-11-06 late: NAMING moved off the detector. name_objects.py names each map object once from its 4 best views (score x
+  sharpness / distance), with a VLM: default gemini-3.5-flash-lite (API, GEMINI_API_KEY in Claude_Code/.env, 4 parallel), or
+  ollama qwen3-vl:8b-instruct (local, free, batcomputer). Prompt asks for the whole object (not a logo/part/sticker).
+  Eval (eval_naming.py, 75 distinct objects over 3 layouts; answer keys = Claude's reading of the strips, robot_data/naming/ref_*.json):
+  gemini-4-argon 69/75 $0.0036/obj; gemini-3.1-pro 67 $0.005; gemini-3.8-flash 67 $0.003; gemini-3.5-flash-lite 67 ~$0.0005;
+  robotics-er-2 66; qwen3-vl local 66 (free, ~2 s/obj); YOLOE labels alone ~50%. Nearly all misses: the black two-armed tool
+  (models: spring clamp / hand gripper; key says tongs - ASK JACK), a small dark object behind the controller (key: phone?,
+  unclear), the moved tomato (one far view: "apple"). Whole map named in 12 s on the Mac. Paid spend for all tests ~$1.7.
+  Also: parking only from floor-reachable sides (goto.Floor; 4,393-spot sweep clean), duplicate entries merged by overlap.

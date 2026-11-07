@@ -1,0 +1,15 @@
+# The pole camera's mount in the base (turning-centre) frame, fitted to the kitchen map from recorded depth
+# (chain_check.py --search, 2026-11-06): pole_geometry.mount(T, x), x = dx, dy, dz (m), dyaw, dpitch, droll (deg).
+# dx/dy/dz: the arm base in the base frame (the calibration's T is relative to the arm base; dz includes the real
+# plate's 0.44 vs the sim's 0.335). ASSUMED before: (0.1825, 0, 0.105) from robot.yaml's plate centre.
+# Fit on p1_layout2 + p2_layout3 (32 frames): counter tops island 0.908 (0.91), stove counter 0.843 (0.83), side
+# counter 0.883 (0.84, few far points); points at top height inside their boxes 0.96 / 0.90 / 0.86.
+# Held out p3_moved_unseen (20 frames): mean |dz| 0.034 m, inside 0.892 (assumed mount: 0.036, 0.827; arm at the
+# turning centre: 0.051, 0.174, i.e. the ~18 cm offset is real).
+# Not yet checked against the Motive markers in the IR images (docs/memory-map-next.md gap 1, check B).
+# Only applies to this T (cameras.pole.T of 2026-11-05); re-fit when the camera is recalibrated or moved.
+for_T: [[-0.30537, -0.15884, 0.93889, -0.25078],
+        [-0.95223, 0.04748, -0.30168, 0.27199],
+        [0.00334, -0.98616, -0.16575, 1.02511],
+        [0, 0, 0, 1]]
+x: [0.198, 0.014, 0.088, 0.0, 0.0, 0.78]

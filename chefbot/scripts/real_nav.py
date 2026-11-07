@@ -669,23 +669,30 @@ def add_go_args(g) -> None:
     g.add_argument("--arm", choices=("auto", "off"), default="auto", help="grow the footprint to cover the arm (with --map)")
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--url", default=None)
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    m = sub.add_parser("mark")
-    m.add_argument("name")
-    sub.add_parser("list")
-    q = sub.add_parser("point")
-    q.add_argument("name")
-    q.add_argument("--from", dest="origin", required=True)
-    q.add_argument("--forward", type=float, default=0.0, help="m along the origin's heading (the way the arm faces)")
-    q.add_argument("--left", type=float, default=0.0, help="m to the origin's left")
-    q.add_argument("--turn", type=float, default=0.0, help="deg, counter-clockwise")
-    g = sub.add_parser("go")
-    g.add_argument("name")
-    add_go_args(g)
-    k = sub.add_parser("park", help="park for counter work targets by the pick task's start rule (--map needed)")
+def goto_to_park(args) -> None:
+    """`goto <object>`: look it up in the memory map and turn the command into `park --target X Y --counter C`
+    (perception/goto.py: deep or end targets move to the nearest side's legal spot, squared up to it)."""
+    from chefbot.perception.goto import Floor, load_objects, park_target, resolve
+
+    if args.map is None:
+        raise SystemExit("goto needs --map")
+    path = args.objects or Path(args.map) / "objects.json"
+    try:
+        obj = resolve(load_objects(path), args.object)
+    except LookupError as exc:
+        raise SystemExit(str(exc)) from None
+    box = counter_box(args.map, obj["counter"])
+    try:
+        pt = park_target(*box[:3], obj["xyz"][:2], floor=Floor.from_spec(Path(args.map) / "spec.yaml"))
+    except ValueError as exc:
+        raise SystemExit(f"{obj['name']}: {exc}") from None
+    print(f"{obj['name']}: on {obj['counter']} at ({obj['xyz'][0]:.3f}, {obj['xyz'][1]:.3f}), seen {obj.get('n_views', '?')} times; "
+          f"park on its {pt['side']} side for ({pt['target'][0]:.3f}, {pt['target'][1]:.3f})"
+          + ("" if pt["within_rule"] else f": {pt['inset_m']:.2f} m in, {pt['reach_extra_m']:.2f} m past the pick rule (untrained reach)"))  # fmt: skip
+    args.cmd, args.target, args.counter, args.random = "park", [pt["target"]], obj["counter"], 0
+
+
+def add_park_args(k) -> None:
     k.add_argument("--target", type=float, nargs=2, action="append", metavar=("X", "Y"), help="a target on the counter (world)")
     k.add_argument("--random", type=int, default=0, help="this many targets drawn by the start rule, one after another")
     k.add_argument("--seed", type=int, default=0)
@@ -713,6 +720,30 @@ def main() -> None:
     k.add_argument("--approach", type=float, default=0.0,
                    help="m straight in at the end (0: one smooth path straight to the stance; 0.25: the stations' way)")
     add_go_args(k)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--url", default=None)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    m = sub.add_parser("mark")
+    m.add_argument("name")
+    sub.add_parser("list")
+    q = sub.add_parser("point")
+    q.add_argument("name")
+    q.add_argument("--from", dest="origin", required=True)
+    q.add_argument("--forward", type=float, default=0.0, help="m along the origin's heading (the way the arm faces)")
+    q.add_argument("--left", type=float, default=0.0, help="m to the origin's left")
+    q.add_argument("--turn", type=float, default=0.0, help="deg, counter-clockwise")
+    g = sub.add_parser("go")
+    g.add_argument("name")
+    add_go_args(g)
+    k = sub.add_parser("park", help="park for counter work targets by the pick task's start rule (--map needed)")
+    add_park_args(k)
+    t = sub.add_parser("goto", help="park in front of an object from the memory map (perception/memory_map.py)")
+    t.add_argument("object", help="its name (\"cup 2\") or its label if only one has it")
+    t.add_argument("--objects", type=Path, default=None, help="the memory map (default: <map>/objects.json)")
+    add_park_args(t)
     sub.add_parser("arm")
     args = ap.parse_args()
 
@@ -730,6 +761,8 @@ def main() -> None:
         for name, p in load_points().items():
             print(f"{name:10} x {p['x']:.4f}  y {p['y']:.4f}  yaw {p['yaw_deg']:7.2f}  ({p['marked']})")
         return
+    if args.cmd == "goto":
+        goto_to_park(args)
     if args.cmd in ("go", "park"):
         from chefbot import embodiments
 

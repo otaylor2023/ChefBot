@@ -1,0 +1,34 @@
+# YOLOE text prompts for the SRC kitchen memory map (detect_frames.py --classes). One per line.
+# DRAFT 2026-11-06 from the pole frames of 2026-11-05 (passes 1-3); Jack prunes / renames: this is also the answer key.
+# seen on the counters
+tomato
+tongs
+spoon
+whisk
+tape measure
+spice jar
+lego brick
+tennis ball
+game controller
+cell phone
+coffee cup
+dish soap bottle
+sponge
+bowl
+laptop
+computer mouse
+# likely kitchen things (tools and ingredients) not confirmed in these passes
+spatula
+knife
+cutting board
+pot
+frying pan
+plate
+mug
+bottle
+can
+banana
+apple
+lemon
+onion
+egg

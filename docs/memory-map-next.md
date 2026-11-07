@@ -5,6 +5,26 @@ images, what each object is and roughly where it sits (which counter, x/y within
 objects move, so the base can drive to "spatula 1". Precision isn't the point: at the stance the arm re-finds the
 object with the wrist camera. Read [kitchen-runbook.md](kitchen-runbook.md) for running the robot.
 
+## Status 2026-11-06: the offline pipeline exists (branch memory-map, chefbot/perception/)
+Gap 1 measured (fit, not marker-PnP), gap 3 done (YOLOE), gap 4 done (map + goto); gap 2 has a fallback. Run (vision env
+for step 1; anything with numpy/PIL/yaml for the rest; batcomputer paths under /mnt/d/.../Engineering_AI_Agents):
+
+    # 1. detect: YOLOE-26 text prompts (GPU: --device 0 on batcomputer's RX 6800, mps on the Mac)
+    vision_venv/bin/python chefbot/perception/detect_frames.py STREAM/p2_layout3 --model yoloe-26s-seg.pt \
+        --classes chefbot/perception/vocab_kitchen.txt --device 0 --out DETS --weights-dir models/yoloe
+    # 2. map (and update it with a later pass: --init the earlier map)
+    python -m chefbot.perception.memory_map build STREAM/p2_layout3 --dets DETS --config CAL.yaml \
+        --spec maps/src_kitchen/spec.yaml --out maps/src_kitchen/objects.json
+    # 3. drive to it (robot; --plan-only first)
+    python -m chefbot.scripts.real_nav goto tomato --map maps/src_kitchen --hold --clearance 0.7 --turn-in-room
+    # checks: chain_check.py (camera chain vs the map), memory_map probe (where a point falls in a frame and what
+    # depth hits there), export_yolo.py (pseudo-labeled training folders)
+
+CAL.yaml = the 11-05 pole calibration (`calibration/environments_real_config_2026-11-05.yaml`); its fitted mount offset is
+`chefbot/perception/pole_mount_fit.yaml` (used automatically for that T only). Results: docs/current-state.md 2026-11-06.
+Open: Jack's object list (prune vocab_kitchen.txt) and what moved in pass 3, to score the map; marker-PnP cross-check;
+live updates in collect_stream (MemoryMap.update per frame); the deep-target rule with the teammate.
+
 ## Read first: the gaps between this and a working "go to tomato" (checked 2026-11-05)
 Driving to a point beside a counter is solved and proven (`real_nav park --target X Y --counter C`, 200+ kitchen
 trips). The image → world → stance chain is not. In order of how badly each would fail:
