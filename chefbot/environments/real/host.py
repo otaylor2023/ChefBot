@@ -265,6 +265,9 @@ class RealHost:
         return self.start_here()
 
     def start_here(self) -> Pose2D:
+        if self._thread is not None and self._thread.is_alive():  # an agent's next skill: one control thread, not two
+            self._stop = True
+            self._thread.join(timeout=2.0)
         self.ctl.reset()
         self.step_count, self.frames, self.fault, self._stop, self._clock_on, self._row = 0, [], None, False, False, None
         self._hold = self.hold_row()

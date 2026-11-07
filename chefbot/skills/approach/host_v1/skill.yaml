@@ -1,0 +1,19 @@
+name: approach
+version: host_v1
+entry: main.py:run
+interface: host-v1
+envs: [real]
+sandboxed: false
+description: >-
+  Drive the base to work on something find() saw on a counter: square to that counter's side, 0.45 m out, the thing
+  straight ahead within the arm's reach (the pick and place skills start from there). Returns {ok, reason, counter,
+  side, at}. Call find(object) first.
+robot: tidybot_fr3
+cameras: false
+args:
+  object: {type: string, doc: "what find() was asked for ('tomato', 'bowl')"}
+models: {}
+assumes: find(object) called before; launch.sh running, live mocap, the arm in a pose it can drive with
+privileged: false
+provenance:
+  written: "by hand, 2026-11-06, for the tomato demo (real_kitchen), from robot/nav/goal.py counter_stance, as scripts/real_park.py"

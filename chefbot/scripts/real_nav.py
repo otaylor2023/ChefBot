@@ -257,16 +257,18 @@ def make_robot(env: RealEnv, grid, *, speed: float = 0.1, yaw_speed: float = 0.3
                yaw_tol_deg: float = 3.0, corridor: float = 0.15, margin: float = 0.10, arm: str = "auto",
                settle_s: float = 0.5, still_mps: float | None = None, lookahead: float = 0.12,
                timeout_s: float | None = None, centre_limit=None, footprint_below=None, stop_model="robot", accel=None,
-               arrive_hold: bool = False, path_clearance: float = 0.0, turn_in_room: bool = False):  # fmt: skip
+               arrive_hold: bool = False, path_clearance: float = 0.0, turn_in_room: bool = False,
+               allow_arm_env: bool = False):  # fmt: skip
     """The robot layer on the real robot: the embodiment's navigator (embodiments/__init__.py: Robot(RealEnv) on `grid`
     with the robot's footprint, its measured stop and acceleration from robot.yaml), the run's speeds and tolerances.
     The base drives with the arm as it is (real_nav never moves the arm; the footprint covers it and the arm moving
     stops the drive). Every stop is the robot layer's (robot/safety.py BaseGuard and Robot's drive): lost mocap, the
     footprint on the map, the fence, the arm moving, off the path (corridor), moving away, the timeout, a halt from the
-    server. footprint_below / stop_model=None / accel: a trial's own (real_trials)."""
+    server. footprint_below / stop_model=None / accel: a trial's own (real_trials). allow_arm_env: an env that wants
+    the arm's joints (the real host's, scripts/real_kitchen.py: it holds the arm at its joints while the base drives)."""
     from chefbot.embodiments import Speed
 
-    if env.require_arm:
+    if env.require_arm and not allow_arm_env:
         raise ValueError("base moves need no arm driver: build the env with RealEnv(..., require_arm=False)")
     limits = env.server_limits
     if "base_max_vel_xy" in limits:

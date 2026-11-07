@@ -64,7 +64,7 @@ def run(
     harness = agent_def.harness
     run_session = Session.open(agent_def, env, interface)  # refused here, before the env is built
     config = config or agent_def.loop_config()
-    real = {"skills": [s for s in run_session.skills if s.sandboxed], **(env_options or {})} if env == "real" else {}
+    real = {"skills": [s for s in run_session.skills if s.interface != "robot-api-v1"], **(env_options or {})} if env == "real" else {}
     world = ENVS[env](task_path, seed, noise, **real)
     # A long task can raise its own run limits: `limits: {max_turns: 250}` in the task file.
     limits = {k: v for k, v in (world.task.get("limits") or {}).items() if hasattr(config, k)}
@@ -87,12 +87,15 @@ def run(
         if world.skills is not None:
             world.skills.move_to(run_dir / "skills")
             skill_tools = [world.skills.tool(s) for s in run_session.skills if s.sandboxed]
+        if world.host_skills is not None:  # host-v1 skills: in this process, on the same host
+            world.host_skills.move_to(run_dir / "skills")
+            skill_tools += [world.host_skills.tool(s) for s in run_session.skills if s.interface == "host-v1"]
         session = harness.AgentSession.build(
             plan, world.robot, world.detector, world.world_map, world.clock, run_dir, judge, world.observer,
             config, agent_def.settings, operator=operator,
             tools_exclude=tuple(tools.get("exclude") or ()), tools_only=tuple(tools["only"]) if tools.get("only") else None,
             prompts_dir=agent_def.prompts_dir, agent_tools=run_session.tools,
-            robot_skills=[s for s in run_session.skills if not s.sandboxed], skill_tools=skill_tools,
+            robot_skills=[s for s in run_session.skills if s.interface == "robot-api-v1"], skill_tools=skill_tools,
         )  # fmt: skip
     except BaseException:
         world.close()  # the real robot: let go of it

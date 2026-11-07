@@ -1,0 +1,18 @@
+name: ready
+version: host_v1
+entry: main.py:run
+interface: host-v1
+envs: [real]
+sandboxed: false
+description: >-
+  Move the arm to the ready position (tucked over the base, the hand forward and down): where pick_up and place_in
+  start and the base drives from. Goes around the robot's own body; the gripper stays as it is (what it holds stays
+  held). Call it before driving and before picking. Returns {ok, reason, gripper_width_m}.
+robot: tidybot_fr3
+cameras: false
+args: {}
+models: {}
+assumes: launch.sh running (the arm driver)
+privileged: false
+provenance:
+  written: "by hand, 2026-11-06, for the tomato demo (real_kitchen), with environments/real/host.py go_ready (run_real --ready)"

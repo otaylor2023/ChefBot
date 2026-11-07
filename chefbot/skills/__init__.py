@@ -15,7 +15,10 @@ it came from.
 Every skill is one kind of thing, whatever runs it: `interface` names the robot API it is written against
 (interface.INTERFACES: chefbot-v1, a sandboxed process speaking interface/skill_api.py; robot-api-v1, a function
 in the agent's process given a RobotAPI, never sandboxed), `envs` where it could run (ENVS), and `sandboxed` says
-which of the two it is. A manifest that says otherwise, or has a key the loader does not know, is refused.
+which of the two it is. A third kind, `host-v1`, is a function in the agent's process on the real robot's host (the
+laptop side: the base driven on the map by the robot layer, the cameras, mocap; scripts/real_kitchen.py), offered in
+chefbot-v1 sessions beside the sandboxed skills it shares the host with. A manifest that says otherwise, or has a key
+the loader does not know, is refused.
 """
 
 from __future__ import annotations
@@ -33,6 +36,8 @@ from chefbot.interface.robot_api import ALL_CAPABILITIES
 
 ROOT = Path(__file__).resolve().parent
 ENVS = ("symbolic", "robocasa", "mujoco_kitchen", "real")  # where a skill could run (chefbot/environments)
+HOST_INTERFACES = ("host-v1",)  # run in the agent's process on a session's host (scripts/real_kitchen.py RealKitchen)
+OFFERED_WITH = {"robot-api-v1": ("robot-api-v1",), "chefbot-v1": ("chefbot-v1", "host-v1")}  # a session's API: its skills'
 IMPORTED_INTERFACES = ("wholebody-v2",)  # agentic-skills-exploration's robot API: kept as lab starting points, never run
 KEYS = {"name", "version", "entry", "interface", "envs", "sandboxed", "robot", "needs", "description", "arm_only", "cameras",
         "args", "speed", "models", "assumes", "privileged", "provenance", "imported_from"}  # fmt: skip
@@ -57,11 +62,14 @@ class Skill:
         return self.alias or self.manifest["name"]
 
     def viewed(self, name: str, description: str | None = None, args: dict | None = None) -> "Skill":
-        """This skill as an agent sees it: under `name`, with its own description and arg docs (arg -> doc) if given.
-        What runs is the same."""
+        """This skill as an agent sees it: under `name`, with its own description and args if given (arg -> its doc,
+        or {doc?, default?}: a default the LLM may leave out). What runs is the same."""
         unknown = set(args or {}) - set(self.manifest.get("args") or {})
         if unknown:
             raise ValueError(f"skill {self.path} has no args {sorted(unknown)}")
+        bad = [a for a, v in (args or {}).items() if not (isinstance(v, str) or (isinstance(v, dict) and v and set(v) <= {"doc", "default"}))]
+        if bad:
+            raise ValueError(f"skill {self.path}: args {bad} must be a doc, or {{doc?, default?}}")
         over = {k: v for k, v in (("description", description), ("args", dict(args or {}))) if v}
         return Skill(self.path, self.dir, self.manifest, alias=name, overrides=over)
 
@@ -76,12 +84,12 @@ class Skill:
 
     @property
     def sandboxed(self) -> bool:
-        return bool(self.manifest.get("sandboxed", self.interface != "robot-api-v1"))
+        return bool(self.manifest.get("sandboxed", self.interface not in ("robot-api-v1",) + HOST_INTERFACES))
 
     @property
     def runnable(self) -> bool:
         """False for an imported skill whose robot API no session speaks."""
-        return self.interface in INTERFACES
+        return self.interface in INTERFACES + HOST_INTERFACES
 
     @property
     def needs(self) -> frozenset[str]:
@@ -139,8 +147,12 @@ class Skill:
     def args(self) -> dict:
         """The arguments run(robot, **args) takes: name -> {type, default, enum, doc}. None declared: run(robot)."""
         args = {k: dict(v) for k, v in (self.manifest.get("args") or {}).items()}
-        for arg, doc in (self.overrides.get("args") or {}).items():
-            args[arg].update(doc=doc, description=doc)
+        for arg, over in (self.overrides.get("args") or {}).items():
+            over = {"doc": over} if isinstance(over, str) else over
+            if "doc" in over:
+                args[arg].update(doc=over["doc"], description=over["doc"])
+            if "default" in over:
+                args[arg]["default"] = over["default"]
         return args
 
     @property
@@ -167,15 +179,16 @@ class Skill:
         family, version = self.dir.parent.name, self.dir.name
         if m.get("name") != family or str(m.get("version")) != version:
             problems.append(f"name/version {m.get('name')}/{m.get('version')} is not its folder's, {family}/{version}")
-        if self.interface not in INTERFACES + IMPORTED_INTERFACES:
-            problems.append(f"interface must be one of {list(INTERFACES + IMPORTED_INTERFACES)}, not {self.interface!r}")
+        kinds = INTERFACES + HOST_INTERFACES + IMPORTED_INTERFACES
+        if self.interface not in kinds:
+            problems.append(f"interface must be one of {list(kinds)}, not {self.interface!r}")
         if "sandboxed" not in m:
             problems.append("no sandboxed (true for a chefbot-v1 skill, false for a robot-api-v1 one)")
         elif not isinstance(m["sandboxed"], bool):
             problems.append(f"sandboxed must be true or false, not {m['sandboxed']!r}")
-        elif self.interface == "robot-api-v1" and self.sandboxed:
-            problems.append("a robot-api-v1 skill runs in the agent's process: it cannot be sandboxed")
-        elif self.interface != "robot-api-v1" and not self.sandboxed:
+        elif self.interface in ("robot-api-v1",) + HOST_INTERFACES and self.sandboxed:
+            problems.append(f"a {self.interface} skill runs in the agent's process: it cannot be sandboxed")
+        elif self.interface not in ("robot-api-v1",) + HOST_INTERFACES and not self.sandboxed:
             problems.append(f"a {self.interface} skill runs as its own process and is always sandboxed")
         envs = m.get("envs")
         if not self.runnable and envs is not None:
@@ -191,8 +204,10 @@ class Skill:
         bad_needs = set(m.get("needs") or ()) - set(ALL_CAPABILITIES)
         if bad_needs:
             problems.append(f"needs {sorted(bad_needs)} are not robot capabilities")
-        if self.interface == "robot-api-v1" and not (isinstance(m.get("description"), str) and m["description"].strip()):
-            problems.append("a robot-api-v1 skill is offered to the LLM as is: it needs a description")
+        if self.interface in ("robot-api-v1",) + HOST_INTERFACES and not (isinstance(m.get("description"), str) and m["description"].strip()):
+            problems.append(f"a {self.interface} skill is offered to the LLM as is: it needs a description")
+        if self.interface in HOST_INTERFACES and envs != ["real"]:
+            problems.append("a host-v1 skill runs on the real robot's host: envs [real]")
         if problems:
             raise ValueError(f"skill {self.path}: " + "; ".join(problems))
 
@@ -233,4 +248,4 @@ def catalog(env: str | None = None, interface: str | None = None) -> list[Skill]
     if interface is not None and interface not in INTERFACES:
         raise ValueError(f"no interface {interface!r}; interfaces: {', '.join(INTERFACES)}")
     found = [load(path) for path in names()]
-    return [s for s in found if (env is None or env in s.envs) and (interface is None or s.interface == interface)]
+    return [s for s in found if (env is None or env in s.envs) and (interface is None or s.interface in OFFERED_WITH[interface])]

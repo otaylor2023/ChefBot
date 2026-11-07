@@ -38,6 +38,7 @@ class EnvRun:
     stack: Any = None  # RoboCasa: for the video recorder
     close: Callable[[], None] = lambda: None
     skills: Any = None  # the real robot: its chefbot-v1 skills' runner (runtime/agent_skills.py EpisodeSkills)
+    host_skills: Any = None  # the real robot: its host-v1 skills' runner (scripts/real_kitchen.py HostSkills)
 
 
 def symbolic(task_path: Path, seed: int, noise: str) -> EnvRun:
@@ -105,7 +106,8 @@ def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
 
 
 def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: bool = False, confirm: bool = False,
-         url: str | None = None, speed: str = "slow", model_usd: float = 0.5, env=None) -> EnvRun:
+         url: str | None = None, speed: str = "slow", model_usd: float = 0.5, env=None,
+         map_dir: Path = REPO / "maps" / "src_kitchen") -> EnvRun:
     """The real robot through the onboard server (ssh -L 8765:localhost:8765 tidybot01). The arm only, the base held;
     every move checked by the real host's guard, at the robot's real limits. dry_run: nothing is sent to the arm or
     the gripper (the cameras are real). env: a stand-in for RealEnv (tests)."""
@@ -138,11 +140,17 @@ def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: boo
                     log=(lambda *a: None) if env is not None else print)  # fmt: skip
     vision = M.Vision(os.environ.get("VISION_URL")) if any(s.access()["vision"] for s in skills) else None
     runner = EpisodeSkills(host, out, M.Ledger(out / "model_ledger.jsonl", model_usd), vision, confirm=confirm)
+    host_skills = None
+    if any(s.interface == "host-v1" for s in skills):  # the base on the map, finding things: in this process
+        from chefbot.scripts.real_kitchen import HostSkills, RealKitchen
+
+        host_skills = HostSkills(RealKitchen(host, map_dir, vision, out, confirm=confirm,
+                                             log=(lambda *a: None) if env is not None else print))  # fmt: skip
     return EnvRun(
         task.get("name", task_path.stem), task, StationaryRobot(host), NoDetector(), WorldMap.from_dict({}), WallClock(),
         NoGroundTruth(), no_safety_events, unjudged, host.halt,
         info={"env": "real", "robot": robot.name, "dry_run": dry_run, "speed": speed, "confirm": confirm},
-        close=host.close, skills=runner,
+        close=host.close, skills=runner, host_skills=host_skills,
     )  # fmt: skip
 
 

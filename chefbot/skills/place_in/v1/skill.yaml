@@ -1,0 +1,25 @@
+name: place_in
+version: v1
+entry: main.py:run
+interface: chefbot-v1
+envs: [real]
+sandboxed: true
+description: >-
+  Put what the hand holds into a container in view (a bowl): finds its rim with the wrist and pole cameras (looking
+  again from close above if it is far), holds the hand over the rim's centre, lowers until the held thing is just above
+  the rim, opens and backs off up. The arm only: park the base first, the container within the arm's reach. Returns
+  {ok, reason, rim}.
+robot: tidybot_fr3
+arm_only: true
+cameras: [wrist, pole]
+args:
+  target: {type: string, default: bowl, doc: "the container, in a few words ('bowl', 'white bowl')"}
+  object: {type: string, default: the held object, doc: "what the hand holds (for the log)"}
+  where: {type: string, default: on the counter, doc: "where the container is"}
+models:
+  grounding-dino: {runs: vision_models}
+  sam2: {runs: vision_models}
+assumes: the hand holding something small (a tomato) by the printed fingers, the container open at the top, upright, within the arm's reach from where the base stands, and seen by the wrist or pole camera from where the arm is
+privileged: false
+provenance:
+  written: "by hand, 2026-11-06, for the tomato demo (real_kitchen), with kitchen_use/run1_v155_fr3's conventions (PADS, the close view, the move loop, arm_only.py)"

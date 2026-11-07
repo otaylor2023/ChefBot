@@ -33,7 +33,8 @@ class Session:
 
     @property
     def skills(self) -> list[skillbook.Skill]:
-        return [s for s in self.agent.skills if self.env in s.envs and s.interface == self.interface]
+        offered = skillbook.OFFERED_WITH[self.interface]  # chefbot-v1: and the host-v1 skills on the same host
+        return [s for s in self.agent.skills if self.env in s.envs and s.interface in offered]
 
     @property
     def tools(self) -> tuple[str, ...]:

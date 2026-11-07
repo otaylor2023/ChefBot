@@ -1,0 +1,19 @@
+name: go_to
+version: host_v1
+entry: main.py:run
+interface: host-v1
+envs: [real]
+sandboxed: false
+description: >-
+  Drive the base to one of the kitchen map's places (e.g. island_north, island_south, counter_south, counter_west): A*
+  on the map, the robot's footprint kept clear, by mocap; the arm holds as it is. Returns {ok, reason, at}. Places
+  are named <counter>_<side>: the base stands 0.45 m out from that side of that counter, facing it.
+robot: tidybot_fr3
+cameras: false
+args:
+  place: {type: string, doc: "a place of the map (maps/src_kitchen places.yaml / marked.yaml)"}
+models: {}
+assumes: launch.sh running (the base driver), live mocap, the arm in a pose it can drive with (READY)
+privileged: false
+provenance:
+  written: "by hand, 2026-11-06, for the tomato demo (real_kitchen), from scripts/real_nav.py go_planned"

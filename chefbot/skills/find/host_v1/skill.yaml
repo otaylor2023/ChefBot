@@ -1,0 +1,21 @@
+name: find
+version: host_v1
+entry: main.py:run
+interface: host-v1
+envs: [real]
+sandboxed: false
+description: >-
+  Look for something with the pole and wrist cameras (nothing moves): Grounding DINO, SAM 2 and the depth under its
+  mask. Returns {found, world: [x, y, z] in the map's frame (z its top), on: the counter it is on, camera, score}.
+  Call it from where the base stands at the counter it should be on.
+robot: tidybot_fr3
+cameras: [pole, wrist]
+args:
+  object: {type: string, doc: "what to look for, in a few words ('tomato', 'bowl')"}
+models:
+  grounding-dino: {runs: vision_models}
+  sam2: {runs: vision_models}
+assumes: the object in the pole or wrist camera's view; live mocap (to place it in the map)
+privileged: false
+provenance:
+  written: by hand, 2026-11-06, for the tomato demo (real_kitchen)
