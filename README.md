@@ -71,6 +71,22 @@ changing them was the point. Real robot status: the read-only check passed; the 
 on USB (so `real_arm` uses the wrist camera only) and a keep-out graze on the way home (so `ready/v1`); a live pick is
 not run yet.
 
+### The real kitchen agent (the tomato demo)
+
+`agents/real_kitchen` drives across the SRC kitchen (`maps/src_kitchen`, by mocap): `go_to` a place, `find` a thing
+with the cameras (placed in the map's frame), `approach` it (square to its counter, in reach), `pick_up`
+(`kitchen_use/run1_v155_fr3`, use hold) and `place_in` (`place_in/v1`), with `ready` (the arm tucked) before every
+drive and pick. The base, finding and the ready position are `host-v1` skills: functions in the agent's process on
+the real host (`scripts/real_kitchen.py`); the pick and the place are sandboxed `chefbot-v1` episodes on it. A base
+move stops the host's control (it would hold the flange still in odom as the base drives), holds the arm at its
+joints, and starts the control again where the base ends.
+
+```sh
+# launch.sh on the robot (arm and base), environments/real/up.sh here (tunnel + vision server), live mocap
+python -m chefbot.scripts.run_agent --env real --agent real_kitchen --task chefbot/jobs/tomato_to_bowl.yaml --dry-run
+python -m chefbot.scripts.run_agent --env real --agent real_kitchen --task chefbot/jobs/tomato_to_bowl.yaml --confirm
+```
+
 ### The video
 
 [![The agent in RoboCasa with its conversation](docs/videos/fried_sausage_chat.png)](docs/videos/fried_sausage_chat.mp4)

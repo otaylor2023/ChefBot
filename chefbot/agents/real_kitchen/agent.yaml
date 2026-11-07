@@ -1,0 +1,49 @@
+# The real robot across the kitchen: drives the base between counters on the map (by mocap), finds things with its
+# cameras, parks in front of them, picks with kitchen_use and places with place_in. host-v1 skills (the base, finding,
+# the ready position) run on the laptop on the real host; the pick and the place are sandboxed chefbot-v1 episodes on
+# it (run_agent --env real). Nothing checks a step's done_when on the real robot: a completed step is taken as done.
+
+name: real_kitchen
+harness: plan_loop
+interfaces: [chefbot-v1]    # its sandboxed skills, and the host-v1 skills on the same host
+prompts: prompts
+skills:                     # its registry: the name it calls each by -> one registered version (chefbot/skills)
+  go_to: go_to/host_v1
+  find: find/host_v1
+  approach: approach/host_v1
+  ready: ready/host_v1
+  pick_up:
+    path: kitchen_use/run1_v155_fr3
+    description: >-
+      Pick up an object in front of the robot with the gripper and lift it (the wrist and pole cameras find it; the
+      arm only, the base stays). Start from the ready position, the base parked in front of the object (approach).
+      Returns {ok, reason}: ok when the fingers closed on something.
+    args:
+      object: "what to pick up, in a few words ('tomato')"
+      where: {doc: "where it is ('on the counter')", default: on the counter}
+      use: {doc: "always 'hold'", default: hold}
+      then: {doc: "leave empty", default: ""}
+      target: {doc: "leave empty", default: ""}
+  place_in: place_in/v1
+tools:                      # chefbot/tools: the plan's
+  - complete
+  - set_status
+  - add_step
+  - skip_step
+  - request_replan
+  - finish
+
+loop:
+  model: anthropic/claude-sonnet-5.5        # OpenRouter model id; key from OPENROUTER_API_KEY or .env
+  judge_model: anthropic/claude-haiku-5.5   # unused on the real robot (UncheckedJudge)
+  provider: {order: [anthropic], allow_fallbacks: false}
+  judge_temperature: 0.0
+  time_mode: realtime        # the robot does not wait while the LLM thinks
+  window_n: 8
+  max_reprompts: 2
+  max_turns: 40
+  max_llm_cost_usd: 2.0
+  max_sim_time_s: 1800
+  max_wall_time_s: 1800
+  max_consecutive_errors: 3
+  log_full_requests: true
