@@ -127,7 +127,8 @@ class AgentSession:
             config.stale_after_calls, config.stale_move_m, config.stale_turn_deg,
             config.clear_move_m, config.clear_turn_deg,
         ))  # fmt: skip
-        task_state = TaskState(store, bus, perception, registry.tools, robot, world_map, clock, time_tools)
+        task_state = TaskState(store, bus, perception, registry.tools, robot, world_map, clock, time_tools,
+                               offered={s["function"]["name"] for s in registry.schemas})  # fmt: skip
         prompt = system_prompt if system_prompt is not None else build_system_prompt({s["function"]["name"] for s in registry.schemas}, prompts_dir)
         context = ContextBuilder(prompt, config.window_n)
         session = cls(registry, store, bus, time_tools, plan_tools, perception, task_state, context, robot, clock, log, config)

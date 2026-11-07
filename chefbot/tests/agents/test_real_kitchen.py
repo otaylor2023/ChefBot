@@ -123,6 +123,11 @@ def test_a_dry_run_of_the_job(tmp_path, monkeypatch):
     assert oks[1:4] == [True, True, True], llm.results  # ready, go_to, find
     assert "island" in llm.results[3]["message"] and fake.sent["base"] == 0 and fake.sent["arm"] == 0
     assert Path(result["run_dir"]).exists()
+    import json
+
+    first = json.loads((Path(result["run_dir"]) / "requests" / "0001.json").read_text())
+    state = next(m["content"] for m in reversed(first["messages"]) if m["role"] == "user")
+    assert "TASK STATE" in state and "PERCEPTION" not in state and "KITCHEN" not in state  # no detect, no map here
 
 
 def test_every_place_of_the_work_map_reaches_every_other(tmp_path):

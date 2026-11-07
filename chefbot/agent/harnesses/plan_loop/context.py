@@ -66,8 +66,12 @@ class TaskState:
     """Renders [4]. `bus` is the EventBus (for timers and monitors), `nav` the
     NavTools (what is held), `robot` the RobotAPI (motion status, pose)."""
 
-    def __init__(self, store: PlanStore, bus, perception: Perception, nav, robot, world_map, clock, time_tools=None):
+    def __init__(self, store: PlanStore, bus, perception: Perception, nav, robot, world_map, clock, time_tools=None,
+                 offered: set[str] | None = None):  # fmt: skip
+        """offered: the tools the agent is offered (None: all). PERCEPTION shows only with detect or nearby among
+        them, KITCHEN only with something on the map (the real robot's chefbot-v1 session has neither)."""
         self._store, self._bus, self._perception = store, bus, perception
+        self._offered = offered
         self._nav, self._robot, self._map, self._clock = nav, robot, world_map, clock
         self._time = time_tools
         # Unproductive calls over the whole run (the window only keeps the last few):
@@ -102,7 +106,8 @@ class TaskState:
         for step in plan.steps:
             lines += self._step_lines(step, step.status in (ACTIVE, WAITING, PAUSING) or step.id == next_pending)
         lines += ["", "NOW", *("  " + line for line in self._now_lines())]
-        lines += ["", self._perception.block(self._robot.get_base_pose(), held=self._held_id())]
+        if self._offered is None or self._offered & {"detect", "nearby"}:
+            lines += ["", self._perception.block(self._robot.get_base_pose(), held=self._held_id())]
         missing = getattr(self._nav, "not_found", {})
         if missing:
             lines.append("  not where the map says: " + ", ".join(
@@ -125,7 +130,8 @@ class TaskState:
             if circling:
                 lines.append("  went to " + ", ".join(f"{p} {n}x" for p, n in sorted(circling, key=lambda pn: -pn[1]))
                              + " since your last progress (pick_up, place, open/close, turn on/off, complete)")  # fmt: skip
-        lines += ["", *self._kitchen_lines()]
+        if self._map.list():  # the KITCHEN map: nothing to show without one (its holding is in NOW)
+            lines += ["", *self._kitchen_lines()]
         lines += ["", "EVENTS SINCE LAST TURN"]
         lines += [f"  [{e.kind}] {e.message}" for e in events] or ["  none"]
         return "\n".join(lines)
