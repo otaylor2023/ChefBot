@@ -71,8 +71,11 @@ def main(argv=None):
     ap.add_argument("--out", default="bench_runs")
     ap.add_argument("--cooldown", type=float, default=None, help="seconds to pause between instances (default 20 for ollama:*)")
     ap.add_argument("--max-gpu-temp", type=float, default=85.0, help="ollama:* only: wait while the GPU junction is hotter (C)")
-    ap.add_argument("--gpu-abort-temp", type=float, default=100.0,
-                    help="ollama:* only: stop the model mid-test at this junction temperature (C); the test is retried after cooling")
+    ap.add_argument("--gpu-pause-temp", type=float, default=95.0,
+                    help="ollama:* only: pause the model server mid-test at this junction temperature (C)")
+    ap.add_argument("--gpu-resume-temp", type=float, default=75.0, help="ollama:* only: resume it below this (C)")
+    ap.add_argument("--gpu-abort-temp", type=float, default=104.0,
+                    help="ollama:* only: last resort, stop the model and retry the test after cooling (C)")
     ap.add_argument("--max-minutes", type=float, help="stop starting new instances after this long (resume later)")
     a = ap.parse_args(argv)
     if a.reasoning_effort is None:
@@ -132,21 +135,31 @@ def main(argv=None):
             print(f"  GPU junction {t:.0f}C > {a.max_gpu_temp:.0f}C: cooling down", file=sys.stderr, flush=True)
             time.sleep(30)
 
-    # Thermal watchdog (local models): the between-test guard can't see a single long inference heat the GPU past
-    # its limit, so a thread watches the junction and stops the model server mid-test. That test is not recorded as a
-    # failure: it is retried after the GPU cools (up to 3 times).
+    # Thermal watchdog (local models): the between-test guard can't see a single long inference heat the GPU. A thread
+    # watches the junction and PAUSES the model server (SIGSTOP) at --gpu-pause-temp, resuming it (SIGCONT) once the GPU
+    # is back under --gpu-resume-temp. The request just takes longer (local latency then includes pauses). As a last
+    # resort, at --gpu-abort-temp the server is stopped and the test retried after cooling (not recorded as a failure).
     hot = threading.Event()
     watching = threading.Event()
+    paused = {"on": False, "count": 0, "seconds": 0.0, "since": 0.0}
+
+    def signal_server(sig: str):
+        subprocess.run(["pkill", f"-{sig}", "-f", "ollama/llama-server"], check=False)
 
     def watchdog():
         while not watching.is_set():
             t = gpu_junction_c()
-            if t is not None and t >= a.gpu_abort_temp and not hot.is_set():
-                hot.set()
-                print(f"  GPU junction {t:.0f}C >= {a.gpu_abort_temp:.0f}C: stopping the model mid-test; it will be retried "
-                      "after cooling", file=sys.stderr, flush=True)
-                subprocess.run(["pkill", "-f", "ollama/llama-server"], check=False)
-            time.sleep(2)
+            if t is not None:
+                if t >= a.gpu_abort_temp and not hot.is_set():
+                    hot.set()
+                    print(f"  GPU junction {t:.0f}C >= {a.gpu_abort_temp:.0f}C: stopping the model; the test will be retried",
+                          file=sys.stderr, flush=True)
+                    signal_server("CONT"); signal_server("TERM"); paused["on"] = False
+                elif t >= a.gpu_pause_temp and not paused["on"]:
+                    signal_server("STOP"); paused.update(on=True, since=time.monotonic()); paused["count"] += 1
+                elif t <= a.gpu_resume_temp and paused["on"]:
+                    signal_server("CONT"); paused["on"] = False; paused["seconds"] += time.monotonic() - paused["since"]
+            time.sleep(1)
 
     if local:
         threading.Thread(target=watchdog, daemon=True).start()
@@ -217,6 +230,11 @@ def main(argv=None):
             mark = "PASS" if row["resolved"] else "fail"
             print(f"  [{n}/{len(jobs)}] {mark} {row['id']} r{row['run']} ({row.get('latency_s')}s)"
                   + ("" if row["resolved"] else f"  {'; '.join(row['reasons'])[:160]}"), file=sys.stderr, flush=True)
+    if local:
+        watching.set()
+        if paused["on"]:
+            signal_server("CONT")
+        print(f"thermal pauses: {paused['count']} ({paused['seconds'] / 60:.1f} min paused)", file=sys.stderr)
     print(f"done; recorded spend ${spent:.2f}" + (f"; {stop['why']}" if stop["why"] else ""), file=sys.stderr)
     return 0
 
