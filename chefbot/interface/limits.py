@@ -8,7 +8,8 @@ paper over).
 
 The profiles are embodiments/speed_profiles.yaml. A profile may set the arm's rates, the base's, or both; a run picks one
 for the arm and one for the base (run_real --arm-speed / --base-speed; --speed both). `teleop` is the gamepad's (the
-base's only).
+base's only). `max` is not in the file: the base at the embodiment's cap (whatever it is now) and the arm at the
+fastest profile's rates (`fast`).
 
     cap = base_cap("tidybot_fr3")                     # {"vel": (vx, vy, vyaw), "accel": (ax, ay, ayaw)}
     vel, accel = base_profile("teleop", "tidybot_fr3")  # refused (ValueError) if over the cap
@@ -24,6 +25,7 @@ EMBODIMENTS = Path(__file__).resolve().parent.parent / "embodiments"
 PROFILES = EMBODIMENTS / "speed_profiles.yaml"
 BASE_KEYS = ("base_max_vel",)
 ARM_KEYS = ("arm_lin", "arm_ang", "joint")
+MAX, ARM_MAX = "max", "fast"  # `max`: the base at its cap, the arm at ARM_MAX's rates
 
 
 def profiles() -> dict:
@@ -33,7 +35,7 @@ def profiles() -> dict:
 def profile(name: str) -> dict:
     ps = profiles()
     if name not in ps:
-        raise ValueError(f"no speed profile {name!r}; profiles: {', '.join(ps)}")
+        raise ValueError(f"no speed profile {name!r}; profiles: {', '.join(ps)}, {MAX}")
     return ps[name]
 
 
@@ -58,7 +60,10 @@ def base_stop(embodiment: str = "tidybot_fr3") -> dict:
 def base_profile(name: str, embodiment: str = "tidybot_fr3") -> tuple[tuple, tuple | None]:
     """A profile's base velocity and acceleration (the cap's acceleration if the profile sets none), refused if either is
     over the embodiment's cap or the profile has no base speed."""
-    p, cap = profile(name), base_cap(embodiment)
+    cap = base_cap(embodiment)
+    if name == MAX:
+        return cap["vel"], cap["accel"]
+    p = profile(name)
     if "base_max_vel" not in p:
         raise ValueError(f"speed profile {name!r} has no base speed (base_max_vel)")
     vel = tuple(float(v) for v in p["base_max_vel"])
@@ -72,7 +77,7 @@ def base_profile(name: str, embodiment: str = "tidybot_fr3") -> tuple[tuple, tup
 
 def arm_profile(name: str) -> tuple[float, float, float]:
     """A profile's arm rates (arm_lin m/s, arm_ang rad/s, joint rad/s), refused if it has none."""
-    p = profile(name)
+    p = profile(ARM_MAX if name == MAX else name)
     missing = [k for k in ARM_KEYS if k not in p]
     if missing:
         raise ValueError(f"speed profile {name!r} has no arm rates ({', '.join(missing)}): it is for the base only")
