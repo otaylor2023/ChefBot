@@ -5,6 +5,7 @@
                                                                        # (Enter for each), then ~16 views (Enter once)
     python -m chefbot.onboard.calibration.wrist_base record out.json --from-here   # from where the arm is (put it
         # where the wrist camera sees both markers: launch.sh/arm.sh's f floats it, h holds it), then the views
+    python -m chefbot.onboard.calibration.wrist_base look       # which of the card's markers the wrist camera sees, live
     python -m chefbot.onboard.calibration.wrist_base solve out.json [--skip 3]
 
 The views: the camera 0.25-0.45 m from the card, up to 35 deg off straight on, turned about its view axis, each one
@@ -154,6 +155,28 @@ def record(out: Path, from_here: bool = False) -> None:
             arm.move_to(READY, "back to the ready pose", confirm=False)
 
 
+def look() -> None:
+    """Twice a second until Ctrl-C: which of the base card's markers the wrist camera sees, and how big (no motion)."""
+    import time
+
+    import cv2
+
+    from chefbot.onboard.calibration.camera import WRIST_D405, Camera
+    from chefbot.onboard.calibration.targets import base_card_points
+
+    det, wanted = _detector(), sorted(base_card_points())
+    with Camera(WRIST_D405) as cam:
+        try:
+            while True:
+                corners, ids, _ = det.detectMarkers(cv2.cvtColor(cam.frame()["bgr"], cv2.COLOR_BGR2GRAY))
+                got = {int(i): c[0] for i, c in zip([] if ids is None else ids.ravel(), corners) if int(i) in wanted}
+                sizes = {i: f"{np.linalg.norm(c[0] - c[1]):.0f} px" for i, c in got.items()}
+                print(("BOTH  " if len(got) == len(wanted) else "      ") + f"card markers seen {sorted(got)} of {wanted} {sizes}", flush=True)
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            pass
+
+
 def solve(path: Path, skip=()) -> dict:
     """X (the camera in the flange) and M (the card in the arm base): Park from each view's card pose, then
     Levenberg-Marquardt on every corner's reprojection."""
@@ -215,11 +238,17 @@ def main() -> None:
     r = sub.add_parser("record")
     r.add_argument("out", type=Path)
     r.add_argument("--from-here", action="store_true", help="start where the arm is (it sees both markers), not the survey's view")
+    sub.add_parser("look")
     s = sub.add_parser("solve")
     s.add_argument("data", type=Path)
     s.add_argument("--skip", type=int, nargs="*", default=[])
     args = ap.parse_args()
-    record(args.out, args.from_here) if args.cmd == "record" else solve(args.data, args.skip)
+    if args.cmd == "look":
+        look()
+    elif args.cmd == "record":
+        record(args.out, args.from_here)
+    else:
+        solve(args.data, args.skip)
 
 
 if __name__ == "__main__":
