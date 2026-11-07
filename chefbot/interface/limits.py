@@ -8,8 +8,9 @@ paper over).
 
 The profiles are embodiments/speed_profiles.yaml. A profile may set the arm's rates, the base's, or both; a run picks one
 for the arm and one for the base (run_real --arm-speed / --base-speed; --speed both). `teleop` is the gamepad's (the
-base's only). `max` is not in the file: the base at the embodiment's cap (whatever it is now) and the arm at the
-fastest profile's rates (`fast`).
+base's only). `max` is not in the file: the base at the embodiment's cap (whatever it is now), and the arm's joints at
+what the arm's own joint controller allows (its OTG's slowest joint, onboard/bringup/chefbot_fr3.xml: 0.5 rad/s), the
+flange's rates `fast`'s (the joints bind first).
 
     cap = base_cap("tidybot_fr3")                     # {"vel": (vx, vy, vyaw), "accel": (ax, ay, ayaw)}
     vel, accel = base_profile("teleop", "tidybot_fr3")  # refused (ValueError) if over the cap
@@ -25,7 +26,20 @@ EMBODIMENTS = Path(__file__).resolve().parent.parent / "embodiments"
 PROFILES = EMBODIMENTS / "speed_profiles.yaml"
 BASE_KEYS = ("base_max_vel",)
 ARM_KEYS = ("arm_lin", "arm_ang", "joint")
-MAX, ARM_MAX = "max", "fast"  # `max`: the base at its cap, the arm at ARM_MAX's rates
+MAX, ARM_MAX = "max", "fast"  # `max`: the base at its cap, the arm's flange at ARM_MAX's rates, its joints at the OTG's
+OPENSAI_CONFIG = Path(__file__).resolve().parent.parent / "onboard" / "bringup" / "chefbot_fr3.xml"
+
+
+def arm_joint_cap(path: Path = OPENSAI_CONFIG) -> float:
+    """The arm's joint controller's speed limit (rad/s): its OTG's slowest joint (chefbot_fr3.xml joint_controller)."""
+    import re
+
+    text = Path(path).read_text()  # OpenSai's config: not one XML document (several top-level elements), so by pattern
+    block = re.search(r'<controller name="joint_controller">(.*?)</controller>', text, re.S)
+    m = re.search(r'<otg[^>]*maxVelocity="([^"]+)"', block.group(1)) if block else None
+    if m is None:
+        raise ValueError(f"no joint_controller OTG maxVelocity in {path}")
+    return min(float(v) for v in m.group(1).split())
 
 
 def profiles() -> dict:
@@ -81,4 +95,5 @@ def arm_profile(name: str) -> tuple[float, float, float]:
     missing = [k for k in ARM_KEYS if k not in p]
     if missing:
         raise ValueError(f"speed profile {name!r} has no arm rates ({', '.join(missing)}): it is for the base only")
-    return float(p["arm_lin"]), float(p["arm_ang"]), float(p["joint"])
+    joint = arm_joint_cap() if name == MAX else float(p["joint"])
+    return float(p["arm_lin"]), float(p["arm_ang"]), joint

@@ -9,7 +9,7 @@
 # move (interface/limits.py). A run may take the arm's rates from one profile and the base's from another
 # (run_real --arm-speed / --base-speed; --speed both). (As in agentic-skills-exploration.)
 # max (not listed: interface/limits.py): the base at the robot's cap (robot.yaml control.limits, now 0.25 m/s, 0.8 rad/s)
-# and the arm at fast's rates.
+# and the arm's joints at what its own joint controller allows (onboard/bringup/chefbot_fr3.xml OTG: 0.5 rad/s).
 slow:   {base_max_vel: [0.08, 0.08, 0.15], arm_lin: 0.04, arm_ang: 0.25, joint: 0.15}   # first real runs
 medium: {base_max_vel: [0.15, 0.15, 0.3],  arm_lin: 0.1,  arm_ang: 0.5,  joint: 0.3}
 normal: {base_max_vel: [0.2, 0.2, 0.375],  arm_lin: 0.1,  arm_ang: 0.625, joint: 0.375}
