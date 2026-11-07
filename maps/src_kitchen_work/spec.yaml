@@ -41,8 +41,9 @@ obstacles:
   - name: nogo-west-of-island
     box: {center: [-1.434, -2.473], size: [2.191, 3.345], yaw_deg: -2.96}  # east edge 20 in (0.508 m) west of the island's end (Jack 16:15; was 16 in)
     height_m: 0.05   # floor level (Jack 14:15): the base's plate may not enter, the arm may reach over it
-  - name: Chef-botcounter-top           # Motive body ID 25: the test counter (HT-4..6), as in maps/src_counter
-    box: {center: [1.49, 2.06], size: [2.26, 0.96], yaw_deg: 0.0}
+  - name: Chef-botcounter-top           # the test counter (HT-4..6), from its 4 corner stickers (2026-11-06 21:00:
+    # (0.37, 1.70), (2.58, 1.59), (2.62, 2.42), (0.41, 2.53), tops 0.94-0.95); was maps/src_counter's (1.49, 2.06), 2.26 x 0.96, 0 deg
+    box: {center: [1.495, 2.06], size: [2.213, 0.831], yaw_deg: -2.85}
     height_m: 0.93
     fixture: counter
 stations:

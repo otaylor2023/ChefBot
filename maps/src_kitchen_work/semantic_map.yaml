@@ -11,5 +11,5 @@ fixtures:
   far_counter:
     location: [4.198, 0.56]
   counter:
-    location: [1.49, 2.06]
+    location: [1.495, 2.06]
 objects: {}
