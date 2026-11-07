@@ -59,7 +59,7 @@ control:
 body:
   plate_height_m: 0.44   # the arm's plate (the arm base frame's z = 0) above the floor, on the real base (Jack,
                          # 2026-11-03; the sim's Menagerie base: 0.335, config/robot_tidybot_fr3.yaml arm_mount)
-  hand_m: 0.13065        # the fingertips, out from the flange along its z (the real hand on its 27.25 mm holder)
+  hand_m: 0.152          # the fingertips, out from the flange along its z: the printed fingers (fingers_run2_final, 2026-11-06), measured 58.6 mm below the hand housing (66.0 mm below the hand base) + the 27.25 mm holder; stock fingers were 0.13065
   link_radius_m: 0.08    # the arm's links about their centerline (the points the checks use)
   spare_m: 0.03          # and this to spare (at least an inch: the loader refuses less): an obstacle keeps out
                          # radius + link_radius_m + spare_m from its axis
