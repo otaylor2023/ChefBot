@@ -3,6 +3,8 @@
 
     python -m chefbot.onboard.calibration.wrist_base record out.json   # ready pose, then the survey's view of the card
                                                                        # (Enter for each), then ~16 views (Enter once)
+    python -m chefbot.onboard.calibration.wrist_base record out.json --from-here   # from where the arm is (put it
+        # where the wrist camera sees both markers: launch.sh/arm.sh's f floats it, h holds it), then the views
     python -m chefbot.onboard.calibration.wrist_base solve out.json [--skip 3]
 
 The views: the camera 0.25-0.45 m from the card, up to 35 deg off straight on, turned about its view axis, each one
@@ -95,23 +97,28 @@ def plan_views(card: np.ndarray, q_start, n: int = VIEWS) -> list[np.ndarray]:
     return poses
 
 
-def record(out: Path) -> None:
+def record(out: Path, from_here: bool = False) -> None:
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.arm import Arm, Stop
     from chefbot.onboard.calibration.camera import WRIST_D405, Camera
     from chefbot.onboard.calibration.survey import POSES_FILE, READY, path_ok
 
     arm, det = Arm(), _detector()
-    q_view = np.array(json.loads(POSES_FILE.read_text())["pole"])  # the survey's view by the pole: it saw the card
-    arm.move_to(READY, "the ready pose")
-    if not path_ok(READY, q_view):
-        raise SystemExit("the survey's view of the card isn't clear from the ready pose any more")
-    arm.move_to(q_view, "the survey's view of the card by the pole")
+    if from_here:  # where the operator put it, seeing the card
+        q_view = arm.q()
+        print(f"from here: {np.round(q_view, 3).tolist()}")
+    else:
+        q_view = np.array(json.loads(POSES_FILE.read_text())["pole"])  # the survey's view by the pole: it saw the card
+        arm.move_to(READY, "the ready pose")
+        if not path_ok(READY, q_view):
+            raise SystemExit("the survey's view of the card isn't clear from the ready pose any more")
+        arm.move_to(q_view, "the survey's view of the card by the pole")
     samples = []
     with Camera(WRIST_D405) as cam:
         c = card_corners(cam, det)
         if c is None:
-            raise SystemExit("the wrist camera doesn't see both of the base card's markers (ids 1, 2) from here")
+            raise SystemExit("the wrist camera doesn't see both of the base card's markers (ids 1, 2) from here"
+                             + ("" if from_here else ": put the arm where it does and use --from-here"))
         card = fr3.flange(arm.q()) @ wrist_mount() @ _card_pose(c, cam.K, cam.D)  # roughly: through the old calibration
         print("planning the views (up to a minute)...", flush=True)
         poses = plan_views(card, arm.q())
@@ -143,7 +150,8 @@ def record(out: Path) -> None:
         back = [q_view] if ok(arm.q(), q_view) else list(reversed(visited[:-1]))
         for q in back:
             arm.move_to(q, "back toward the survey's view", confirm=False)
-        arm.move_to(READY, "back to the ready pose", confirm=False)
+        if not from_here:
+            arm.move_to(READY, "back to the ready pose", confirm=False)
 
 
 def solve(path: Path, skip=()) -> dict:
@@ -204,12 +212,14 @@ def solve(path: Path, skip=()) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("record").add_argument("out", type=Path)
+    r = sub.add_parser("record")
+    r.add_argument("out", type=Path)
+    r.add_argument("--from-here", action="store_true", help="start where the arm is (it sees both markers), not the survey's view")
     s = sub.add_parser("solve")
     s.add_argument("data", type=Path)
     s.add_argument("--skip", type=int, nargs="*", default=[])
     args = ap.parse_args()
-    record(args.out) if args.cmd == "record" else solve(args.data, args.skip)
+    record(args.out, args.from_here) if args.cmd == "record" else solve(args.data, args.skip)
 
 
 if __name__ == "__main__":
