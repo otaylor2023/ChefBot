@@ -13,7 +13,8 @@ joint calibration's setup). Its plane comes from its corners in the colour image
 wrist camera, no depth): sub-millimetre at 0.3 m. Each touch: the hand straight down over the card (within a few cm of
 its centre, the fingers as they are: both fingertips land on it), 3 cm above where the fingertips should meet it
 (robot.yaml body hand_m), then 1 mm steps down, the joints' external torque (measured less libfranka's gravity model)
-watched against where it started; contact past CONTACT_NM ends the descent, and the hand goes back up. It never goes
+watched against where it started as the force at the fingertips; past contact it presses to PRESS_N and the force
+against the height is fitted (zero force: the contact), then the hand goes back up. It never goes
 more than MAX_BELOW below the expected contact. Enter before the first move. Run it with arm.sh (OpenSai holding the
 arm, the server not running: the camera is needed).
 """
@@ -29,8 +30,11 @@ import numpy as np
 STEP = 0.001  # m per step down
 ABOVE = 0.03  # m above the expected contact, to start
 MAX_BELOW = 0.02  # m below it at most
-CONTACT_NM = 1.2  # N m: the largest change in any of joints 2, 4, 6's external torque that counts as contact, on two
-SETTLE_S = 0.4  # s after each step before the torques are read                          steps in a row
+CONTACT_N = 4.0  # N: the force at the fingertips (from all the joints' external torque) that counts as contact, twice
+PRESS_N = 25.0  # N: past contact it presses on, in PRESS_STEP steps, to this (or PRESS_MAX further), then the force
+PRESS_STEP = 0.0005  # m      against the flange's height is fitted with a line: where it is zero is where the
+PRESS_MAX = 0.008  # m        fingertips met the surface (no threshold, nothing of how hard it pressed in it)
+SETTLE_S = 0.4  # s after each step before the torques are read
 LOOK_FROM = 0.25  # m: the wrist camera above the counter's spot, looking straight down, for its height
 IN_FRONT = 0.12  # m from the card's centre toward the robot: the counter's spot
 
@@ -66,6 +70,20 @@ def _look_goal(spot_xy, z, heading_x) -> np.ndarray:
     cam_goal[:3, :3] = np.column_stack([xc, np.cross(zc, xc), zc])
     cam_goal[:3, 3] = [spot_xy[0], spot_xy[1], z + LOOK_FROM]
     return cam_goal @ np.linalg.inv(wrist_mount())
+
+
+def _force(q, delta_tau, tips_m: float) -> float:
+    """The force straight up at the fingertips (N) that explains a change in the joints' external torque: the wrench
+    there by least squares through the arm's Jacobian at the fingertips, its z."""
+    from chefbot.onboard.calibration import fr3
+
+    F = fr3.flange(q)
+    J = fr3.jacobian(q)
+    r = F[:3, 2] * tips_m  # flange to fingertips
+    Jv = J[:3] - np.cross(r[None, :], J[3:].T).T  # the fingertip point's linear rows: v_tip = v + w x r
+    Jt = np.vstack([Jv, J[3:]])
+    w, *_ = np.linalg.lstsq(Jt.T, np.asarray(delta_tau, float), rcond=None)
+    return float(w[2])
 
 
 def _goto(arm, q, settle_s=SETTLE_S) -> None:
@@ -196,28 +214,49 @@ def touch(touches: int = 3, on: str = "counter") -> dict:
                         confirm=k == 0 and on == "card")  # fmt: skip
             arm.still(1.0)
             base = _ext(arm)
-            contact, first, trace = None, None, []
-            for i in range(1, int((ABOVE + MAX_BELOW) / STEP) + 1):
+            contact, first, trace, rows = None, None, [], []
+            sign = None  # the force's sign as these torques give it (the surface pushes up)
+            depth, i = 0.0, 0
+            while depth < ABOVE + MAX_BELOW:
+                step = STEP if first is None else PRESS_STEP
+                depth += step
+                i += 1
                 T = start.copy()
-                T[2, 3] -= i * STEP
+                T[:3, 3] -= depth * up  # toward the surface, along its normal
                 qi = ik(q, T)
                 if qi is None or not _clear(qi):
                     break
                 _goto(arm, qi)
                 q = qi
-                change = np.abs(_ext(arm) - base)[[1, 3, 5]]
-                trace.append(f"{change.max():.2f}")
-                if change.max() > CONTACT_NM:
-                    if first is None:  # the first step over: where the fingertips met it, if the next one agrees
-                        Fm = fr3.flange(arm.q())
-                        first = (i, Fm[2, 3], change, float(np.degrees(np.arccos(np.clip(-Fm[:3, 2] @ up, -1, 1)))))
-                        continue
-                    contact = first[1]
-                    print(f"  contact {first[0]} mm down: torque change {np.round(first[2], 2).tolist()} N m (joints 2, 4, 6), "
-                          f"then {np.round(change, 2).tolist()}; the hand {first[3]:.2f} deg off square to the surface (measured joints)")  # fmt: skip
+                qm = arm.q()
+                f_raw = _force(qm, _ext(arm) - base, hand)
+                f = abs(f_raw) if sign is None else sign * f_raw
+                Fm = fr3.flange(qm)
+                h = float((Fm[:3, 3] - np.r_[xy, plane_z]) @ up)  # the flange's height over the surface, measured
+                rows.append((h, f))
+                trace.append(f"{f:.1f}")
+                if first is None:
+                    if f > CONTACT_N:
+                        if len(rows) >= 2 and rows[-2][1] > CONTACT_N:  # two in a row: contact, press on from here
+                            sign = np.sign(f_raw)
+                            first = (len(rows) - 2, depth, float(np.degrees(np.arccos(np.clip(-Fm[:3, 2] @ up, -1, 1)))))
+                            print(f"  contact about {(depth - step) * 1000:.0f} mm down ({f:.1f} N); pressing to {PRESS_N:.0f} N")
+                    continue
+                if f >= PRESS_N or depth - first[1] >= PRESS_MAX:
                     break
-                first = None  # a one-step blip: not contact
-            print(f"  each step's largest torque change (N m): {' '.join(trace)}")
+            print(f"  each step's force at the fingertips (N): {' '.join(trace)}")
+            if first is not None:
+                pts = np.array(rows[max(0, first[0] - 1):])
+                fit = pts[(pts[:, 1] > CONTACT_N * 0.5) & (pts[:, 1] <= PRESS_N * 1.2)]
+                if len(fit) >= 3:
+                    slope, icpt = np.polyfit(fit[:, 1], fit[:, 0], 1)  # height = icpt + slope * force
+                    contact = float(icpt) + plane_z
+                    stiff = -1.0 / slope / 1000 if slope else float("nan")
+                    print(f"  fitted on {len(fit)} steps: zero force at the flange {icpt * 1000:.1f} mm over the surface "
+                          f"(the pressing {stiff:.1f} N/mm); the hand {first[2]:.2f} deg off square")  # fmt: skip
+                else:
+                    contact = float(pts[0, 0]) + plane_z
+                    print(f"  only {len(fit)} steps to fit: the first contact's height")
             up = ik(q, start)
             _goto(arm, q if up is None else up, 1.5)  # back up
             if contact is None:
@@ -235,7 +274,6 @@ def touch(touches: int = 3, on: str = "counter") -> dict:
            "spread_mm": round(float(np.ptp(out)) * 1000, 1), "robot_yaml_hand_m": hand,
            "difference_mm": round((float(np.mean(out)) - hand) * 1000, 1)}  # fmt: skip
     print(json.dumps(res, indent=1))
-    print("(the contact is found a step late: the true length is up to ~1 mm more than this, the press of the pads aside)")
     return res
 
 
