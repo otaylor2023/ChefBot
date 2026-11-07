@@ -3,7 +3,7 @@ fixtures:
   island:
     location: [1.305, -2.087]
   stove_counter:
-    location: [1.936, -4.638]
+    location: [1.767, -4.629]
   side_counter:
     location: [3.816, -3.556]
   fridge:
