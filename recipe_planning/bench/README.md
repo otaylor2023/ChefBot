@@ -64,7 +64,16 @@ python -m bench.run --instances ../../recipe_eval_v1/bench/instances_lite.jsonl 
 python -m bench.run --instances ... --model ollama:qwen3.5:9b --reasoning-effort off --no-repair
 python -m bench.leaderboard --runs ../../recipe_eval_v1/bench_runs
 python -m bench.ingest --html ../../recipe_corpus/html --out ../../recipe_eval_v1/bench_runs/ingest.json
+python -m bench.rescore --runs <copy of bench_runs> --instances-dir ../../recipe_eval_v1/bench   # after a checker change
+RECIPE_COOKING_CHECK=0 python -m bench.run ...     # ablation: without the cooking-support check (checker v0.8)
 ```
+
+## PantryBench (the recipe chooser)
+
+`python -m bench.pantry --corpus ../../recipe_corpus --n 80` builds pantries from real recipes (exact, terse and
+synonym item names; 0 or 1 ingredient removed; 15 distractors) and measures recall@1/@3 of the target recipe,
+whether a removed item is ever hidden (unsafe) or extra items are asked about (conservative), and diet-constraint
+violations over the whole corpus. Deterministic, no LLM. Results in [../FINDINGS.md](../FINDINGS.md).
 
 ## Known limits
 

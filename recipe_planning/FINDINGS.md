@@ -35,16 +35,47 @@ stopped at their spend caps (52 and 62 of 75). sol wrote the silver answers, so 
 Ingestion (tier 0): 96.9% of 319 saved pages give the full ingredient and instruction text. No instance is left
 unsolved by every configuration. Full table: `recipe_eval_v1/bench_runs/leaderboard.md` on batcomputer.
 
+## Update, same day: checker v0.8 (prompt unchanged, 0.7)
+
+Two checker fixes, then hosted reruns on the same 75 lite tests (`recipe_eval_v1/bench_runs_v08/`):
+- `unsupported_cooking_step`: a stated cook/bake step must quote a sentence with a cooking word, doneness cue or
+  time. Offline it flags all 9 planted-gap cheats in the midway outputs (tomato-egg 5, tamagoyaki 4) and 8
+  weakly quoted cook steps elsewhere, which the repair fixes by quoting the right sentence.
+- Worded durations ("a minute", "two to three minutes", "half an hour"; "a few minutes" stays vague). This removed
+  16 false `unstated_param` errors.
+
+| configuration (checker v0.8) | n | resolved | 1st-try valid | recovered / mistakes | injection | planted gap | cost |
+|---|---|---|---|---|---|---|---|
+| claude-sonnet-5.5 | 64 | **85.9%** (was 80.6) | 54.7% | 23 / 29 | 70.0% | **60.0%** (was 20) | $5.93 |
+| gpt-6-luna, repair + hints | 75 | **85.3%** (same) | 72.0% (was 56) | 19 / 21 | 72.7% | **85.7%** (was 57) | $0.25 |
+| claude-haiku-5.5 | 75 | **74.7%** (was 80.0) | 36.0% | 37 / 48 | 72.7% | 28.6% (was 42.9) | $0.76 |
+| gpt-6-luna, no repair | 75 | **60.0%** (was 50.7) | 72.0% | 0 / 21 | 63.6% | 42.9% | $0.18 |
+
+**Correction to the midway headline.** Part of the 51% → 85% repair effect was the repair undoing the checker's own
+duration false positives. With the checker fixed, luna without repair scores 60.0%, so one repair is worth
+**+25 points (60 → 85)**, not +34. Rescoring the saved midway outputs with the new checker (no new model calls,
+`bench_runs_rescored_v08/`) gives the same picture: luna no-repair 61.3%.
+
+**Run-to-run noise is about ±5 points.** Haiku's drop is not the new check: none of its 19 changed verdicts
+involve `unsupported_cooking_step`. 9 tests flipped to pass and 10 to fail, almost all from flaky JSON
+(`schema_error`, then a retry) or a different step granularity. Single-run differences between models below ~5
+points should not be read as real; pass^k (next step 4) is now the priority for comparing models. Sonnet ran 64 of
+75 tests here vs 62 before (spend cap), so its row compares slightly different subsets.
+
 ## Findings
 
-1. **The verifier + one repair is the main effect.** Same model (luna): 50.7% without repair, 85.3% with. Only
-   35-65% of first tries are valid; one repair recovers 78-100% of the mistakes.
+1. **The verifier + one repair is the main effect.** Same model (luna), fixed checker: 60.0% without repair, 85.3%
+   with (+25 points). Midway numbers with the old checker: 50.7% → 85.3%. Only 35-72% of first tries are valid; one
+   repair recovers 78-100% of the mistakes.
 2. **Hints did not matter.** luna scores 85.3% with and without the error-code hints. The gain comes from a precise
    failure signal and a second attempt, not from better repair instructions.
 3. **Models fill gaps instead of reporting them.** The planted-gap variant deletes the step that cooks an
    ingredient. The prompt says "Represent the recipe AS WRITTEN. Do not fix it", yet 4 of 5 hosted models put a
    cooking step back on the tomato-egg stir-fry (luna marks "immediately add the eggs" as a stated `cook` step).
-   Planted gap is the weakest variant (Sonnet 20%, Haiku 43%, Gemini 50%, luna 57%).
+   Planted gap is the weakest variant (Sonnet 20%, Haiku 43%, Gemini 50%, luna 57%). A deterministic check that a
+   cooking step's sentence actually says "cook" turns the repair loop against this: planted gap rises to 86% (luna)
+   and 60% (Sonnet) with the same prompt. The tamagoyaki case stays hard: models cite an unrelated tip ("the egg is
+   getting cooked too fast") as evidence, which passes a word check.
 4. **A cheap model plus the harness gets close.** luna: 85% for $0.27 per 75 tests; sol: 97% for $5.77.
 5. **Prompt injection is mostly but not fully resisted** (67-100% across hosted models).
 6. **Recipes leave a lot open.** sol's outputs on the 12 lite base recipes carry 68 open questions (unstated heat,
@@ -53,10 +84,36 @@ unsolved by every configuration. Full table: `recipe_eval_v1/bench_runs/leaderbo
    supported, 5 partial (egg-cracker or whisk gadget; stovetop cooking whose doneness comes from simulator state,
    not vision), 5 unsupported (no knife, no shaker, no lid).
 
+## Recipe chooser and PantryBench (next step 8, v0)
+
+`recipe_ir/choose.py` + `choose_recipe.py`: pick a recipe from the pantry, constraints and the robot's skills file.
+Deterministic, no LLM. Hard constraints (diet, exclusions, max missing items, `--robot strict`) are checks: a recipe
+that breaks one is never returned. Missing items are reported ("ask, don't buy"), never ordered.
+
+`bench/pantry.py` builds 480 scenarios from 80 real corpus recipes: the target's ingredients typed three ways (exact,
+terse head noun "onion", synonym "green onions"), 0 or 1 removed, 15 distractor items.
+
+| pantry names | recall@3 (no item removed / 1 removed) | hid a missing item | asked for more |
+|---|---|---|---|
+| exact | 100% / 100% | 0% / 0% | 2.5% / 1.2% |
+| synonym | 100% / 100% | 0% / 0% | 2.5% / 2.5% |
+| terse | 91% / 81% | 0% / 5.0% | 51% / 45% |
+
+Diet constraints over the whole corpus: 0 violations (vegetarian 46 returned, vegan 20). Terse names are the hard
+case: the matcher is conservative ("cheese" is not assumed to be cream cheese) but "pepper" can still cover
+"jalapeño pepper". An LLM matcher for ambiguous names is the next step there.
+
+## Compile to a ChefBot job (next step 7)
+
+`recipe_ir/to_job.py` + `to_job.py`: `actions.json` → `chefbot/jobs/*.yaml` format (goal, steps with goal,
+done_when, depends_on, hint). The recipe's words stay the goal; done_when comes from the completion cue; the skills
+report goes into hints and `source.needs_a_person`. A test loads the result with ChefBot's own `Plan` model.
+Example: `examples/jobs/tomato_egg_stir_fry_from_web.yaml`. A job still needs a kitchen-specific `symbolic:` block
+(objects, success) before it runs in simulation.
+
 ## Known issues
 
-- `unstated_param` false positive on durations written in words: "Beat eggs for a minute" (duration 60 s) is
-  flagged as not in the source. The repair then deletes a correct value.
+- Fixed in v0.8: `unstated_param` false positive on durations written in words ("Beat eggs for a minute").
 - Silver answers are biased toward sol; only 3 gold recipes. Base-split scores against silver are agreement, not
   accuracy.
 - One run per instance, so no pass^k / variance yet.
@@ -67,17 +124,16 @@ unsolved by every configuration. Full table: `recipe_eval_v1/bench_runs/leaderbo
 
 ## Next steps
 
-1. **Faithfulness check for cooking verbs:** a `cook`/`bake` step must be supported by its quote (adding an
-   ingredient is not cooking it). Targets the planted-gap failure directly.
-2. **Fix duration parsing** for worded numbers ("a minute", "a few minutes" as unresolved) and re-score with
-   `bench.rescore`.
+1. ~~Faithfulness check for cooking verbs~~ done (v0.8). Next: catch evidence taken from tips rather than steps.
+2. ~~Fix duration parsing~~ done (v0.8).
 3. **Grow the gold set** (target 15+, both splits) so the main results are against human answers.
 4. **pass^k:** 3 runs per instance on lite for luna and Haiku (cheap) to measure consistency.
 5. **Full split (178)** for luna and one Claude model with an exact budget check before each call.
 6. **Local models** after setting a GPU power limit; then gpt-oss 20B and gemma on mini.
-7. **Compile `actions.json` to ChefBot task files** for the fully supported steps, starting with eggs.
-8. **Recipe selection agent** (proactive): pick a recipe from user preferences, the pantry and the robot's
-   skills, with its own checks (cook from the recipe, spend cap, ask before buying).
+7. ~~Compile `actions.json` to ChefBot jobs~~ v0 done. Next: write the `symbolic:` block for one web recipe in
+   the sim kitchen and run it end to end.
+8. **Recipe chooser:** v0 done (deterministic, PantryBench). Next: an LLM matcher for terse/ambiguous names and
+   fuzzy preferences, graded by the same PantryBench; then chooser → extraction → job in one command.
 
 ## Reproduce
 
