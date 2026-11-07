@@ -10,38 +10,40 @@ max_state_age_s: 0.5         # older than this, get_state fails: the link is dow
 # parent "base" (floor under the base center, x forward) or "flange". Names match the onboard
 # config's cameras.
 cameras:
-  # The wrist D405 (onboard/calibration/wrist_base.py --from-here, 2026-11-06: the card glued on the base by the pole,
-  # 10 views, 2.96 px rms; data_2026-11-06/wrist_base.json): 44.1 deg about the flange's z, its view axis 3.1 deg off
-  # the flange's z. Against the 2026-11-03 one it moves the counter's height under the hand 1.5 cm up (the first
-  # kitchen_use run's depth: 0.405 -> 0.420 m in the root frame; the fingertips stopped on it at ~0.440: 2 cm still
-  # to account for) and the egg 1 cm forward, 1.2 cm sideways. The 2026-11-03 one (13 views, 5.3 px rms):
-  #   [[0.69022, -0.7236, 0.00324, 0.03342], [0.72354, 0.69008, -0.01689, -0.04302],
+  # The wrist D405, fitted together with the pole camera (onboard/calibration/joint.py, 2026-11-06: the base card laid
+  # on the counter in front, 23 views from around the ready position; the wrist 3.29 px rms, the pole 0.81;
+  # data_2026-11-06/joint.json): both cameras through the same arm and the same card, so they agree where the skills
+  # look (calibrated apart they were 2.5 cm apart there, and the hand knocked a cap over). 15 mm and 2.8 deg from the
+  # wrist_base one before it (2.96 px, from views of the card on the base behind the arm):
+  #   [[0.71758, -0.69476, 0.04874, 0.01687], [0.69623, 0.71742, -0.02386, -0.04067],
+  #    [-0.01839, 0.05105, 0.99853, 0.02533], [0, 0, 0, 1]]
+  # and 2026-11-03's (5.3 px): [[0.69022, -0.7236, 0.00324, 0.03342], [0.72354, 0.69008, -0.01689, -0.04302],
   #    [0.00998, 0.01401, 0.99985, 0.02362], [0, 0, 0, 1]]
   wrist:
     parent: flange
-    T: [[0.71758, -0.69476, 0.04874, 0.01687],
-        [0.69623, 0.71742, -0.02386, -0.04067],
-        [-0.01839, 0.05105, 0.99853, 0.02533],
+    T: [[0.7034, -0.71077, 0.0056, 0.02794],
+        [0.71071, 0.70317, -0.02112, -0.04084],
+        [0.01108, 0.01884, 0.99976, 0.01504],
         [0, 0, 0, 1]]
-  # The pole D455 (onboard/calibration/pole.py --card, 2026-11-05, after the camera was moved on the pole: the hand
-  # card, 17 poses (the camera's frames stopped at the 18th), 0.81 px rms, 1.37 px the worst pose;
-  # data_2026-11-05/pole_card.json): 0.25 m behind the base center, 0.27 m left, 1.03 m up, looking forward 9.5 deg
-  # down. Its height comes through config/robot_tidybot_fr3.yaml's arm_mount (0.335 m, the sim base's; the real plate
-  # is 0.44 m up, measured 2026-11-03: in this frame's z the camera is 0.105 m low, relative to the arm exact). Its
-  # mount isn't very stable: `track` has environments/real keep the pose current from the hand card in its frames
-  # (mount_track.py). The 2026-11-03 one (26 poses, 1.0 px; data_2026-11-03/pole_card.json), before the move:
-  #   [[-0.2232, -0.17032, 0.95978, -0.25133], [-0.9567, -0.15043, -0.24918, 0.26013],
-  #    [0.18682, -0.97384, -0.12937, 1.03593], [0, 0, 0, 1]]
+  # The pole D455, fitted together with the wrist camera (onboard/calibration/joint.py, 2026-11-06, as the wrist's above;
+  # the pole saw the counter card in 15 views and the hand card in 16): 0.25 m behind the base center, 0.28 m left,
+  # 1.03 m up. Its height comes through config/robot_tidybot_fr3.yaml's arm_mount (0.335 m, the sim base's; the real
+  # plate is 0.44 m up: in this frame's z the camera is 0.105 m low, relative to the arm exact). Its mount isn't very
+  # stable: `track` has environments/real keep the pose current from the hand card in its frames (mount_track.py).
+  # 6.4 mm and 0.9 deg from the one before (pole.py --card, 2026-11-05, 17 poses, 0.81 px):
+  #   [[-0.30537, -0.15884, 0.93889, -0.25078], [-0.95223, 0.04748, -0.30168, 0.27199],
+  #    [0.00334, -0.98616, -0.16575, 1.02511], [0, 0, 0, 1]]
   pole:
     parent: base
-    T: [[-0.30537, -0.15884, 0.93889, -0.25078],
-        [-0.95223, 0.04748, -0.30168, 0.27199],
-        [0.00334, -0.98616, -0.16575, 1.02511],
+    T: [[-0.31633, -0.1558, 0.93577, -0.25453],
+        [-0.94856, 0.03865, -0.31422, 0.27713],
+        [0.01278, -0.98703, -0.16002, 1.02542],
         [0, 0, 0, 1]]
     track:
-      # the hand card (targets.py, ids 4-6) on the flange, from the same calibration (data_2026-11-05/pole_card.json;
-      # within 3 mm and 2 deg of 2026-11-03's: the card hasn't moved on the hand)
-      T_flange_card: [[-0.72825, -0.00911, -0.68525, -0.02043],
-                      [-0.68482, -0.02829, 0.72816, 0.01083],
-                      [-0.02602, 0.99956, 0.01437, 0.06226],
+      # the hand card (targets.py, ids 4-6) on the flange, from the same fit (7.4 mm, 1.3 deg from 2026-11-05's
+      # [[-0.72825, -0.00911, -0.68525, -0.02043], [-0.68482, -0.02829, 0.72816, 0.01083],
+      #  [-0.02602, 0.99956, 0.01437, 0.06226], [0, 0, 0, 1]])
+      T_flange_card: [[-0.7189, -0.01526, -0.69495, -0.02049],
+                      [-0.69488, -0.01031, 0.71905, 0.01592],
+                      [-0.01814, 0.99983, -0.00319, 0.05692],
                       [0, 0, 0, 1]]
