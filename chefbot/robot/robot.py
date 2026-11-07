@@ -209,7 +209,9 @@ class Robot(RobotAPI):
     def _run_go_to_pose(self, goal: Pose2D, preempt: threading.Event, approach_m: float = 0.0) -> MotionResult:
         cfg = self._cfg
         plan = self._space.with_margin(cfg.safety_margin)
-        if not plan.is_free(goal.x, goal.y, goal.yaw):
+        # A goal reached by a straight approach needs only the body clear there: the approach is checked against the
+        # body itself (_plan_and_drive), and its start against the margin (a station close up to a counter).
+        if not (approach_m > 0 and self._space.is_free(goal.x, goal.y, goal.yaw)) and not plan.is_free(goal.x, goal.y, goal.yaw):
             grid = plan.at(goal.yaw)
             cell = grid.nearest_free_cell(goal.x, goal.y, cfg.snap_radius) if cfg.snap_radius > 0 else None
             if cell is None:

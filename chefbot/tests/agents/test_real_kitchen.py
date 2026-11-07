@@ -153,6 +153,7 @@ def test_every_place_of_the_work_map_reaches_every_other(tmp_path):
             g, m = pose[b], k.places[b].get("approach_m", 0.0)
             pre = Pose2D(g.x - m * math.cos(g.yaw), g.y - m * math.sin(g.yaw), g.yaw)
             begin = escape_start(plan.at(pose[a].yaw), body.at(pose[a].yaw), (pose[a].x, pose[a].y))
-            if plan_at_headings(plan, body, pose[a], begin, pre, g.yaw, style=robot._style())[0] is None:
+            goal_ok = (m > 0 and body.is_free(g.x, g.y, g.yaw)) or plan.is_free(g.x, g.y, g.yaw)  # as _run_go_to_pose
+            if not goal_ok or plan_at_headings(plan, body, pose[a], begin, pre, g.yaw, style=robot._style())[0] is None:
                 failed.append((a, b))
     assert len(names) == 5 and failed == []

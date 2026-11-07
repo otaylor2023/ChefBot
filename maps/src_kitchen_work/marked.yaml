@@ -11,3 +11,11 @@ counter_north:
     x: 0.8628
     y: -3.9437
     yaw_deg: -94.89
+island_south:
+  x: 1.2609
+  y: -2.9402
+  yaw_deg: 87.04
+  approach_m: 0.25
+  marked: '2026-11-06T20:40:00'
+  note: 'the island''s south station 3 in closer to it: 0.374 m out from its edge
+    (the built one 0.45; 2026-11-06)'
