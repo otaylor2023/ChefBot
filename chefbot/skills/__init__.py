@@ -15,6 +15,7 @@ it came from.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -68,7 +69,8 @@ class Skill:
         """Which model calls the runtime serves this skill: exactly what its manifest lists."""
         runs = {m.get("runs") for m in self.models.values()}
         vision = sorted(n for n, m in self.models.items() if m.get("runs") == "vision_models")
-        return {"llm": "api" in runs, "vision": vision, "cameras": self.cameras, "arm_only": bool(self.manifest.get("arm_only", False))}
+        return {"llm": "api" in runs, "vision": vision, "astra": "codex_cli" in runs, "cameras": self.cameras,
+                "arm_only": bool(self.manifest.get("arm_only", False))}  # fmt: skip
 
     def check(self, robot: str, vision_url: str | None = None) -> None:
         """Raise MissingRequirement if the run can't give the skill what it needs."""
@@ -80,6 +82,8 @@ class Skill:
                 problems.append(f"{name} needs {m['key']} (in .env)")
             if m.get("runs") == "vision_models" and not vision_url:
                 problems.append(f"{name} needs the vision models (chefbot/runtime/vision_server.py; VISION_URL)")
+            if m.get("runs") == "codex_cli" and not shutil.which("codex"):
+                problems.append(f"{name} needs the Codex CLI, logged in (`codex login`), on this computer")
         if problems:
             raise MissingRequirement(f"skill {self.path}: " + "; ".join(problems))
 
