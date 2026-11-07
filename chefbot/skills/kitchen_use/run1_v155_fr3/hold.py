@@ -9,6 +9,10 @@ from scipy.spatial.transform import Rotation
 PADS = 0.118  # PORT: the real pads' middle out from the flange, the hand on its 27.25 mm holder (sim 0.091)
 FINGER_BAND = (.075 + .027, .115 + .027)  # PORT: where the open fingers are, out from the flange (sim .075-.115)
 MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing (the lab's: n+50)
+# PORT: an object further than this from the wrist camera is measured from the close view (0.30 m) as the pole's
+# choice is: the real D405 (18 mm stereo baseline) flattens a small object beyond ~0.5 m (2026-11-06: an egg at 0.70 m
+# read 1.5-2.2 cm tall, lying ~4.3; a card at 0.25 m read within 0.3 mm)
+CLOSE_VIEW_M = 0.45
 BASE = [0.,0.,0.]
 LOCAL_GRASP = False
 GRASP_FORCE = 2.
@@ -156,10 +160,15 @@ def perceive(robot, object, use="hold", then="", target=""):
             robot.save_image('selected_depth',np.stack([dm%256,dm//256,np.zeros_like(dm)],axis=-1).astype(np.uint8))
             robot.log('SENSOR_SELECTED',json.dumps({'K':cam['K'].tolist(),'cam_to_odom':cam['cam_to_odom'].tolist()}))
         u, v = float(a['x'])*cam['rgb'].shape[1]/1000, float(a['y'])*cam['rgb'].shape[0]/1000
-        if int(a.get('view',0))==1:
+        uu=int(np.clip(round(u),0,639));vv=int(np.clip(round(v),0,479))
+        far=False
+        if int(a.get('view',0))!=1:  # PORT: the wrist's view, but too far for its depth: the close view too
+            win=xyz[max(0,vv-6):vv+7,max(0,uu-6):uu+7].reshape(-1,3);dz=cam['depth'][max(0,vv-6):vv+7,max(0,uu-6):uu+7].ravel()
+            far=bool((dz>0).sum()>5 and np.median(dz[dz>0])>CLOSE_VIEW_M)
+            if far:robot.log('the object %.2f m from the wrist camera: a close view first'%float(np.median(dz[dz>0])))
+        if int(a.get('view',0))==1 or far:
             # Center a close wrist view on the selected target before measuring a grasp.
-            uu=int(np.clip(round(u),0,639));vv=int(np.clip(round(v),0,479))
-            target3=xyz[vv,uu]
+            target3=xyz[vv,uu] if not far else np.median(win[dz>0],axis=0)
             original=np.array(p['flange_pose_odom'])
             wrist=obs['cameras']['wrist'];extrinsic=np.linalg.inv(original)@wrist['cam_to_odom']
             camera_goal=wrist['cam_to_odom'].copy()
@@ -168,11 +177,15 @@ def perceive(robot, object, use="hold", then="", target=""):
             BASE=[.07,float(target3[1]),0.]
             state=move(robot,view_goal,0,45)
             robot.log('active wrist view target',target3.tolist())
-            if np.linalg.norm(np.array(state['flange_pose_odom'])[:3,3]-view_goal[:3,3])>.04:
+            reached=np.linalg.norm(np.array(state['flange_pose_odom'])[:3,3]-view_goal[:3,3])<=.04
+            if not reached and not far:
                 return None
-            geo=close_view.perceive(robot,object,use,then,target)
-            LOCAL_GRASP=close_view.LOCAL_GRASP;GRASP_FORCE=close_view.GRASP_FORCE
-            return geo
+            geo=close_view.perceive(robot,object,use,then,target) if reached else None
+            if geo is not None or not far:
+                LOCAL_GRASP=close_view.LOCAL_GRASP;GRASP_FORCE=close_view.GRASP_FORCE
+                return geo
+            robot.log('PORT: no close view (unreachable, or nothing found there): measuring from the first view')
+            BASE=[0.,0.,0.]
         semantic_point = [u,v]
         grasp_point = [float(a['gx'])*.640,float(a['gy'])*.480]
         local_grasp = bool(a['local'])

@@ -17,6 +17,8 @@ from scipy.spatial.transform import Rotation
 TIPS = 0.134  # m: the printed fingers' ends out from the flange (measured 2026-11-06; robot.yaml body hand_m 0.135)
 HOVER = 0.10  # m above the final pose, first
 MOVE_CAP = 300  # control steps a move may take while still progressing
+CLOSE_VIEW_M = 0.45  # further than this from the wrist camera, the object is measured again from 0.30 m: the D405's
+CLOSE_VIEW_AT = 0.30  # depth flattens small things beyond ~0.5 m (an egg at 0.70 m read under half its height)
 
 
 def _planar(x, y, yaw):
@@ -60,7 +62,8 @@ def _find(robot, cam, base_pose, object, name):
     overlay = cam["rgb"].copy()
     overlay[mask] = (0.5 * overlay[mask] + [0, 127, 0]).astype(np.uint8)
     robot.save_image(f"{name}_found", overlay)
-    return np.median(sel[:, :2], axis=0), float(np.percentile(sel[:, 2], 95)), len(sel), ds[0]["box"]
+    dist = float(np.median(np.asarray(cam["depth"])[mask & valid]))
+    return np.median(sel[:, :2], axis=0), float(np.percentile(sel[:, 2], 95)), len(sel), ds[0]["box"], dist
 
 
 def _move(robot, F, g, n=40):
@@ -93,9 +96,27 @@ def run(robot, object: str = "purple chapstick cap", open_m: float = 0.0254, cle
     wrist = _find(robot, seen["cameras"]["wrist"], base, object, "wrist")
     if wrist is None:
         return {"ok": False, "reason": f"the wrist camera doesn't see a {object} (with depth)"}
-    xy, top, n, box = wrist
-    robot.log(f"wrist: {object} at x {xy[0]:.4f} y {xy[1]:.4f}, top z {top:.4f} (root frame, m), {n} points")
-    out = {"wrist_xy": np.round(xy, 4).tolist(), "wrist_top_z": round(top, 4)}
+    xy, top, n, box, dist = wrist
+    robot.log(f"wrist: {object} at x {xy[0]:.4f} y {xy[1]:.4f}, top z {top:.4f} (root frame, m), {n} points, {dist:.2f} m away")
+    first = (xy, top)
+    if dist > CLOSE_VIEW_M:  # closer first: the camera CLOSE_VIEW_AT from it along its view axis, as it looks now
+        cam = seen["cameras"]["wrist"]
+        camT = np.linalg.inv(_planar(*base)) @ np.asarray(cam["cam_to_odom"])
+        F0 = np.array(seen["proprio"]["flange_pose_root"])
+        goal = camT.copy()
+        goal[:3, 3] = np.r_[xy, top] - CLOSE_VIEW_AT * camT[:3, 2]
+        _move(robot, goal @ np.linalg.inv(np.linalg.inv(F0) @ camT), 0.0, 60)
+        near = robot.observe(["wrist"])
+        robot.save_image("wrist_close", near["cameras"]["wrist"]["rgb"])
+        again = _find(robot, near["cameras"]["wrist"], near["proprio"]["base_pose_odom"], object, "wrist_close")
+        if again is not None:
+            xy, top, n, box, dist = again
+            robot.log(f"wrist, close: at x {xy[0]:.4f} y {xy[1]:.4f}, top z {top:.4f}, {dist:.2f} m away "
+                      f"(the far view's: {np.round((np.r_[first[0], first[1]] - np.r_[xy, top]) * 1000, 1).tolist()} mm off)")  # fmt: skip
+        else:
+            robot.log("wrist, close: not found there; the far view's estimate stands")
+    out = {"wrist_xy": np.round(xy, 4).tolist(), "wrist_top_z": round(top, 4), "wrist_far_minus_close_mm":
+           np.round((np.r_[first[0], first[1]] - np.r_[xy, top]) * 1000, 1).tolist()}  # fmt: skip
     pole = _find(robot, seen["cameras"]["pole"], base, object, "pole") if "pole" in seen["cameras"] else None
     if pole is not None:
         d = np.r_[pole[0] - xy, pole[1] - top] * 1000
