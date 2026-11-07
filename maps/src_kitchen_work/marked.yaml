@@ -1,11 +1,12 @@
 counter_north:
-  x: 0.8694
-  y: -3.8158
+  x: 0.8655
+  y: -3.8919
   yaw_deg: -92.96
   approach_m: 0.25
   marked: '2026-11-06T20:22:49'
   note: 'the counter right of the stove on leg 1 (1-corner-countertop): squared to
-    its front edge, 0.45 m out, where the base was put by hand'
+    its front edge, 0.374 m out (0.45, then 3 in closer, 2026-11-06), where the base
+    was put by hand'
   as_marked:
     x: 0.8628
     y: -3.9437
