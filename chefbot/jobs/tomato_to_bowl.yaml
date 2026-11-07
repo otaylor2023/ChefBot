@@ -1,24 +1,18 @@
-# The tomato demo (run_agent --env real --agent real_kitchen): from the island to the bowl on the counter, across the
-# SRC kitchen (maps/src_kitchen). The tomato on the island near one of its long sides, the bowl on the test counter
-# ("counter", Chef-botcounter-top) near one of its sides, both within 0.25 m of the edge and 0.35 m of the corners.
+# The tomato demo (run_agent --env real --agent real_kitchen): from the island to the bowl on the counter right of the
+# stove, in the SRC kitchen (maps/src_kitchen_work). Where the tomato and the bowl are is not given: the agent finds
+# them (find), from the map's places (its prompt lists them).
 name: tomato_to_bowl
-goal: "The tomato from the island is in the bowl on the counter"
+goal: "The tomato on the island is in the bowl on the counter next to the stove"
 steps:
   - id: s1
-    goal: "Go to the island: ready, then go_to island_north"
-    done_when: "the base is at a place of the island"
+    goal: "Find the tomato on the island"
+    done_when: "the robot knows where the tomato is"
   - id: s2
-    goal: "Find the tomato on the island and drive to it: find tomato, then approach tomato"
-    done_when: "the base stands in front of the tomato"
-  - id: s3
-    goal: "Pick up the tomato: ready, then pick_up tomato"
+    goal: "Pick up the tomato"
     done_when: "the tomato is held in the gripper"
+  - id: s3
+    goal: "Find the bowl on the counter next to the stove"
+    done_when: "the robot knows where the bowl is, the tomato still held"
   - id: s4
-    goal: "Go to the counter with the tomato: ready, then go_to counter_south"
-    done_when: "the base is at a place of the counter, the tomato still held"
-  - id: s5
-    goal: "Find the bowl on the counter and drive to it: find bowl, then approach bowl"
-    done_when: "the base stands in front of the bowl"
-  - id: s6
-    goal: "Put the tomato in the bowl: place_in bowl (object tomato), then ready"
+    goal: "Put the tomato in the bowl"
     done_when: "the tomato is in the bowl and the gripper is open"

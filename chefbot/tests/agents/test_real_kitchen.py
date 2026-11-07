@@ -119,12 +119,12 @@ def test_go_to_knows_the_maps_places(tmp_path):
 def test_a_dry_run_of_the_job(tmp_path, monkeypatch):
     monkeypatch.setenv("VISION_URL", "http://127.0.0.1:1")  # the skills' check: never called (find is stubbed)
     monkeypatch.setenv("GEMINI_API_KEY", "x")
-    tomato = {"found": True, "object": "tomato", "world": [1.0, -1.65, 0.95], "on": "island"}
+    tomato = {"found": True, "object": "tomato", "world": [1.0, -2.52, 0.95], "on": "island"}  # by its south edge
     monkeypatch.setattr(RealKitchen, "find", lambda self, object: self.found.setdefault(object, tomato))
-    calls = [("set_status", {"step_id": "s1", "status": "active"}), ("ready", {}), ("go_to", {"place": "island_north"}),
+    calls = [("set_status", {"step_id": "s1", "status": "active"}), ("ready", {}), ("go_to", {"place": "island_south"}),
              ("find", {"object": "tomato"}), ("approach", {"object": "tomato"}),
              ("finish", {"summary": "stopped before the pick", "abandon": True})]  # fmt: skip
-    llm, fake = Scripted(calls), FakeKitchen(mocap=Pose2D(1.35, -1.16, -math.pi / 2))
+    llm, fake = Scripted(calls), FakeKitchen(mocap=Pose2D(1.26, -2.94, math.radians(87)))  # at island_south
     result = run_agent.run(JOB, 0, tmp_path / "runs", llm=llm, operator=lambda r: "abort", quiet=True, env="real",
                            agent="real_kitchen", env_options={"env": fake, "confirm": False, "dry_run": True})  # fmt: skip
     assert {"go_to", "find", "approach", "ready", "pick_up", "place_in"} <= set(llm.tools)
