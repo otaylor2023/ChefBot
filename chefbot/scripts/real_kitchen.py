@@ -268,3 +268,56 @@ class HostSkills:
         handler.__name__ = skill.name
         handler.__signature__ = _signature(skill)
         return skill.schema, handler
+
+
+def main() -> None:
+    """One host-v1 skill on the real robot, as the agent would call it (launch.sh on the robot, up.sh here):
+
+        python -m chefbot.scripts.real_kitchen find tomato        # nothing moves: where it is on the map
+        python -m chefbot.scripts.real_kitchen ready              # the arm to READY (Enter first)
+        python -m chefbot.scripts.real_kitchen go_to island_south # Enter first
+        python -m chefbot.scripts.real_kitchen approach tomato    # finds it, then drives to its stance (Enter first)
+        python -m chefbot.scripts.real_kitchen where
+    """
+    import argparse
+    import os
+    from datetime import datetime
+
+    from chefbot import embodiments
+    from chefbot.environments.real.host import RealHost
+    from chefbot.runtime import models as M
+
+    repo = Path(__file__).resolve().parents[2]
+    ap = argparse.ArgumentParser(description=main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("what", choices=("find", "ready", "go_to", "approach", "where"))
+    ap.add_argument("arg", nargs="?", default=None, help="the object (find, approach) or the place (go_to)")
+    ap.add_argument("--map", type=Path, default=repo / "maps" / "src_kitchen_work")
+    ap.add_argument("--dry-run", action="store_true", help="plan, drive and move nothing")
+    a = ap.parse_args()
+    M.load_env(repo / ".env")
+    out = repo / "runs" / "real_kitchen" / f"{datetime.now():%Y%m%d_%H%M%S}_{a.what}"
+    robot = embodiments.load("tidybot_fr3")
+    host = RealHost(robot, robot.speed("slow"), out, dry_run=a.dry_run, confirm=True, cameras=["pole", "wrist"])
+    url = os.environ.get("VISION_URL")
+    k = RealKitchen(host, a.map, M.Vision(url) if url else None, out, confirm=True)
+    try:
+        if a.what == "where":
+            r = k.where()
+        elif a.what == "find":
+            r = k.find(a.arg)
+        elif a.what == "ready":
+            r = k.ready()
+        elif a.what == "go_to":
+            r = k.go_to(a.arg)
+        else:
+            f = k.find(a.arg)
+            print(json.dumps(f, indent=2))
+            r = k.approach(a.arg) if f.get("found") else {"ok": False, "reason": "not found"}
+        print(json.dumps(r, indent=2, default=str))
+        print(f"files: {out}")
+    finally:
+        host.close()
+
+
+if __name__ == "__main__":
+    main()
