@@ -48,6 +48,26 @@ def _ext(arm) -> np.ndarray:
     return np.mean(out, axis=0)
 
 
+def _clear(q) -> bool:
+    """Out of the pole's keep-out (an IK solution may put the elbow under the camera's clamp)."""
+    from chefbot.interface.workspace import in_keep_out
+
+    return not in_keep_out(np.asarray(q, float))
+
+
+def _look_goal(spot_xy, z, heading_x) -> np.ndarray:
+    """The flange pose putting the wrist camera LOOK_FROM straight above (spot_xy, z), looking down."""
+    from chefbot.onboard.calibration.wrist import wrist_mount
+
+    zc = np.array([0.0, 0.0, -1.0])
+    xc = heading_x - (heading_x @ zc) * zc
+    xc /= np.linalg.norm(xc)
+    cam_goal = np.eye(4)
+    cam_goal[:3, :3] = np.column_stack([xc, np.cross(zc, xc), zc])
+    cam_goal[:3, 3] = [spot_xy[0], spot_xy[1], z + LOOK_FROM]
+    return cam_goal @ np.linalg.inv(wrist_mount())
+
+
 def _goto(arm, q, settle_s=SETTLE_S) -> None:
     """A small joint move (already checked): the goal, then wait it out."""
     from chefbot.onboard import keys as K
@@ -74,21 +94,15 @@ def card_plane(arm) -> tuple[np.ndarray, np.ndarray]:
         return fr3.flange(q) @ wrist_mount() @ _pnp(c, pts, cam.K, cam.D), q
 
 
-def counter_height(arm, spot_xy, guess_z: float, heading_x, confirm: bool = False) -> float | None:
+def counter_height(arm, spot_xy, guess_z: float, heading_x, confirm: bool = False) -> tuple[float, np.ndarray] | None:
     """The counter's height at spot_xy from the wrist camera's depth, the camera LOOK_FROM straight above it: a plane
     least-squares fitted to its points within 3 cm of the spot (arm base frame), evaluated at the spot."""
     from chefbot.onboard.calibration import fr3
     from chefbot.onboard.calibration.camera import WRIST_D405, Camera
-    from chefbot.onboard.calibration.wrist import ik, wrist_mount
+    from chefbot.onboard.calibration.wrist import ik_any, wrist_mount
 
     X = wrist_mount()
-    zc = np.array([0.0, 0.0, -1.0])  # the camera's view axis (OpenCV z) down
-    xc = heading_x - (heading_x @ zc) * zc
-    xc /= np.linalg.norm(xc)
-    cam_goal = np.eye(4)
-    cam_goal[:3, :3] = np.column_stack([xc, np.cross(zc, xc), zc])
-    cam_goal[:3, 3] = [spot_xy[0], spot_xy[1], guess_z + LOOK_FROM]
-    q = ik(arm.q(), cam_goal @ np.linalg.inv(X))
+    q = ik_any(_look_goal(spot_xy, guess_z, heading_x), arm.q(), _clear)
     if q is None:
         print("  no joints put the camera straight above the spot")
         return None
@@ -114,7 +128,8 @@ def counter_height(arm, spot_xy, guess_z: float, heading_x, confirm: bool = Fals
     tilt = np.degrees(np.arctan(np.hypot(coef[0], coef[1])))
     print(f"  the counter at {coef[2]:.4f} m there (depth, {keep.sum()} points, {np.std(near[keep, 2] - A[keep] @ coef) * 1000:.2f} mm rms, "
           f"tilted {tilt:.1f} deg), {d[v, u].mean():.3f} m from the camera")  # fmt: skip
-    return float(coef[2])
+    normal = np.array([-coef[0], -coef[1], 1.0])
+    return float(coef[2]), normal / np.linalg.norm(normal)
 
 
 def touch(touches: int = 3, on: str = "counter") -> dict:
@@ -139,20 +154,42 @@ def touch(touches: int = 3, on: str = "counter") -> dict:
     R = np.column_stack([x, np.cross(z, x), z])  # straight down, the heading the hand has now
     spots = [np.zeros(2), np.array([0.01, 0.01]), np.array([-0.01, -0.01]), np.array([0.01, -0.01])][:touches]
     toward = -o[:2] / np.linalg.norm(o[:2])  # from the card toward the arm base
+    from chefbot.onboard.calibration.wrist import ik_any
+
+    where = np.zeros(2)
+    if on == "counter":  # a spot on the counter beside the card the arm can look at and reach clear of the keep-out
+        side = np.array([-toward[1], toward[0]])
+        for name, dirn in (("in front of", toward), ("beyond", -toward), ("left of", side), ("right of", -side)):
+            xy = o[:2] + dirn * IN_FRONT
+            T = np.eye(4)
+            T[:3, :3], T[:3, 3] = R, [xy[0], xy[1], o[2] + hand + ABOVE]
+            if ik_any(_look_goal(xy, o[2], x), arm.q(), _clear) is not None and ik_any(T, arm.q(), _clear) is not None:
+                where = dirn * IN_FRONT
+                print(f"the counter {IN_FRONT * 100:.0f} cm {name} the card")
+                break
+        else:
+            raise SystemExit("no spot beside the card the arm can reach clear of the keep-out: move the card")
     out = []
     try:
         for k, d in enumerate(spots):
             if on == "counter":
-                xy = o[:2] + toward * IN_FRONT + d
-                plane_z = counter_height(arm, xy, o[2], x, confirm=k == 0)
-                if plane_z is None:
+                xy = o[:2] + where + d
+                got = counter_height(arm, xy, o[2], x, confirm=k == 0)
+                if got is None:
                     continue
+                plane_z, up = got
             else:
                 xy = o[:2] + d
                 plane_z = o[2] - (n[0] * d[0] + n[1] * d[1]) / n[2]  # the card's surface under that spot
+                up = n
+            # The hand square to the surface (its measured normal), not to the arm's vertical: the fingertips flat on it
+            zs = -up
+            xs = x - (x @ zs) * zs
+            xs /= np.linalg.norm(xs)
+            Rs = np.column_stack([xs, np.cross(zs, xs), zs])
             start = np.eye(4)
-            start[:3, :3], start[:3, 3] = R, [xy[0], xy[1], plane_z + hand + ABOVE]
-            q = ik(arm.q(), start)
+            start[:3, :3], start[:3, 3] = Rs, [xy[0], xy[1], plane_z + hand + ABOVE]
+            q = ik_any(start, arm.q(), _clear)
             if q is None:
                 raise SystemExit(f"touch {k + 1}: no joints put the hand over the card there")
             arm.move_to(q, f"touch {k + 1}/{len(spots)}: the hand {ABOVE * 100:.0f} cm above where the fingertips should meet the {on}",
@@ -164,7 +201,7 @@ def touch(touches: int = 3, on: str = "counter") -> dict:
                 T = start.copy()
                 T[2, 3] -= i * STEP
                 qi = ik(q, T)
-                if qi is None:
+                if qi is None or not _clear(qi):
                     break
                 _goto(arm, qi)
                 q = qi
@@ -172,11 +209,12 @@ def touch(touches: int = 3, on: str = "counter") -> dict:
                 trace.append(f"{change.max():.2f}")
                 if change.max() > CONTACT_NM:
                     if first is None:  # the first step over: where the fingertips met it, if the next one agrees
-                        first = (i, fr3.flange(arm.q())[2, 3], change)
+                        Fm = fr3.flange(arm.q())
+                        first = (i, Fm[2, 3], change, float(np.degrees(np.arccos(np.clip(-Fm[:3, 2] @ up, -1, 1)))))
                         continue
                     contact = first[1]
                     print(f"  contact {first[0]} mm down: torque change {np.round(first[2], 2).tolist()} N m (joints 2, 4, 6), "
-                          f"then {np.round(change, 2).tolist()}")  # fmt: skip
+                          f"then {np.round(change, 2).tolist()}; the hand {first[3]:.2f} deg off square to the surface (measured joints)")  # fmt: skip
                     break
                 first = None  # a one-step blip: not contact
             print(f"  each step's largest torque change (N m): {' '.join(trace)}")
