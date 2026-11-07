@@ -7,7 +7,7 @@ import cv2
 import kinematics
 from scipy.spatial.transform import Rotation
 
-PADS = 0.118  # PORT: the real pads' middle out from the flange, the hand on its 27.25 mm holder (sim 0.091)
+PADS = 0.134  # PORT: the real pads' middle out from the flange (sim 0.091): measured on the robot 2026-11-06, by where the fingertips met the counter and a chapstick
 MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing (the lab's: n+50)
 BASE = [0.,0.,0.]
 

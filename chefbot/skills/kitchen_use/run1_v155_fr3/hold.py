@@ -6,8 +6,8 @@ import kinematics
 import close_view
 from scipy.spatial.transform import Rotation
 
-PADS = 0.118  # PORT: the real pads' middle out from the flange, the hand on its 27.25 mm holder (sim 0.091)
-FINGER_BAND = (.075 + .027, .115 + .027)  # PORT: where the open fingers are, out from the flange (sim .075-.115)
+PADS = 0.134  # PORT: the real pads' middle out from the flange (sim 0.091): measured on the robot 2026-11-06, by where the fingertips met the counter and a chapstick
+FINGER_BAND = (.075 + .043, .115 + .043)  # PORT: where the open fingers are, out from the flange (sim .075-.115; the pads 4.3 cm further out)
 MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing (the lab's: n+50)
 # PORT: an object further than this from the wrist camera is measured from the close view (0.30 m) as the pole's
 # choice is: the real D405 (18 mm stereo baseline) flattens a small object beyond ~0.5 m (2026-11-06: an egg at 0.70 m

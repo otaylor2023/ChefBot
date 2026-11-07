@@ -4,7 +4,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation, Slerp
 from scipy.ndimage import distance_transform_edt
 from PIL import Image, ImageDraw
-PADS = 0.118  # PORT: the real pads' middle out from the flange, the hand on its 27.25 mm holder (sim 0.091, written inline)
+PADS = 0.134  # PORT: the real pads' middle out from the flange (sim 0.091): measured on the robot 2026-11-06, by where the fingertips met the counter and a chapstick
 MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing
 
 SYS='You are Astra, the visual decision policy controlling a physical kitchen robot. Use calibrated images and measurements to choose accurate gentle grasps and tool actions. Return concise JSON. No tools are available.'
