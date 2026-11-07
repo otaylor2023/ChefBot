@@ -62,6 +62,25 @@ involve `unsupported_cooking_step`. 9 tests flipped to pass and 10 to fail, almo
 points should not be read as real; pass^k (next step 4) is now the priority for comparing models. Sonnet ran 64 of
 75 tests here vs 62 before (spend cap), so its row compares slightly different subsets.
 
+### pass^3 (same 75 tests, three runs each, checker v0.8)
+
+| configuration | mean single run | pass^3 (all 3 runs) | pass@3 (any run) | flaky tests | never solved | first-try schema failures |
+|---|---|---|---|---|---|---|
+| gpt-6-luna, repair + hints | 89.8% | **78.7%** | 100% | 16 | 0 | 0 of 225 runs |
+| claude-haiku-5.5, repair + hints | 79.2% | **59.7%** | 95.8% | 26 | 3 | 134 of 222 runs |
+
+(Invariance variants judged against the same run's own base, as in the leaderboard. Haiku: 72 of 75 tests have all
+three runs; the spend cap stopped the rest.)
+
+- **One run overstates reliability.** A model that resolves 85-90% of tests in a single run solves only 79% (luna)
+  and 60% (Haiku) every time. No luna test fails all three runs: every failure is intermittent, so a
+  retry-until-the-checks-pass policy would recover them (the checks already know when an output failed).
+- **Haiku's flakiness was mostly our harness.** Its first answer was cut off at the 8,000-token cap in about half
+  of all runs (median output exactly 8,000; luna's is ~3,900) because OpenRouter counts Haiku's hidden reasoning
+  (3-5k tokens) toward `max_tokens`. The truncation retry usually rescued it, but at the cost of a failed first try
+  and, sometimes, the run. Fixed: OpenRouter calls now get reasoning headroom on top of the answer cap
+  (`OPENROUTER_REASONING_HEADROOM`, default 8,000; billed only if used). Not yet re-measured.
+
 ## Findings
 
 1. **The verifier + one repair is the main effect.** Same model (luna), fixed checker: 60.0% without repair, 85.3%
@@ -127,7 +146,7 @@ Example: `examples/jobs/tomato_egg_stir_fry_from_web.yaml`. A job still needs a 
 1. ~~Faithfulness check for cooking verbs~~ done (v0.8). Next: catch evidence taken from tips rather than steps.
 2. ~~Fix duration parsing~~ done (v0.8).
 3. **Grow the gold set** (target 15+, both splits) so the main results are against human answers.
-4. **pass^k:** 3 runs per instance on lite for luna and Haiku (cheap) to measure consistency.
+4. ~~pass^k~~ done for luna and Haiku (above). Next: rerun Haiku with the reasoning headroom (~$2 for pass^3).
 5. **Full split (178)** for luna and one Claude model with an exact budget check before each call.
 6. **Local models** after setting a GPU power limit; then gpt-oss 20B and gemma on mini.
 7. ~~Compile `actions.json` to ChefBot jobs~~ v0 done. Next: write the `symbolic:` block for one web recipe in
