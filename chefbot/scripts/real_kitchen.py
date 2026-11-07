@@ -86,6 +86,24 @@ class RealKitchen:
                 return name
         return None
 
+    def _arm_offset(self) -> np.ndarray:
+        """What the env's camera poses leave out, odom from odom: the env places the arm base by the embodiment's mount
+        (config/robot_tidybot_fr3.yaml arm_mount: right over the base pose, 0.335 m up, the sim base's), but the base
+        pose is the base's turning centre (mocap calibrated to it by a spin, onboard/config.yaml), with the arm 0.1825 m
+        ahead of it and its plate 0.44 m up (interface/workspace.py Body: the plate's centre, Jack's measurements). The
+        cameras and the arm share the env's frame, so the skills are right in it; a position for the map is not. As a
+        4x4 on the base pose: base * shift * base^-1."""
+        from chefbot import embodiments
+
+        e = embodiments.load("tidybot_fr3")
+        bx, by = e.body.base_xy  # the base centre in the arm base frame: the arm is at -base_xy from the centre
+        m = np.asarray(e.kin.mount_xyz, dtype=float)
+        shift = np.eye(4)
+        shift[:3, 3] = [-bx - m[0], -by - m[1], e.body.plate_height - m[2]]
+        s = self.env.get_state().base_pose  # odom
+        B = _planar(s)
+        return B @ shift @ np.linalg.inv(B)
+
     def _world_from_odom(self) -> np.ndarray:
         """The tie (robot/localization.py's rule, from one state): world = mocap * odom^-1."""
         loc = self.env.localization()
@@ -195,7 +213,7 @@ class RealKitchen:
 
         if self.vision is None:
             return {"found": False, "reason": "no vision server (VISION_URL)"}
-        W = self._world_from_odom()
+        W = self._world_from_odom() @ self._arm_offset()  # the cameras' odom points, the arm where it is, to the map
         self.n += 1
         d = self.out / f"find{self.n:02d}_{object.replace(' ', '_')}"
         d.mkdir(parents=True, exist_ok=True)
@@ -223,7 +241,7 @@ class RealKitchen:
             K = np.asarray(f.intrinsics, dtype=float)
             z = depth[v, u]
             pc = np.stack([(u - K[0, 2]) * z / K[0, 0], (v - K[1, 2]) * z / K[1, 1], z, np.ones_like(z)])
-            pw = (W @ np.asarray(f.cam_to_world) @ pc)[:3].T  # camera -> odom (the env's frame) -> world
+            pw = (W @ np.asarray(f.cam_to_world) @ pc)[:3].T  # camera -> odom (the env's frame) -> the arm's true place -> world
             p = np.median(pw, axis=0)
             p[2] = float(np.percentile(pw[:, 2], 95))  # its top
             seen.append({"camera": cam, "score": round(float(dets[0]["score"]), 3), "world": [round(float(c), 3) for c in p],

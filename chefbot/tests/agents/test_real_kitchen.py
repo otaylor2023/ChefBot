@@ -92,10 +92,11 @@ def test_its_registry_and_session():
 
 
 def test_find_puts_what_the_camera_sees_in_the_maps_frame(tmp_path):
-    k = RealKitchen(Host(FakeKitchen()), MAP, FakeVision(), tmp_path)
+    k = RealKitchen(Host(FakeKitchen(mocap=Pose2D(1.0, 1.85, math.pi / 2))), MAP, FakeVision(), tmp_path)
     r = k.find("tomato")
-    # the odom point (0.5, 0) with the base at (1, 2) facing +y in the world: (1, 2.5); the top at the depth plane, z 0
-    assert r["found"] and r["world"] == pytest.approx([1.0, 2.5, 0.0], abs=0.01)
+    # the odom point (0.5, 0), the arm 0.1825 m further ahead than the env puts it (and its plate 0.105 m higher): (0.6825,
+    # 0); with the base at (1, 1.85) facing +y in the world, (1, 2.5325); the top at the depth plane, z 0.105
+    assert r["found"] and r["world"] == pytest.approx([1.0, 2.5325, 0.105], abs=0.01)
     assert r["on"] == "counter"  # the test counter (Chef-botcounter-top) is at (1.49, 2.06), 2.26 x 0.96
     assert k.found["tomato"] is r
 
