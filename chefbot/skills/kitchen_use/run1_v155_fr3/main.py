@@ -1,10 +1,12 @@
 """Unified pick/use policy. Dispatch depends only on requested action."""
+from arm_only import ArmOnly
 import hold
 import press
 import squeeze
 import tongs
 
 def run(robot,object='object',where='on the counter',use='hold',then='',target=''):
+    robot=ArmOnly(robot)  # PORT: arm only on the real robot (arm_only.py)
     if use=='tongs':
         description=target.strip()
         if description.lower().startswith('the '):description=description[4:]
