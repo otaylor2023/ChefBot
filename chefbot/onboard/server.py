@@ -115,7 +115,13 @@ class OnboardServer:
         finally:
             done.set()
             frames.put(None)
-            self.cameras.kept = set()  # the client's cameras idle out again
+            self.cameras.kept = set()
+            # Closed outright, not left to idle out (that runs only while a client is connected): with no client the
+            # cameras are free for the robot-side tools (calibration, depth_check, the recorders) beside launch.sh.
+            try:
+                self.cameras.close()
+            except Exception:
+                traceback.print_exc()
             if self.commanded:
                 self._halt(None, "the client disconnected")
             with self._client_lock:

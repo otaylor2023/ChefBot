@@ -101,7 +101,8 @@ JOINT_GOAL_KEY="opensai::controllers::FrankaRobot::joint_controller::joint_task:
 JOINT_GOAL_VEL_KEY="opensai::controllers::FrankaRobot::joint_controller::joint_task::goal_velocity"
 JOINTS_KEY="opensai::sensors::FrankaRobot::joint_positions"
 
-arm_float() {  # OpenSai's float_controller (chefbot_fr3.xml): no stiffness, light damping
+arm_float() {
+	stop_ready_mover  # OpenSai's float_controller (chefbot_fr3.xml): no stiffness, light damping
 	redis-cli SET "$ACTIVE_CONTROLLER_KEY" float_controller >/dev/null
 	ARM_MODE="floating"
 	echo "=== ARM FLOATING: move it by hand. h holds it where it is, r takes it to the ready position. (A laptop run's moves are ignored meanwhile.) ==="
@@ -110,28 +111,40 @@ arm_float() {  # OpenSai's float_controller (chefbot_fr3.xml): no stiffness, lig
 ARM_MODE="held"
 REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
-arm_ready() {  # the joint task's goal to the ready position (interface/workspace.py READY), if the straight way there is clear
-	local q verdict
-	q="$(redis-cli --raw GET "$JOINTS_KEY")"
-	[[ "$q" == \[* ]] || { echo "=== no joint reading from the arm driver: not going to the ready position ===" >&2; return; }
-	verdict="$(PYTHONPATH="$REPO_DIR" "$CHEFBOT_PYTHON" -c 'import json, sys
-from chefbot.interface.workspace import READY, path_clear
-print(("clear " if path_clear(json.loads(sys.argv[1]), READY) else "blocked ") + json.dumps(list(READY)))' "$q" 2>&1)" || true
-	if [[ "$verdict" != clear* ]]; then
-		echo "=== NOT going to the ready position: the straight way there passes the pole's keep-out (${verdict%% *}). f, move the arm nearer it by hand, then r ===" >&2
-		return
+READY_PID=""
+stop_ready_mover() {  # a move to the ready position still under way: stopped (f and h take the arm from it)
+	if [[ -n "$READY_PID" ]] && kill -0 "$READY_PID" 2>/dev/null; then
+		pkill -TERM -P "$READY_PID" 2>/dev/null || true
+		kill -TERM "$READY_PID" 2>/dev/null || true
 	fi
+	READY_PID=""
+}
+
+arm_ready() {  # to the ready position (interface/workspace.py READY), around the pole's keep-out if the straight way isn't
+	# clear: the calibration's arm (onboard/calibration/arm.py: the joint task's goal a step at a time, each leg planned
+	# by interface/workspace.py joint_path, the planner the real host uses), in the background so f and h still work
+	[[ "$(redis-cli --raw GET "$JOINTS_KEY")" == \[* ]] || { echo "=== no joint reading from the arm driver: not going to the ready position ===" >&2; return; }
+	stop_ready_mover
 	if [[ "$ARM_MODE" == floating ]]; then  # hold first: a switch resets the controller's goal to where the arm is
 		arm_hold >/dev/null
 		sleep 0.3
 	fi
-	redis-cli SET "$JOINT_GOAL_VEL_KEY" "[0,0,0,0,0,0,0]" >/dev/null
-	redis-cli SET "$JOINT_GOAL_KEY" "${verdict#clear }" >/dev/null
 	ARM_MODE="held"
-	echo "=== ARM GOING TO THE READY POSITION (OpenSai's joint task, at most 0.5 rad/s); f floats it, h holds it where it is ==="
+	echo "=== ARM GOING TO THE READY POSITION (OpenSai's joint task; around the keep-out if it must); f floats it, h holds it where it is ==="
+	(
+		if PYTHONPATH="$REPO_DIR" "$CHEFBOT_PYTHON" -c 'from chefbot.onboard.calibration.arm import Arm
+from chefbot.interface.workspace import READY
+Arm().move_to(READY, "the ready position", confirm=False)' >>"$LOGS/ready.log" 2>&1; then
+			echo "=== ARM AT THE READY POSITION ==="
+		else
+			echo "=== ARM NOT AT THE READY POSITION: $(tail -1 "$LOGS/ready.log") ===" >&2
+		fi
+	) &
+	READY_PID=$!
 }
 
-arm_hold() {  # back to the joint controller, its goal where the arm is now (OpenSai re-initializes it there too)
+arm_hold() {
+	stop_ready_mover  # back to the joint controller, its goal where the arm is now (OpenSai re-initializes it there too)
 	local q
 	q="$(redis-cli --raw GET "$JOINTS_KEY")"
 	if [[ "$q" != \[* ]]; then
