@@ -1,0 +1,8 @@
+# USD per 1M tokens. Used only to turn token counts into a cost estimate; leave null if unknown.
+# VERIFY against your provider's current price page before reporting costs. gpt-4.1 values are from its 2025 list price.
+# gpt-6 rows: from OpenAI's model page (developers.openai.com/api/docs/models), checked 2026-10-13.
+gpt-6-astra:  {input: 10.00, output: 50.00}
+gpt-6.1-sol:  {input: 2.00, output: 10.00}
+gpt-6-luna:   {input: 0.10, output: 0.50}
+gpt-4.1:      {input: 2.00, output: 8.00}
+gpt-4.1-mini: {input: 0.40, output: 1.60}

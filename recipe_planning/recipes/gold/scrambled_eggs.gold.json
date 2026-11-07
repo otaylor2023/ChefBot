@@ -1,0 +1,408 @@
+{
+ "title": "Soft Scrambled Eggs with Chives",
+ "ingredients": [
+  {
+   "id": "egg",
+   "name": "large eggs",
+   "quantity_raw": "3",
+   "needs_cooking": true,
+   "optional": false,
+   "evidence": {
+    "quote": "3 large eggs",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "butter",
+   "name": "butter",
+   "quantity_raw": "1 tablespoon",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "1 tablespoon butter",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "salt",
+   "name": "salt",
+   "quantity_raw": "pinch",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "Pinch of salt",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "chives",
+   "name": "chives",
+   "quantity_raw": "1 tablespoon",
+   "needs_cooking": false,
+   "optional": true,
+   "evidence": {
+    "quote": "1 tablespoon chopped chives (optional)",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  }
+ ],
+ "containers": [
+  {
+   "id": "bowl1",
+   "type": "bowl",
+   "evidence": {
+    "quote": "into a bowl",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "pan1",
+   "type": "nonstick pan",
+   "evidence": {
+    "quote": "a nonstick pan",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  }
+ ],
+ "steps": [
+  {
+   "id": "s1",
+   "verb": "crack",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "egg",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "egg_cracked",
+   "container": "bowl1",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "Crack the eggs into a bowl",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s2",
+   "verb": "mix",
+   "verb_raw": null,
+   "style": "whisk",
+   "inputs": [
+    {
+     "ref": "egg_cracked",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "salt",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "egg_beaten",
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": {
+    "kind": "visual",
+    "target": "no streaks of white remain",
+    "raw": "until no streaks of white remain"
+   },
+   "optional": false,
+   "evidence": {
+    "quote": "add the salt and whisk until no streaks of white remain",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s3",
+   "verb": "heat",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "pan1",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": null,
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": "low",
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "over low heat",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s4",
+   "verb": "melt",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "butter",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "pan1",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "butter_melted",
+   "container": "pan1",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "Melt the butter in a nonstick pan",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s5",
+   "verb": "transfer",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "egg_beaten",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "butter_melted",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "egg_in_pan",
+   "container": "pan1",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "Pour in the eggs",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s6",
+   "verb": "cook",
+   "verb_raw": null,
+   "style": "scramble",
+   "inputs": [
+    {
+     "ref": "egg_in_pan",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "pan1",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "eggs_scrambled",
+   "container": "pan1",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": "3 to 4 minutes (range)"
+   },
+   "until": {
+    "kind": "visual",
+    "target": "curds just set but still glossy",
+    "raw": "until the curds are just set but still glossy, 3 to 4 minutes"
+   },
+   "optional": false,
+   "evidence": {
+    "quote": "stir slowly with a spatula until the curds are just set but still glossy",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s7",
+   "verb": "turn_off",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "pan1",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": null,
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "Remove the pan from the heat.",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s8",
+   "verb": "cut",
+   "verb_raw": null,
+   "style": "chop",
+   "inputs": [
+    {
+     "ref": "chives",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "chives_chopped",
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": true,
+   "evidence": {
+    "quote": "chopped chives",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": "ingredient_list"
+   }
+  },
+  {
+   "id": "s9",
+   "verb": "garnish",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "chives_chopped",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "eggs_scrambled",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "eggs_garnished",
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": true,
+   "evidence": {
+    "quote": "Sprinkle with chives if using",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  }
+ ],
+ "choices": [],
+ "final_items": [
+  "eggs_scrambled"
+ ],
+ "ambiguities": []
+}

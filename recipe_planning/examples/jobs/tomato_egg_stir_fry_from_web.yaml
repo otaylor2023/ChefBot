@@ -1,0 +1,131 @@
+name: tomato_egg_stir_fry_from_web
+goal: 'Chinese Tomato Egg Stir-fry: tomato egg stir fry'
+steps:
+- id: s1
+  goal: Cutting tomatoes into small wedges
+  done_when: the tomatoes is cut (small wedges)
+  hint: 'ROBOT UNSUPPORTED: no knife skill'
+- id: s2
+  goal: Finely chop the scallion
+  done_when: the scallion is cut (finely chopped)
+  hint: 'ROBOT UNSUPPORTED: no knife skill'
+- id: s3
+  goal: Crack 4 eggs into a bowl
+  done_when: the eggs are cracked into the bowl, with no shell
+  hint: 'ROBOT PARTIAL: eggs only, with the egg-cracker gadget'
+- id: s4
+  goal: Season with ¼ teaspoon salt, ¼ teaspoon white pepper, ½ teaspoon sesame oil, and 1 teaspoon Shaoxing wine
+  done_when: the eggs, salt, white pepper, sesame oil and shaoxing wine are mixed in the bowl
+  depends_on:
+  - s3
+  hint: 'ROBOT UNSUPPORTED: no shaker/sprinkle skill'
+- id: s5
+  goal: Beat eggs for a minute
+  done_when: the eggs, salt, sesame oil, shaoxing wine and white pepper in the bowl are beaten
+  depends_on:
+  - s4
+  hint: 'about 60 s; ROBOT PARTIAL: electric whisk gadget only'
+- id: s6
+  goal: Put the wok on a burner and turn it on (medium heat)
+  done_when: the wok is on a burner that is on, until it just starts to smoke
+  hint: 'recipe says: Preheat the wok over medium heat until it just starts to smoke'
+- id: s7
+  goal: Then add 2 tablespoons of oil
+  done_when: the vegetable oil is in the wok
+- id: s8
+  goal: Scramble the eggs
+  done_when: the eggs, salt, sesame oil, shaoxing wine, white pepper and vegetable oil in the wok are cooked
+  depends_on:
+  - s5
+  - s6
+  - s7
+  hint: 'open question: Scramble the eggs; open question: cook duration not stated'
+- id: s9
+  goal: Remove from the wok immediately. Set aside.
+  done_when: the eggs, salt, sesame oil, shaoxing wine, vegetable oil and white pepper are in the bowl
+  depends_on:
+  - s8
+- id: s10
+  goal: Add 1 more tablespoon oil to the wok
+  done_when: the vegetable oil is in the wok
+- id: s11
+  goal: Put the wok on a burner and turn it on (high heat)
+  done_when: the wok is on a burner that is on (high heat)
+  depends_on:
+  - s6
+  - s8
+  hint: 'recipe says: turn up the heat to high'
+- id: s12
+  goal: Stir-fry for 1 minute
+  done_when: the tomatoes, scallion and vegetable oil in the wok are cooked
+  depends_on:
+  - s1
+  - s10
+  - s11
+  - s2
+  hint: 'about 60 s; ROBOT PARTIAL: stovetop pan only; doneness comes from simulator state, not vision'
+- id: s13
+  goal: Add 2 teaspoons sugar, ½ teaspoon salt, and ¼ cup water
+  done_when: the scallion, tomatoes, vegetable oil, sugar, salt and water are mixed in the wok
+  depends_on:
+  - s12
+  hint: 'contingency: if your stove gets very hot and liquid tends to cook off very quickly in your wok, add a little more
+    water; open question: water: unknown allocation'
+- id: s14
+  goal: Add the cooked eggs.
+  done_when: the eggs, salt, sesame oil, shaoxing wine, vegetable oil and white pepper are in the wok
+  depends_on:
+  - s9
+- id: s15
+  goal: Mix everything together
+  done_when: the salt, scallion, sugar, tomatoes, vegetable oil, water, eggs, sesame oil, shaoxing wine and white pepper are
+    mixed in the wok
+  depends_on:
+  - s13
+  - s14
+- id: s16
+  goal: Cover the wok
+  done_when: the wok is covered
+  depends_on:
+  - s11
+  - s12
+  hint: 'ROBOT UNSUPPORTED: no lid objects in tasks'
+- id: s17
+  goal: Cook for 1-2 minutes, until the tomatoes are completely softened
+  done_when: the eggs, salt, scallion, sesame oil, shaoxing wine, sugar, tomatoes, vegetable oil, water and white pepper in
+    the wok are cooked, until the tomatoes are completely softened
+  depends_on:
+  - s15
+  - s16
+  hint: 'about 90 s; recipe says: until the tomatoes are completely softened; ROBOT PARTIAL: stovetop pan only; doneness comes
+    from simulator state, not vision'
+- id: s18
+  goal: Uncover
+  done_when: the wok is uncovered
+  depends_on:
+  - s16
+  - s17
+  hint: 'ROBOT UNSUPPORTED: no skill'
+- id: s19
+  goal: Continue to stir-fry over high heat until the sauce thickens to your liking
+  done_when: the eggs, salt, scallion, sesame oil, shaoxing wine, sugar, tomatoes, vegetable oil, water and white pepper in
+    the wok are cooked, until the sauce thickens to your liking
+  depends_on:
+  - s17
+  - s18
+  hint: 'recipe says: until the sauce thickens to your liking; open question: duration not stated; ROBOT PARTIAL: stovetop
+    pan only; doneness comes from simulator state, not vision'
+source:
+  compiled_from: recipe_planning actions.json
+  recipe_status: valid
+  skills_profile: chefbot_sim
+  supported: 9
+  partial: 5
+  unsupported: 5
+  needs_a_person:
+  - s1
+  - s2
+  - s4
+  - s16
+  - s18
+  open_questions: []

@@ -1,0 +1,5 @@
+# One URL per line. Aim for 20-30 recipes from different sites and authors, deliberately covering:
+#   parallel prep (sauce while pasta boils), substitutions ("butter or oil"), vague amounts ("a splash"),
+#   missing prerequisites (oven temperature only in the intro), complex intermediates (dough -> rest -> shape),
+#   long multi-component dishes, very short recipes, and at least one baking recipe with a split batter/dough.
+# https://www.example.com/some-recipe

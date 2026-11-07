@@ -1,0 +1,296 @@
+{
+ "title": "Onion and Egg Skillet",
+ "ingredients": [
+  {
+   "id": "onion",
+   "name": "onion",
+   "quantity_raw": "1",
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "one onion",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "oil",
+   "name": "olive oil",
+   "quantity_raw": null,
+   "needs_cooking": false,
+   "optional": false,
+   "evidence": {
+    "quote": "olive oil",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "egg",
+   "name": "eggs",
+   "quantity_raw": "2",
+   "needs_cooking": true,
+   "optional": false,
+   "evidence": {
+    "quote": "two beaten eggs",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "parsley",
+   "name": "parsley",
+   "quantity_raw": null,
+   "needs_cooking": false,
+   "optional": true,
+   "evidence": {
+    "quote": "parsley",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  }
+ ],
+ "containers": [
+  {
+   "id": "pan1",
+   "type": "pan",
+   "evidence": {
+    "quote": null,
+    "prov": "inferred",
+    "reason": "sauteing requires a pan",
+    "implied_by": null
+   }
+  }
+ ],
+ "steps": [
+  {
+   "id": "s1",
+   "verb": "cut",
+   "verb_raw": null,
+   "style": "dice",
+   "inputs": [
+    {
+     "ref": "onion",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "onion_diced",
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "Dice one onion",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s2",
+   "verb": "heat",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "pan1",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": null,
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": "heat level not stated"
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": null,
+    "prov": "inferred",
+    "reason": "saute implies a heated pan",
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s3",
+   "verb": "cook",
+   "verb_raw": null,
+   "style": "saute",
+   "inputs": [
+    {
+     "ref": "onion_diced",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "oil",
+     "mode": "consume",
+     "fraction": null,
+     "fraction_raw": "olive oil (amount not stated)",
+     "required_state": []
+    },
+    {
+     "ref": "pan1",
+     "mode": "require",
+     "fraction": null,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "onion_cooked",
+   "container": "pan1",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": {
+    "kind": "visual",
+    "target": "translucent",
+    "raw": "until translucent"
+   },
+   "optional": false,
+   "evidence": {
+    "quote": "sauté it in olive oil until translucent",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s4",
+   "verb": "beat",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "egg",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "egg_beaten",
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "two beaten eggs",
+    "prov": "stated",
+    "reason": "'beaten' states the required state of the eggs",
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s5",
+   "verb": "transfer",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "egg_beaten",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    },
+    {
+     "ref": "onion_cooked",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "egg_mix",
+   "container": "pan1",
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": false,
+   "evidence": {
+    "quote": "then add two beaten eggs",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  },
+  {
+   "id": "s6",
+   "verb": "garnish",
+   "verb_raw": null,
+   "style": null,
+   "inputs": [
+    {
+     "ref": "parsley",
+     "mode": "consume",
+     "fraction": null,
+     "fraction_raw": "amount not stated",
+     "required_state": []
+    },
+    {
+     "ref": "egg_mix",
+     "mode": "consume",
+     "fraction": 1.0,
+     "fraction_raw": null,
+     "required_state": []
+    }
+   ],
+   "output": "egg_mix_garnished",
+   "container": null,
+   "params": {
+    "temp_c": null,
+    "heat": null,
+    "duration_s": null,
+    "unresolved": null
+   },
+   "until": null,
+   "optional": true,
+   "evidence": {
+    "quote": "Optionally garnish with parsley",
+    "prov": "stated",
+    "reason": null,
+    "implied_by": null
+   }
+  }
+ ],
+ "choices": [],
+ "final_items": [
+  "egg_mix"
+ ],
+ "ambiguities": [
+  "How long to cook after adding the eggs is not stated."
+ ]
+}

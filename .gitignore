@@ -9,3 +9,8 @@ rollouts/
 .env
 runs/
 experiments/
+
+# Recipe evaluation outputs
+recipe_planning/runs/
+recipe_planning/recipe_runs/
+recipe_planning/recipes/web/

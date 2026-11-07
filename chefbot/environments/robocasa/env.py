@@ -17,6 +17,7 @@ import robosuite
 import robosuite.macros as robosuite_macros
 import robosuite.utils.transform_utils as T
 from robosuite.controllers import load_composite_controller_config
+from robosuite.utils.binding_utils import MjRenderContextOffscreen
 from robosuite.utils.camera_utils import (
     get_camera_extrinsic_matrix,
     get_camera_intrinsic_matrix,
@@ -122,7 +123,9 @@ class RoboCasaEnv(Env):
             seed=cfg.seed,
             control_freq=cfg.control_freq,
             has_renderer=False,
-            has_offscreen_renderer=render,
+            # Defer GPU context creation: reset() runs on the main thread,
+            # but camera rendering runs on _render_thread.
+            has_offscreen_renderer=False,
             use_camera_obs=False,
             ignore_done=True,
         )
@@ -283,6 +286,10 @@ class RoboCasaEnv(Env):
         cfg = self.config
         with self.lock:
             sim = self.suite.sim
+            # EGL contexts must not be current on two threads. Create the
+            # robosuite camera context here, on its sole rendering worker.
+            if sim._render_context_offscreen is None:
+                MjRenderContextOffscreen(sim, device_id=self.suite.render_gpu_device_id)
             rgb, depth = sim.render(camera_name=cam, width=cfg.camera_width, height=cfg.camera_height, depth=True)
             # MuJoCo renders bottom-up and returns a normalized depth buffer.
             rgb = np.ascontiguousarray(rgb[::-1])
