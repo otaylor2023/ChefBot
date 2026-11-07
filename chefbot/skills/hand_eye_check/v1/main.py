@@ -84,7 +84,8 @@ def _move(robot, F, g, n=40):
     return r["proprio"], e
 
 
-def run(robot, object: str = "purple chapstick cap", open_m: float = 0.0254, clearance_m: float = 0.005, hold_s: float = 5.0):
+def run(robot, object: str = "purple chapstick cap", open_m: float = 0.0254, clearance_m: float = 0.005, hold_s: float = 5.0,
+        place_by: str = "wrist"):
     seen = robot.observe(["wrist", "pole"])
     base = seen["proprio"]["base_pose_odom"]
     for name, cam in seen["cameras"].items():
@@ -100,6 +101,14 @@ def run(robot, object: str = "purple chapstick cap", open_m: float = 0.0254, cle
         d = np.r_[pole[0] - xy, pole[1] - top] * 1000
         robot.log(f"pole: at x {pole[0][0]:.4f} y {pole[0][1]:.4f}, top z {pole[1]:.4f}: pole - wrist {np.round(d, 1).tolist()} mm")
         out |= {"pole_xy": np.round(pole[0], 4).tolist(), "pole_top_z": round(pole[1], 4), "pole_minus_wrist_mm": np.round(d, 1).tolist()}
+
+    if place_by == "pole":  # line up by the pole camera's estimate instead (which camera is right: the one that centres it)
+        if pole is None:
+            return out | {"ok": False, "reason": f"place_by pole, but the pole camera doesn't see the {object}"}
+        xy, top = pole[0], pole[1]
+    elif place_by != "wrist":
+        return out | {"ok": False, "reason": f"place_by is 'wrist' or 'pole', not {place_by!r}"}
+    out["placed_by"] = place_by
 
     # The hand straight down, keeping the heading it has now (its x on the floor), so the wrist turns little.
     F0 = np.array(robot.proprio()["flange_pose_root"])
@@ -123,7 +132,7 @@ def run(robot, object: str = "purple chapstick cap", open_m: float = 0.0254, cle
         robot.save_image(f"{name}_aligned", cam["rgb"])
     A = np.array(there["proprio"]["flange_pose_root"])
     tips = A[:3, 3] + TIPS * A[:3, 2]
-    robot.log(f"aligned: the fingertips' ends at {np.round(tips, 4).tolist()} (where the wrist put the {object}'s top "
+    robot.log(f"aligned: the fingertips' ends at {np.round(tips, 4).tolist()} (where the {place_by} camera put the {object}'s top "
               f"centre + {clearance_m * 1000:.0f} mm), gripper {width * 1000:.1f} mm open; holding {hold_s:.0f} s")  # fmt: skip
     robot.act_arm([_row(F, 0.0)] * int(hold_s * 15))
     _move(robot, H, 0.0, 60)

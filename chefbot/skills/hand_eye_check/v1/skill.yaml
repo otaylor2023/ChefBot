@@ -10,6 +10,7 @@ args:
   open_m: {type: number, default: 0.0254, doc: "how far open the gripper is (m; an inch)"}
   clearance_m: {type: number, default: 0.005, doc: "the fingertips' ends this far above its top (m)"}
   hold_s: {type: number, default: 5.0, doc: "how long the hand stays there (s)"}
+  place_by: {type: string, default: wrist, doc: "whose estimate the hand lines up with ('wrist' or 'pole'); both are logged"}
 models:
   grounding-dino: {runs: vision_models}
   sam2: {runs: vision_models}
