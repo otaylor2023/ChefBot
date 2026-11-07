@@ -490,6 +490,9 @@ def main() -> None:
     g.add_argument("--no-turn-in-room", action="store_true",
                    help="with --map: turn evenly along the path (the default turns where it has room: a short path from "
                         "beside a counter can't turn round as it starts)")
+    g.add_argument("--no-hold", action="store_true",
+                   help="with --map: keep re-aiming at the goal by mocap once inside the tolerances (the default holds "
+                        "it in odometry there: re-aiming on mocap's millimetres oscillated a few mm and 1 deg)")
     g.add_argument("--straight", action="store_true",
                    help="straight there on open floor (no A*, the map's obstacles not used): within --max-dist only")
     add_go_args(g)
@@ -550,7 +553,7 @@ def main() -> None:
         if not args.straight:
             log_dir = REPO / "runs" / "real_nav" / stamp
             log_dir.mkdir(parents=True, exist_ok=True)
-            robot = map_robot(env, args, grid, turn_in_room=not args.no_turn_in_room)
+            robot = map_robot(env, args, grid, turn_in_room=not args.no_turn_in_room, arrive_hold=not args.no_hold)
             result = go_planned(env, Pose2D(p["x"], p["y"], math.radians(p["yaw_deg"])), grid, robot=robot, log_dir=log_dir,
                                 approach_m=float(p.get("approach_m", 0.0)))  # fmt: skip
             (log_dir / "result.json").write_text(json.dumps(result, indent=2, default=str))
