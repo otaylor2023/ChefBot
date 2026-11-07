@@ -148,3 +148,29 @@ def test_every_place_of_the_work_map_reaches_every_other(tmp_path):
             if not goal_ok or plan_at_headings(plan, body, pose[a], begin, pre, g.yaw, style=robot._style())[0] is None:
                 failed.append((a, b))
     assert len(names) == 5 and failed == []
+
+
+def test_what_is_held_follows_the_real_gripper_after_each_skill():
+    # The pick and the place are episodes the in-process tools never see: TASK STATE's "holding" comes from the gripper.
+    import inspect
+    from types import SimpleNamespace
+
+    from chefbot.scripts.run_agent import _tracking_held
+
+    gripper, nav = {"holds": False}, SimpleNamespace(held=None)
+    held = {"nav": nav}
+
+    def pick(*, object):
+        gripper["holds"] = True
+        return "picked"
+
+    def place(*, target, object="it"):
+        gripper["holds"] = False
+        return "placed"
+
+    pick.__signature__ = inspect.signature(pick)
+    p, q = _tracking_held(pick, lambda: gripper["holds"], held), _tracking_held(place, lambda: gripper["holds"], held)
+    assert inspect.signature(p) == inspect.signature(pick)  # the registry binds the call's arguments to it
+    assert p(object="tomato") == "picked" and nav.held == {"id": "tomato"}
+    assert p(object="bowl") == "picked" and nav.held == {"id": "tomato"}  # still the tomato: nothing let go of it
+    assert q(target="bowl", object="tomato") == "placed" and nav.held is None

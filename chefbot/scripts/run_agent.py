@@ -90,6 +90,9 @@ def run(
         if world.host_skills is not None:  # host-v1 skills: in this process, on the same host
             world.host_skills.move_to(run_dir / "skills")
             skill_tools += [world.host_skills.tool(s) for s in run_session.skills if s.interface == "host-v1"]
+        held = {}  # the session, once built: TASK STATE's "holding" follows the real gripper after each skill
+        if world.gripper_holds is not None:
+            skill_tools = [(schema, _tracking_held(handler, world.gripper_holds, held)) for schema, handler in skill_tools]
         session = harness.AgentSession.build(
             plan, world.robot, world.detector, world.world_map, world.clock, run_dir, judge, world.observer,
             config, agent_def.settings, operator=operator,
@@ -100,6 +103,7 @@ def run(
     except BaseException:
         world.close()  # the real robot: let go of it
         raise
+    held["nav"] = session.registry.tools
     session.bus.add_safety(world.safety)
     session.log.start(
         task=world.name, task_file=str(task_path), seed=seed, agent={"name": agent_def.name, "harness": agent_def.harness_name},
@@ -186,6 +190,29 @@ def run(
     return {"run_dir": str(run_dir), "outcome": outcome[0], "summary_text": text, **verdict, "totals": end.get("totals", {})}
 
 
+def _tracking_held(handler, holds, held: dict):
+    """A skill's handler that, after the skill, sets what the agent's TASK STATE says is held from the gripper itself
+    (`holds()`): on the real robot the pick and the place are episodes the in-process tools never see, so "holding"
+    would stay "nothing". Held: the object the last skill named that left the fingers closed on something."""
+    import functools
+
+    @functools.wraps(handler)
+    def call(**args):
+        result = handler(**args)
+        nav = held.get("nav")
+        if nav is not None:
+            try:
+                now = holds()
+            except Exception:  # noqa: BLE001  (the state stalled: leave it as it was)
+                return result
+            if not now:
+                nav.held = None
+            elif nav.held is None:
+                nav.held = {"id": str(args.get("object") or "something")}
+        return result
+
+    return call
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the ChefBot agent on a task.")
     parser.add_argument("--task", type=Path, required=True)
@@ -195,7 +222,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="real: send nothing to the arm or the gripper")
     parser.add_argument("--confirm", action="store_true", help="real: Enter before each move")
     parser.add_argument("--url", help="real: the onboard server (default: environments/real/config.yaml)")
-    parser.add_argument("--speed", default="slow", help="real: speed profile (default slow; clipped to the robot's real limits)")
+    parser.add_argument("--speed", default="slow", help="real: speed profile for the arm and the base (default slow; one over the base cap is refused)")
     parser.add_argument("--interface", choices=INTERFACES, help="the robot API of the session (default: the agent's first)")
     parser.add_argument("--video", action="store_true", help="record the run (robocasa): runs/<run>/video.mp4")
     parser.add_argument("--seed", type=int, default=0)

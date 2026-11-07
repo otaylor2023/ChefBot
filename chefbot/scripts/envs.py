@@ -39,6 +39,7 @@ class EnvRun:
     close: Callable[[], None] = lambda: None
     skills: Any = None  # the real robot: its chefbot-v1 skills' runner (runtime/agent_skills.py EpisodeSkills)
     host_skills: Any = None  # the real robot: its host-v1 skills' runner (scripts/real_kitchen.py HostSkills)
+    gripper_holds: Any = None  # the real robot: () -> bool, the fingers commanded closed and stopped on something
 
 
 def symbolic(task_path: Path, seed: int, noise: str) -> EnvRun:
@@ -144,14 +145,21 @@ def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: boo
     if any(s.interface == "host-v1" for s in skills):  # the base on the map, finding things: in this process
         from chefbot.scripts.real_kitchen import HostSkills, RealKitchen
 
-        host_skills = HostSkills(RealKitchen(host, map_dir, vision, out, confirm=confirm,
+        base_vel = robot.speed(speed).base_max_vel  # the run's speed profile for the base too
+        host_skills = HostSkills(RealKitchen(host, map_dir, vision, out, confirm=confirm, speed=base_vel[0], yaw_speed=base_vel[2],
                                              log=(lambda *a: None) if env is not None else print))  # fmt: skip
     return EnvRun(
         task.get("name", task_path.stem), task, StationaryRobot(host), NoDetector(), WorldMap.from_dict({}), WallClock(),
         NoGroundTruth(), no_safety_events, unjudged, host.halt,
         info={"env": "real", "robot": robot.name, "dry_run": dry_run, "speed": speed, "confirm": confirm},
-        close=host.close, skills=runner, host_skills=host_skills,
+        close=host.close, skills=runner, host_skills=host_skills, gripper_holds=lambda: _holds(host),
     )  # fmt: skip
+
+
+def _holds(host) -> bool:
+    """The real gripper holds something: commanded closed, and its fingers stopped wider than 4 mm apart."""
+    s = host.raw_env.get_state()
+    return bool(s.gripper_closed_cmd) and float(s.gripper_width) > 0.004
 
 
 ENVS = {"symbolic": symbolic, "robocasa": robocasa, "real": real}
