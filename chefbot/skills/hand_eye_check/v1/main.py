@@ -63,7 +63,29 @@ def _find(robot, cam, base_pose, object, name):
     overlay[mask] = (0.5 * overlay[mask] + [0, 127, 0]).astype(np.uint8)
     robot.save_image(f"{name}_found", overlay)
     dist = float(np.median(np.asarray(cam["depth"])[mask & valid]))
-    return np.median(sel[:, :2], axis=0), float(np.percentile(sel[:, 2], 95)), len(sel), ds[0]["box"], dist
+    T = np.linalg.inv(_planar(*base_pose)) @ np.asarray(cam["cam_to_odom"])
+    c = T[:3, 3]
+    # The camera sees the near side only: its points' middle is short of the axis by about the radius times 2/pi
+    # (a cylinder's visible half); the radius from the points' spread across the view.
+    near_mid = np.median(sel[:, :2], axis=0)
+    view = near_mid - c[:2]
+    view = view / max(np.linalg.norm(view), 1e-9)
+    across = np.array([-view[1], view[0]])
+    radius = float(np.diff(np.percentile(sel[:, :2] @ across, [5, 95]))[0] / 2)
+    xy = near_mid + view * radius * 2 / np.pi
+    top_depth = float(np.percentile(sel[:, 2], 95))
+    # The top from the silhouette: each mask pixel's ray, where it passes the object's vertical line through xy (the
+    # depth of a thin object's top edge mixes with what's behind it and drops it 1-2 cm; the mask's edge doesn't).
+    K = np.asarray(cam["K"])
+    v, u = np.nonzero(mask)
+    rays = (T[:3, :3] @ (np.linalg.inv(K) @ np.vstack([u, v, np.ones_like(u)]))).T
+    s = ((xy - c[:2]) @ rays[:, :2].T) / np.maximum(np.sum(rays[:, :2] ** 2, axis=1), 1e-9)
+    # the highest rays graze the top's far rim, a radius past the axis: there they're lower by radius x their slope
+    z_sil = c[2] + s * rays[:, 2] + radius * rays[:, 2] / np.maximum(np.linalg.norm(rays[:, :2], axis=1), 1e-9)
+    top_sil = float(np.percentile(z_sil[s > 0], 99)) if (s > 0).sum() > 20 else top_depth
+    top = top_sil if top_depth - 0.005 <= top_sil <= top_depth + 0.05 else top_depth  # only ever raises it, a little
+    robot.log(f"{name} top: {top:.4f} (depth {top_depth:.4f}, silhouette {top_sil:.4f}); radius {radius * 1000:.1f} mm")
+    return xy, top, len(sel), ds[0]["box"], dist
 
 
 def _move(robot, F, g, n=40):
