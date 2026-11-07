@@ -2,7 +2,7 @@
 # bodies, the provisional bounds, the no-go west of the island; heading_zones.yaml the same), with only the places the
 # base can stand at: 8 of src_kitchen's 20 (the rest are in a wall, an obstacle or the 10 cm margin, checked 2026-11-06
 # with real_nav's planner and the arm at READY). Keep the obstacles in step with maps/src_kitchen/spec.yaml.
-# The north side (counter_*, far_counter_west, island_north) and the south aisle (island_south, stove_counter_north)
+# The north side (far_counter_west, island_north) and the south aisle (island_south, stove_counter_north, counter_north)
 # join only through the fridge aisle, where the base faces along it: north to south plans, south to north does not.
 # Build: python -m chefbot.environments.real.build_map build maps/src_kitchen_work/spec.yaml
 resolution: 0.05
@@ -48,5 +48,5 @@ obstacles:
 stations:
   - {obstacle: kitchen_island_countertop, prefix: island, standoff: 0.45, approach: 0.25, sides: [north, south]}
   - {obstacle: 1-corner-countertop, prefix: stove_counter, standoff: 0.45, approach: 0.25, sides: [north]}
-  - {obstacle: Chef-botcounter-top, prefix: counter, standoff: 0.45, approach: 0.25, sides: [north, south, east, west]}
+  # Chef-botcounter-top (the test counter): no places for now (2026-11-06); still an obstacle
   - {obstacle: far-counter, prefix: far_counter, standoff: 0.45, approach: 0.25, sides: [west]}
