@@ -65,6 +65,9 @@ class OpenRouterExtractor(CappedExtractor):
         self.response_format = {"type": "json_schema",
                                 "json_schema": {"name": "Recipe", "strict": True, "schema": recipe_schema()}}
         self.adaptations: set[str] = set()
+        # max_tokens counts hidden reasoning AND the answer. Thinking models (Claude Haiku: ~3-5k reasoning tokens)
+        # otherwise truncate a 4-6k-token plan at an 8k cap. Headroom is billed only if used.
+        self.reasoning_headroom = int(os.environ.get("OPENROUTER_REASONING_HEADROOM", "8000"))
 
     def _create(self, system, user, extra, kwargs):
         """Vendor limits, handled once per extractor and recorded in self.adaptations:
@@ -81,7 +84,8 @@ class OpenRouterExtractor(CappedExtractor):
             try:
                 return self.client.chat.completions.create(
                     model=self.remote_model, messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": user}],
-                    response_format=self.response_format, max_tokens=self.cap, extra_body=extra, **kwargs)
+                    response_format=self.response_format, max_tokens=self.cap + self.reasoning_headroom,
+                    extra_body=extra, **kwargs)
             except openai.NotFoundError as e:
                 if "temperature" in kwargs and "No endpoints found" in str(e):
                     kwargs.pop("temperature")
@@ -122,7 +126,8 @@ class OpenRouterExtractor(CappedExtractor):
         if getattr(choice.message, "refusal", None):
             return LLMCall(None, choice.message.refusal, usage, "refusal")
         if choice.finish_reason == "length":
-            return LLMCall(None, raw, usage, f"truncated: length{_loop_note(raw)} after {usage.output_tokens} output tokens")
+            return LLMCall(None, raw, usage, f"truncated: length{_loop_note(raw)} after {usage.output_tokens} output tokens"
+                           f" ({usage.reasoning_tokens} reasoning)")
         return self._parse(raw, usage)
 
 
