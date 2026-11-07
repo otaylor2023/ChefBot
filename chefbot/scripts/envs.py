@@ -107,7 +107,8 @@ def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
 
 
 def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: bool = False, confirm: bool = False,
-         url: str | None = None, speed: str = "slow", model_usd: float = 0.5, env=None,
+         url: str | None = None, speed: str = "slow", model_usd: float = 0.5, env=None, arm_speed: str | None = None,
+         base_speed: str | None = None,
          map_dir: Path = REPO / "maps" / "src_kitchen_work") -> EnvRun:
     """The real robot through the onboard server (ssh -L 8765:localhost:8765 tidybot01). The arm only, the base held;
     every move checked by the real host's guard, at the robot's real limits. dry_run: nothing is sent to the arm or
@@ -137,7 +138,8 @@ def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: boo
     wanted = [s.cameras for s in skills]
     cameras = None if any(c is True for c in wanted) else sorted({n for c in wanted if isinstance(c, list) for n in c})
     out = Path(tempfile.mkdtemp(prefix="chefbot_real_"))  # run_agent points it into the run's folder
-    host = RealHost(robot, robot.speed(speed), out, dry_run=dry_run, confirm=confirm, url=url, env=env, cameras=cameras,
+    profile = robot.speed(speed, arm=arm_speed, base=base_speed)  # each default `speed`
+    host = RealHost(robot, profile, out, dry_run=dry_run, confirm=confirm, url=url, env=env, cameras=cameras,
                     log=(lambda *a: None) if env is not None else print)  # fmt: skip
     vision = M.Vision(os.environ.get("VISION_URL")) if any(s.access()["vision"] for s in skills) else None
     runner = EpisodeSkills(host, out, M.Ledger(out / "model_ledger.jsonl", model_usd), vision, confirm=confirm)
@@ -145,13 +147,13 @@ def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: boo
     if any(s.interface == "host-v1" for s in skills):  # the base on the map, finding things: in this process
         from chefbot.scripts.real_kitchen import HostSkills, RealKitchen
 
-        base_vel = robot.speed(speed).base_max_vel  # the run's speed profile for the base too
+        base_vel = profile.base_max_vel  # the run's base profile for the drives too
         host_skills = HostSkills(RealKitchen(host, map_dir, vision, out, confirm=confirm, speed=base_vel[0], yaw_speed=base_vel[2],
                                              log=(lambda *a: None) if env is not None else print))  # fmt: skip
     return EnvRun(
         task.get("name", task_path.stem), task, StationaryRobot(host), NoDetector(), WorldMap.from_dict({}), WallClock(),
         NoGroundTruth(), no_safety_events, unjudged, host.halt,
-        info={"env": "real", "robot": robot.name, "dry_run": dry_run, "speed": speed, "confirm": confirm},
+        info={"env": "real", "robot": robot.name, "dry_run": dry_run, "speed": profile.name, "confirm": confirm},
         close=host.close, skills=runner, host_skills=host_skills, gripper_holds=lambda: _holds(host),
     )  # fmt: skip
 

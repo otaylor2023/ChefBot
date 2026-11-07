@@ -223,6 +223,8 @@ def main() -> int:
     parser.add_argument("--confirm", action="store_true", help="real: Enter before each move")
     parser.add_argument("--url", help="real: the onboard server (default: environments/real/config.yaml)")
     parser.add_argument("--speed", default="slow", help="real: speed profile for the arm and the base (default slow; one over the base cap is refused)")
+    parser.add_argument("--arm-speed", default=None, help="real: the arm's speed profile (default --speed)")
+    parser.add_argument("--base-speed", default=None, help="real: the base's speed profile (default --speed)")
     parser.add_argument("--interface", choices=INTERFACES, help="the robot API of the session (default: the agent's first)")
     parser.add_argument("--video", action="store_true", help="record the run (robocasa): runs/<run>/video.mp4")
     parser.add_argument("--seed", type=int, default=0)
@@ -242,7 +244,8 @@ def main() -> int:
     operator = terminal_operator if args.operator == "terminal" else (lambda reason, a=args.operator: a)
     result = run(args.task, args.seed, args.out, config, operator=operator, quiet=args.quiet, noise=args.noise,
                  env=args.env, video=args.video, agent=args.agent, interface=args.interface,
-                 env_options={"dry_run": args.dry_run, "confirm": args.confirm, "url": args.url, "speed": args.speed})  # fmt: skip
+                 env_options={"dry_run": args.dry_run, "confirm": args.confirm, "url": args.url, "speed": args.speed,
+                              "arm_speed": args.arm_speed, "base_speed": args.base_speed})  # fmt: skip
     if args.quiet:
         print(json.dumps({k: v for k, v in result.items() if k != "summary_text"}, default=str))
     if result["success"] is None:  # not judged (the real robot): the agent's own word
