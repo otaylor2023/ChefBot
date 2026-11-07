@@ -201,6 +201,28 @@ gamepad_stop() {  # the gamepad's Vehicle stops (its SIGTERM handler), then the 
 	echo "=== the base driver has the base again (its odometry starts over from where it is) ==="
 }
 
+changing() {  # key, seconds: its value changes within that long (a driver that publishes it is running)
+	local first deadline
+	first="$(redis-cli GET "$1" 2>/dev/null)"
+	deadline=$((SECONDS + $2))
+	while ((SECONDS < deadline)); do
+		sleep 0.2
+		[[ "$(redis-cli GET "$1" 2>/dev/null)" != "$first" ]] && return 0
+	done
+	return 1
+}
+
+live_check() {  # before ALL UP: each driver started is publishing (its values change), not just started
+	local ok=0
+	if $BASE && ! changing hb1::heartbeat 5; then
+		echo "the base driver isn't publishing (hb1::heartbeat not changing): see $LOGS/base.log" >&2; ok=1
+	fi
+	if $ARM_DRIVER && ! changing opensai::sensors::FrankaRobot::joint_positions 5; then
+		echo "the arm driver isn't publishing joints: see $LOGS/arm_driver.log" >&2; ok=1
+	fi
+	return $ok
+}
+
 watch_parts() {  # until a part exits (then say which, and stop everything); meanwhile f / h float and hold the arm
 	local keys="" pid k
 	if { $OPENSAI || $BASE; } && [[ -t 0 ]]; then
@@ -348,11 +370,13 @@ if $SERVER; then
 		sleep 0.3
 	done
 	echo "5) onboard server: up (port $SERVER_PORT)"
+	live_check || exit 1
 	echo ""
 	echo "=== ALL UP: the robot is ready (logs in $LOGS). Ctrl-C stops everything. ==="
 	watch_parts
 else
 	echo "5) server skipped"
+	live_check || exit 1
 	echo ""
 	echo "=== ALL UP: the drivers are ready (logs in $LOGS). Ctrl-C stops them. ==="
 	watch_parts

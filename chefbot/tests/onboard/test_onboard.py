@@ -654,3 +654,22 @@ def test_real_nav_stops_the_base_if_the_arm_moves_while_driving(sim):
     finally:
         stop.set()
         t.join()
+
+
+def test_the_first_state_after_the_server_starts_has_the_live_drivers():
+    # 2026-11-06: the first client after each launch.sh got "no base odometry": liveness is a value seen changing,
+    # and the server's first read had nothing to compare with. It reads twice before its hello now.
+    redis = FakeRedis(driver_values())
+    publisher = FakePublisher(redis)
+    server = build(CONFIG, redis)
+    server.cameras = FakeCameras()
+    server.start()
+    try:
+        env = RealEnv(server.url, np.eye(4))
+        first = env.raw_state()
+        assert first["base_driver_live"] and first["odom_pose"] is not None
+        env.get_state()  # does not raise
+        env.close()
+    finally:
+        publisher.stop()
+        server.shutdown()

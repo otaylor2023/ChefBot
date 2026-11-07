@@ -88,6 +88,12 @@ class OnboardServer:
         ]
         moving = False  # commanded since the last halt: silence then means trouble
         try:
+            # Two reads first: the drivers' liveness is a value seen changing (robot_io's Freshness), so a first
+            # read after the server starts says "not live" for every driver; the client's first state is then a true
+            # one (2026-11-06: run_real's first state after each launch.sh said "no base odometry").
+            self.robot.read_state()
+            time.sleep(0.1)
+            self.robot.read_state()
             send({"type": P.HELLO, "version": P.VERSION, "cameras": sorted(self.cameras.cameras), "limits": self.limits})
             for worker in workers:
                 worker.start()
