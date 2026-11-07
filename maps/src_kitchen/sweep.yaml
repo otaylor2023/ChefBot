@@ -1,0 +1,16 @@
+# The fixed exploration sweep (Jack, 2026-11-07: "stove counter plus around the island"): one pass that shows the pole
+# camera every counter top we cook on, to build the memory map's inventory. `real_nav park --sweep` drives the stops
+# in order; the camera recorder saves frames while the base moves, and the base keeps facing the counter while it
+# slides along it, so the moves between stops on the same side are the scans.
+# Each stop: a counter (spec.yaml box name), the side the base parks on, and a world x along it. Targets sit at the
+# trained inset (0.13 m in). The island's sink (x > ~1.52) gets no stops; its north side is reached through the fridge
+# gap (the A* path goes round, as in the m2_random trips of 2026-11-05).
+# Practised range on 11-05: x 0.3-1.55 on the island's south and stove counter's north. Stove x 2.6 is NEW: plan-only first.
+stops:
+  - {counter: kitchen_island_countertop, side: south, x: 1.40}   # start in the work area, facing the island
+  - {counter: kitchen_island_countertop, side: south, x: 0.60}
+  - {counter: 1-corner-countertop, side: north, x: 0.50}         # turn round: the stove counter
+  - {counter: 1-corner-countertop, side: north, x: 1.50}
+  - {counter: 1-corner-countertop, side: north, x: 2.60}         # its east part, past the practised range
+  - {counter: kitchen_island_countertop, side: north, x: 1.40}   # round the island through the fridge gap
+  - {counter: kitchen_island_countertop, side: north, x: 0.60}

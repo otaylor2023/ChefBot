@@ -428,6 +428,32 @@ def random_targets(box, n: int, seed: int, sides=None, x_range=None, end_margin=
     return out
 
 
+def sweep_targets(map_dir: Path, sweep_file: Path) -> tuple[list, list]:
+    """The fixed exploration sweep (maps/<map>/sweep.yaml): its stops in order, each a counter side and a world x,
+    turned into a target on that side at the trained inset (the middle of 0.10-0.16 m) and the counter's box."""
+    import yaml
+
+    from chefbot.robot.nav.goal import TRAINED_INSET_M, counter_faces
+
+    stops = yaml.safe_load(Path(sweep_file).read_text())["stops"]
+    inset = sum(TRAINED_INSET_M) / 2
+    targets, boxes = [], []
+    for s in stops:
+        box = counter_box(map_dir, s["counter"])
+        face = next((f for f in counter_faces(*box[:3]) if f["name"] == s["side"]), None)
+        if face is None:
+            raise SystemExit(f"sweep: {s['counter']} has no {s['side']} side")
+        c = np.asarray(box[0], dtype=float)
+        edge = c + face["n"] * (face["half_n"] - inset)  # the side's middle, `inset` in
+        along = (float(s["x"]) - edge[0]) / face["t"][0] if abs(face["t"][0]) > 0.5 else 0.0
+        if abs(along) > face["half_along"]:
+            raise SystemExit(f"sweep: x {s['x']} is off the {s['side']} side of {s['counter']}")
+        p = edge + face["t"] * along
+        targets.append((round(float(p[0]), 3), round(float(p[1]), 3)))
+        boxes.append(box)
+    return targets, boxes
+
+
 class _ByRule:
     """Reachability for stances built by the start rule: the pick skills were trained from exactly these."""
 
@@ -488,8 +514,10 @@ def park(env: RealEnv, args) -> list[dict]:
             mixed += [a, b]
             mixed_boxes += [box, box_b]
         targets, boxes = mixed, mixed_boxes
+    if args.sweep:  # the fixed exploration sweep: its stops, in order, across counters
+        targets, boxes = sweep_targets(args.map, args.sweep)
     if not targets:
-        raise SystemExit("no targets: --target X Y and/or --random N")
+        raise SystemExit("no targets: --target X Y, --random N or --sweep FILE")
     from chefbot.scripts.real_map import load as load_map
 
     grid, _ = load_map(args.map)
@@ -713,6 +741,8 @@ def add_park_args(k) -> None:
                    help="m: targets (and stances) this close to a counter side's ends (default: the pick rule's 0.35)")
     k.add_argument("--x-range", nargs=2, type=float, default=None, metavar=("XMIN", "XMAX"),
                    help="draw --random targets only within this world-x stretch (one section of a kitchen)")
+    k.add_argument("--sweep", type=Path, default=None,
+                   help="the fixed exploration sweep (maps/src_kitchen/sweep.yaml): its stops in order, instead of random targets")
     k.add_argument("--counter", default=None, help="the counter's obstacle name in the map spec (default: the first box)")
     k.add_argument("--plan-only", action="store_true", help="choose and print the stances; nothing moves")
     k.add_argument("--out", type=float, nargs="+", default=None,

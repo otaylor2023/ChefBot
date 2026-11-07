@@ -98,3 +98,39 @@ are off by that angle (and maybe height).
   zig-zags.
 - Arm model is ≥5 cm cautious at the fridge (gripper ~5 cm from the door where the model says contact).
 - Map walls west (x −2.0) and north (y 4.32) are placeholders; L leg 2's depth is assumed (0.63 m).
+
+## 8. Exploration sweep + live memory map (prepared 2026-11-07, not yet run on the robot)
+Goal: one ~1-minute sweep (stove counter, then round the island) gives the inventory: what is on each counter and
+roughly where, for `real_nav goto`. Route: `maps/src_kitchen/sweep.yaml` (7 stops; the stove counter's x 2.6 stop is
+outside the 11-05 practised range). Vocabulary: `chefbot/perception/inventory.txt` (DRAFT: Jack edits it to the real
+tools and ingredients). Offline replay of p2_layout3 through the live mapper: 84 frames at ~450 ms each on the M1's CPU
+(never behind at 1 Hz), 27 entries, named by gemini-3.5-flash-lite in 12 s -> 24 objects.
+
+**One-time setup on the robot** (a user venv, no system packages; ~1 GB):
+```
+ssh chefbot '~/miniforge3/bin/python3 -m venv ~/chefbot_vision && ~/chefbot_vision/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision && ~/chefbot_vision/bin/pip install ultralytics==8.4.204 pyyaml pillow'
+scp ~/.cache/yoloe/yoloe-26s-seg.pt ~/.cache/yoloe/mobileclip2_b.ts chefbot:.cache/yoloe/
+rsync -a --exclude .git --exclude runs mac_chefbot-movement/ chefbot:chefbot_sweep/      # this branch, beside ~/chefbot_nav
+scp .env chefbot:chefbot_sweep/.env    # GEMINI_API_KEY for naming (or name on the Mac afterwards)
+scp robot_data/calibration/environments_real_config_2026-11-05.yaml chefbot:chefbot_sweep/pole_cal_2026-11-05.yaml
+```
+Then time YOLOE on the robot's CPU on a recorded pass before relying on it live (the M1 CPU's ~450 ms is the reference).
+
+**Per layout** (one sweep each, then rearrange):
+1. Answer key first: a phone photo of each counter and `stream/NAME/ANSWER.txt`, one line per item: `counter: item`
+   (island / stove / side). 30 s; this is what the map is scored against.
+2. Base up (section 2), recorder on (section 4, `--hz 1`, data/stream/NAME).
+3. Live map (robot):
+```
+ssh chefbot 'cd ~/chefbot_sweep && (PYTHONPATH=$PWD setsid nohup nice -n 10 ~/chefbot_vision/bin/python -u -m chefbot.perception.live_map \
+  ~/chefbot_collect/data/stream/NAME --config pole_cal_2026-11-05.yaml --threads 4 --out maps/src_kitchen/objects.json \
+  --name gemini-3.5-flash-lite --env-file .env > runs/live_NAME.log 2>&1 < /dev/null &)'
+```
+   (`nice` + `--threads 4`: the detector must not starve the drive loop on the same CPU; watch for holds in the park log.)
+4. Sweep: `--plan-only` first, then for real (Jack's "clear"):
+```
+... -m chefbot.scripts.real_nav park --sweep maps/src_kitchen/sweep.yaml --map maps/src_kitchen --end-margin 0.05 \
+  --margin 0.05 --out 0.46 0.46 --approach 0 --profile exp50 --hold --clearance 0.7 --turn-in-room --corridor 0.25
+```
+5. Stop the recorder (live_map finishes when the recording's summary.json appears: drops one-view entries, merges,
+   names). Then `real_nav goto NAME --map maps/src_kitchen --plan-only` for three items, then drive them.

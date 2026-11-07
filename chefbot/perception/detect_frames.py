@@ -44,6 +44,20 @@ def make_model(name: str, classes: list[str] | None, weights_dir: str):
     return model
 
 
+def predict(model, img, imgsz: int = 1280, conf: float = 0.15, device=None, half: bool = False):
+    """One image (a path or an RGB array): the ultralytics result and its detections as plain dicts."""
+    src = str(img) if isinstance(img, (str, Path)) else img[..., ::-1]  # ultralytics takes arrays as BGR
+    kw = {"half": True} if half else {}  # (passing half=False makes ultralytics warn on every frame)
+    r = model.predict(src, imgsz=imgsz, conf=conf, device=device, verbose=False, **kw)[0]
+    dets = []
+    polys = r.masks.xy if r.masks is not None else [None] * len(r.boxes)
+    for b, poly in zip(r.boxes, polys):
+        dets.append({"label": r.names[int(b.cls)], "score": round(float(b.conf), 3),
+                     "box": [round(float(v), 1) for v in b.xyxy[0].tolist()],
+                     "poly": [] if poly is None else [[round(float(x), 1), round(float(y), 1)] for x, y in poly]})  # fmt: skip
+    return r, dets
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("passes", nargs="+", help="stream/<pass> dirs")
@@ -76,14 +90,7 @@ def main(argv=None) -> int:
                 img = cam_dir / "color" / f"{int(f['n']):06d}.png"
                 if not img.exists():
                     continue
-                r = model.predict(str(img), imgsz=a.imgsz, conf=a.conf, device=a.device, half=a.half, verbose=False)[0]
-                dets = []
-                polys = r.masks.xy if r.masks is not None else [None] * len(r.boxes)
-                for b, poly in zip(r.boxes, polys):
-                    label = r.names[int(b.cls)]
-                    dets.append({"label": label, "score": round(float(b.conf), 3),
-                                 "box": [round(float(v), 1) for v in b.xyxy[0].tolist()],
-                                 "poly": [] if poly is None else [[round(float(x), 1), round(float(y), 1)] for x, y in poly]})  # fmt: skip
+                r, dets = predict(model, img, a.imgsz, a.conf, a.device, a.half)
                 for lab in {d["label"] for d in dets}:
                     seen[lab] += 1
                 if i > 0:  # the first frame pays for warm-up
