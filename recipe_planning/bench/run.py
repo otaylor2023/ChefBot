@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -70,6 +71,8 @@ def main(argv=None):
     ap.add_argument("--out", default="bench_runs")
     ap.add_argument("--cooldown", type=float, default=None, help="seconds to pause between instances (default 20 for ollama:*)")
     ap.add_argument("--max-gpu-temp", type=float, default=85.0, help="ollama:* only: wait while the GPU junction is hotter (C)")
+    ap.add_argument("--gpu-abort-temp", type=float, default=100.0,
+                    help="ollama:* only: stop the model mid-test at this junction temperature (C); the test is retried after cooling")
     ap.add_argument("--max-minutes", type=float, help="stop starting new instances after this long (resume later)")
     a = ap.parse_args(argv)
     if a.reasoning_effort is None:
@@ -129,16 +132,51 @@ def main(argv=None):
             print(f"  GPU junction {t:.0f}C > {a.max_gpu_temp:.0f}C: cooling down", file=sys.stderr, flush=True)
             time.sleep(30)
 
+    # Thermal watchdog (local models): the between-test guard can't see a single long inference heat the GPU past
+    # its limit, so a thread watches the junction and stops the model server mid-test. That test is not recorded as a
+    # failure: it is retried after the GPU cools (up to 3 times).
+    hot = threading.Event()
+    watching = threading.Event()
+
+    def watchdog():
+        while not watching.is_set():
+            t = gpu_junction_c()
+            if t is not None and t >= a.gpu_abort_temp and not hot.is_set():
+                hot.set()
+                print(f"  GPU junction {t:.0f}C >= {a.gpu_abort_temp:.0f}C: stopping the model mid-test; it will be retried "
+                      "after cooling", file=sys.stderr, flush=True)
+                subprocess.run(["pkill", "-f", "ollama/llama-server"], check=False)
+            time.sleep(2)
+
+    if local:
+        threading.Thread(target=watchdog, daemon=True).start()
+
     def one(inst, k):
-        gpu_guard()
-        if stop["why"]:
-            return None
         src = from_text(inst["text"])
-        ex = make_extractor(a.model, a.temperature, a.reasoning_effort, a.max_output_tokens)
-        t0 = time.perf_counter()
-        try:
-            res = run_pipeline(src, ex, repair=not a.no_repair)
-        except Exception as e:  # an API / server failure is a data point
+        for attempt in range(4):
+            gpu_guard()
+            if stop["why"]:
+                return None
+            hot.clear()
+            ex = make_extractor(a.model, a.temperature, a.reasoning_effort, a.max_output_tokens)
+            t0 = time.perf_counter()
+            try:
+                res = run_pipeline(src, ex, repair=not a.no_repair)
+                err = None
+            except Exception as e:
+                err = e
+            if local and hot.is_set():
+                if attempt == 3:
+                    print(f"  {inst['id']} r{k}: interrupted for heat 4 times; not recorded (a rerun resumes it)",
+                          file=sys.stderr, flush=True)
+                    return None
+                while (t := gpu_junction_c()) is not None and t > 70:   # cool well below the guard before retrying
+                    time.sleep(15)
+                print(f"  {inst['id']} r{k}: interrupted for heat, retrying (attempt {attempt + 2})", file=sys.stderr, flush=True)
+                continue
+            break
+        if err is not None:  # an API / server failure is a data point
+            e = err
             return {"id": inst["id"], "run": k, "base": inst["base"], "perturbation": inst["perturbation"],
                     "split": inst["split"], "model": a.model, "tag": tag, "resolved": False,
                     "reasons": [f"call failed: {type(e).__name__}: {str(e)[:200]}"], "api_error": True,
