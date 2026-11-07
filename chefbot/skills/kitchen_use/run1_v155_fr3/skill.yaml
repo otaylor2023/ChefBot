@@ -1,0 +1,27 @@
+name: kitchen_use
+version: run1_v155_fr3
+entry: main.py:run
+interface: chefbot-v1
+robot: tidybot_fr3
+arm_only: true      # the base holds where it starts (the lab's moved it 7 cm forward and sideways: see provenance)
+cameras: [wrist, pole]  # both: the identity check compares them, and the pole can direct a closer wrist view
+args:
+  object: {type: string, doc: "what to pick up, in a few words ('egg', 'saucepan lid', 'tongs')"}
+  where: {type: string, doc: "where it is: 'on the counter' or 'on the utensil rest'"}
+  use: {type: string, doc: "'hold' (the sim's 66% on ordinary things); 'tongs', 'squeeze', 'press' are 0% in sim"}
+  then: {type: string, doc: "what to do once holding it, in words ('' for hold)"}
+  target: {type: string, doc: "what the use is on ('the egg in the bowl', 'bowl'; '' if nothing)"}
+models:
+  gemini-robotics-er-2-preview: {runs: api, provider: google, key: GEMINI_API_KEY}
+  gemini-3.1-flash-lite: {runs: api, provider: google, key: GEMINI_API_KEY}
+  grounding-dino: {runs: vision_models}
+  sam2: {runs: vision_models}
+assumes: the object on a surface in the cameras' view from where the arm starts (run_real --ready), within the arm's reach without the base moving; the hand wearing the printed fingers (fingers_run2_final)
+privileged: false
+provenance:
+  lab: kitchen_use (agentic-skills-exploration chefbot_labs/labs/kitchen_use.yaml), the FR3 wearing the printed fingers in sim
+  run: kitchen_use-1105-144548 (~/ase_lab/runs), skills/final = v155, digest 8c5d3c6fc0a0
+  results: dev 71/144 (holds 71/108, tool uses 0/36), val 12/24 (v124 had 13/24), ~27 s a pick; the lab's REPORT.md
+  ported_from: that final, copied 2026-11-06
+  changes: the real pads' middle (0.118 m from the flange, the hand on its 27.25 mm holder; sim 0.091, measured on the robot 2026-11-06), the band the open fingers are sought in (2.7 cm out), a move's step cap (up to 300 steps while still progressing, was n+50, as in pick_up/chefbot_v30_fr3); nothing else. Its base moves (act rows' base columns, act_base) are held by the real host in an arm-only run, the arm still reaching the same odom targets
+  real: not run yet
