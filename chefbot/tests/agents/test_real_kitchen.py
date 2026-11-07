@@ -18,7 +18,7 @@ from chefbot.tests.agents.test_real_arm import Scripted
 from chefbot.tests.onboard.test_real_host import FakeRobot
 
 REPO = Path(__file__).resolve().parents[3]
-MAP = REPO / "maps/src_kitchen"
+MAP = REPO / "maps/src_kitchen_work"
 JOB = REPO / "chefbot/jobs/tomato_to_bowl.yaml"
 
 

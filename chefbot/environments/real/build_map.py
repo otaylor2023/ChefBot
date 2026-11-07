@@ -28,6 +28,10 @@ The spec (all in metres, world frame, as real_pose / real_nav print poses):
       - {obstacle: counter, prefix: counter, standoff: 0.45, approach: 0.25}
         # -> counter_south / _north / _east / _west: the base centre `standoff` out from the middle of each edge,
         #    facing it squarely; real_nav goes the last `approach` m straight in along the edge's normal
+      - {obstacle: island, prefix: island, standoff: 0.45, approach: 0.25, sides: [north, south]}
+        # -> only these sides (the others against a wall, or out of reach)
+      - {obstacle: island, prefix: island, standoff: 0.45, approach: 0.25, sides: [north, south]}
+        # -> only these sides (the others against a wall, or out of reach)
 
 Obstacles are the furniture itself; the robot layer grows them by the robot's footprint at each heading, and decides
 from the heights which parts of the robot pass over what (robot/nav/footprint.py). Measure corners with a tape from a
@@ -82,6 +86,10 @@ def stations(spec: dict) -> dict:
             d = half + float(st["standoff"])
             heading = math.degrees(math.atan2(-ny, -nx))  # facing the edge
             side = ("east" if nx > 0 else "west") if abs(nx) >= abs(ny) else ("north" if ny > 0 else "south")
+            if st.get("sides") is not None and side not in st["sides"]:
+                continue
+            if st.get("sides") is not None and side not in st["sides"]:
+                continue
             out[f"{st.get('prefix', st['obstacle'])}_{side}"] = {
                 "x": cx + nx * d, "y": cy + ny * d, "yaw_deg": round(heading, 6), "approach_m": float(st.get("approach", 0.0))}
     return out

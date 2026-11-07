@@ -107,7 +107,7 @@ def robocasa(task_path: Path, seed: int, noise: str) -> EnvRun:
 
 def real(task_path: Path, seed: int, noise: str, skills: list = (), dry_run: bool = False, confirm: bool = False,
          url: str | None = None, speed: str = "slow", model_usd: float = 0.5, env=None,
-         map_dir: Path = REPO / "maps" / "src_kitchen") -> EnvRun:
+         map_dir: Path = REPO / "maps" / "src_kitchen_work") -> EnvRun:
     """The real robot through the onboard server (ssh -L 8765:localhost:8765 tidybot01). The arm only, the base held;
     every move checked by the real host's guard, at the robot's real limits. dry_run: nothing is sent to the arm or
     the gripper (the cameras are real). env: a stand-in for RealEnv (tests)."""
