@@ -4,8 +4,8 @@ import numpy as np
 import cv2
 from scipy.spatial.transform import Rotation
 
-PADS = 0.134  # PORT: the real pads' middle out from the flange (sim 0.091): measured on the robot 2026-11-06, by where the fingertips met the counter and a chapstick
-FINGER_BAND = (.075 + .043, .115 + .043)  # PORT: where the open fingers are, out from the flange (sim .075-.115; the pads 4.3 cm further out)
+PADS = 0.130  # PORT: the real pads' middle out from the flange (sim 0.091): the fingertips 0.148 by touch (calibration/tcp.py, 2026-11-06), the pads' middle 18.3 mm above them
+FINGER_BAND = (.075 + .039, .115 + .039)  # PORT: where the open fingers are, out from the flange (sim .075-.115; the pads 3.9 cm further out)
 MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing (the lab's: n+50)
 BASE = [0.,0.,0.]
 LOCAL_GRASP = False

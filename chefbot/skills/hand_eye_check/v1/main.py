@@ -14,7 +14,7 @@ agreeing), when it sees it.
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-TIPS = 0.152  # m: the printed fingers' ends out from the flange (robot.yaml body hand_m; 2026-11-06: 0.134 put them 1.5-2 cm lower than meant)
+TIPS = 0.148  # m: the printed fingers' ends out from the flange (robot.yaml body hand_m: by touch, calibration/tcp.py)
 HOVER = 0.10  # m above the final pose, first
 MOVE_CAP = 300  # control steps a move may take while still progressing
 CLOSE_VIEW_M = 0.45  # further than this from the wrist camera, the object is measured again from 0.30 m: the D405's

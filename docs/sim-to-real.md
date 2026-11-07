@@ -30,11 +30,10 @@ image; frames as the skills get them, 640 x 480, depth aligned to colour):
 
 ## The hand
 
-- **The printed fingers' length**: on the real hand their ends are 0.152 m from the flange (robot.yaml body hand_m;
-  the pads' middle ~0.134 m), on the 27.25 mm camera holder the twin doesn't have. The twin's
-  `PRINTED_PAD_CENTER_M` 0.091 is the design's figure without the holder; the real pads sit ~1.6 cm further out than the
-  design plus the holder (0.118) would say. Found by where the fingertips met the counter and by the hand-eye check,
-  2026-11-06.
+- **The printed fingers' length**: on the real hand their ends are 0.148 m from the flange by touch
+  (`onboard/calibration/tcp.py`, robot.yaml body hand_m; the pads' middle ~0.130 m), on the 27.25 mm camera holder the
+  twin doesn't have. The twin's `PRINTED_PAD_CENTER_M` 0.091 is the design's figure without the holder; the real pads
+  sit ~1.2 cm further out than the design plus the holder (0.118) would say.
 - **Mass**: the twin gives each printed finger the stock finger's 15 g; they are ~40 g (the end-effector load is
   0.86 kg in Desk with them, 0.75 before).
 
