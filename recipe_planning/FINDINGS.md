@@ -115,6 +115,22 @@ harness gives every model the same chance (budgets, output modes, retries); per-
    supported, 5 partial (egg-cracker or whisk gadget; stovetop cooking whose doneness comes from simulator state,
    not vision), 5 unsupported (no knife, no shaker, no lid).
 
+### Local models (checker v0.8, 14-test mini set: the 3 gold recipes and their variants)
+
+| local model (Ollama, RX 6800 XT) | resolved | first try valid | recovered / mistakes |
+|---|---|---|---|
+| gemma4 26B (MoE, ~4B active) | **9 / 14 (64%)** | 10 | 2 / 4 |
+| qwen3.5 9B | 6 / 14 (43%) | 5 | 4 / 9 |
+| qwen3.5 9B, no repair | 3 / 14 (21%) | 5 | 0 / 9 |
+
+Repair doubles qwen's score, the same direction as luna (60% to 85%). Both local models followed the planted
+injection on the blueberry muffins. gpt-oss 20B and the 75-test lite runs are paused: the GPU's stock fan curve
+holds ~14% PWM (~490 rpm) under load, so prompt-processing bursts take the junction to 104-106 C within seconds.
+A watchdog in `bench.run` stops the model at 104 C and retries the test (never recorded as a failure), and
+`OLLAMA_OPTIONS` (`num_gpu`, `num_batch`) throttles steady-state heat (~60 C), but neither prevents the bursts on
+long recipes. Fix: a fixed fan speed (sudo, `pwm1_enable=1`, `pwm1=190`), then rerun the queue (`logs/local_queue.sh`
+on batcomputer resumes).
+
 ## Recipe chooser and PantryBench (next step 8, v0)
 
 `recipe_ir/choose.py` + `choose_recipe.py`: pick a recipe from the pantry, constraints and the robot's skills file.
@@ -160,7 +176,7 @@ Example: `examples/jobs/tomato_egg_stir_fry_from_web.yaml`. A job still needs a 
 3. **Grow the gold set** (target 15+, both splits) so the main results are against human answers.
 4. ~~pass^k~~ done for luna and Haiku, and Haiku re-measured after the headroom fix (above).
 5. **Full split (178)** for luna and one Claude model with an exact budget check before each call.
-6. **Local models** after setting a GPU power limit; then gpt-oss 20B and gemma on mini.
+6. **Local models:** qwen and gemma done on mini (above). gpt-oss and the lite set wait for the fan fix.
 7. ~~Compile `actions.json` to ChefBot jobs~~ v0 done. Next: write the `symbolic:` block for one web recipe in
    the sim kitchen and run it end to end.
 8. **Recipe chooser:** v0 done (deterministic, PantryBench). Next: an LLM matcher for terse/ambiguous names and
