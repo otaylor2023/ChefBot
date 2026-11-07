@@ -28,13 +28,12 @@
 				maxVelocity="0.5 0.5 0.5 0.5 0.6 0.6 0.6"
 				maxAcceleration="1.0 1.0 1.0 1.0 1.5 1.5 1.5"
 				maxJerk="5 5 5 5 8 8 8" />
-			<!-- kp about half libfranka's joint_impedance_control example (600 x4, 250, 150, 50; 50 x4, 30, 25, 15),
-			     which runs in the 1 kHz loop itself (OpenSai adds a Redis round trip). kv keeps that example's damping
-			     ratio at these kp (kv / sqrt(kp) as there: ~2.0): damping scales with sqrt(kp), so halving both, as
-			     before (kv 25 x4, 12, 10, 5), left the joints at ~0.7 of it, and the arm swung as it moved
-			     (2026-11-06). If the joints buzz at rest (the Redis round trip's delay against more damping), step back. -->
+			<!-- about half libfranka's joint_impedance_control example (600 x4, 250, 150, 50; 50 x4, 30, 25, 15),
+			     which runs in the 1 kHz loop itself (OpenSai adds a Redis round trip). Not more damping: kv 35 x4, 21,
+			     18, 12 (that example's damping ratio at these kp) shook the arm (2026-11-06: the Redis round trip's delay
+			     against it); the arm swings a little as it moves at these. -->
 			<gains kp="300 300 300 300 120  80  30"
-				kv=" 35  35  35  35  21  18  12"
+				kv=" 25  25  25  25  12  10   5"
 				ki="  0   0   0   0   0   0   0" />
 		</jointTask>
 	</controller>
