@@ -31,10 +31,13 @@ POSES = [
     {}, {6: 1.985}, {6: -0.415}, {5: 2.1}, {5: 0.9}, {4: 0.9}, {4: -0.9},
     {4: 0.8, 5: 2.0, 6: 1.1}, {3: -1.6, 5: 1.9}, {0: 0.5, 4: -0.6, 5: 1.0, 6: 2.4},
     # the arm reaching out and pulled in (so the load's torques at the shoulder and elbow change, apart from the offsets)
-    {1: -0.3, 3: -1.9}, {1: -1.1, 3: -2.6, 5: 1.6}, {1: 0.1, 3: -1.4, 5: 1.4}, {1: -0.4, 3: -1.7, 4: 0.7, 5: 2.2, 6: 0.2},
+    # (11 and 14 turned 0.4 rad at joint 1, 2026-11-06: as first written their elbow sat 6-7 mm inside the pole camera's
+    # keep-out, added 11-03; turned, it clears by 1.7 / 1.8 cm and the shoulder and elbow load as before)
+    {0: 0.4, 1: -0.3, 3: -1.9}, {1: -1.1, 3: -2.6, 5: 1.6}, {1: 0.1, 3: -1.4, 5: 1.4},
+    {0: 0.4, 1: -0.4, 3: -1.7, 4: 0.7, 5: 2.2, 6: 0.2},
 ]
-# Every pose keeps the fingertips 0.43-0.89 m above the arm base and at most 0.57 m ahead of it (checked with fr3.py):
-# clear the space in front of the robot to that height.
+# Every pose keeps the fingertips 0.43-0.89 m above the arm base, at most 0.57 m ahead of it and 0.3 m to its left
+# (checked with fr3.py): clear the space in front of the robot to that height.
 HAND_INERTIA = [0.001, 0, 0, 0, 0.0025, 0, 0, 0, 0.0017]  # the Franka Hand's (Desk's default file)
 HAND_ROTATION = [0.7071, -0.7071, 0, 0, 0.7071, 0.7071, 0, 0, 0, 0, 1, 0]  # 45 deg about the flange's z
 
