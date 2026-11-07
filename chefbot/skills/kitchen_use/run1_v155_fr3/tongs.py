@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation
 
 PADS = 0.130  # PORT: the real pads' middle out from the flange (sim 0.091): the fingertips 0.148 by touch (calibration/tcp.py, 2026-11-06), the pads' middle 18.3 mm above them
 MOVE_CAP = 300  # PORT: control steps (20 s) a move may take while still progressing (the lab's: n+50)
+SURVEY_Z = 0.75  # PORT: the survey pose's flange height (the lab's .56 put the fingertips under the real counter)
 REFINE = False  # PORT: the lab's kinematic refinement (its own IK, sent as joints) bypasses the robot's planner and its keep-out: off (2026-11-06: it drove toward the pole's keep-out and the host held the arm)
 BASE = [0.,0.,0.]
 
@@ -159,7 +160,7 @@ def semantic_heads(robot,obs,pred,axis,spread):
         for name in ['p1','p2']:
             if not a[name+'_visible']:continue
             u,v=np.rint([a[name+'_x']*.640,a[name+'_y']*.480]).astype(int);u=int(np.clip(u,2,637));v=int(np.clip(v,2,477))
-            point=np.median(xyz[v-1:v+2,u-1:u+2].reshape(-1,3),axis=0)
+            point=valid_point(cam,xyz,u,v)  # PORT: was a 3x3 median, holes (the camera itself) and all
             if np.linalg.norm(point-pred)<.15:heads.append(point)
             cv2.circle(marked,(u,v),5,(255,0,0),-1)
         robot.save_image('held_paddles',marked)
@@ -268,10 +269,24 @@ def visual_retry(robot,view,food,food_rgb,tip_offset,R,down,empty_curve,open_for
     for name,c in robot.observe(['pole','wrist'])['cameras'].items():robot.save_image('retry_lift_'+name,c['rgb'])
     return 'one visually triggered retry attempted; possession unverified'
 
+def valid_point(cam,xyz,u,v):
+    """PORT: the point at pixel (u, v) from the depth around it: the median of the valid pixels in a window growing to
+    31 px (a pixel with no depth unprojects to the camera itself)."""
+    d=np.asarray(cam['depth'])
+    for r in (1,3,7,15):
+        win=d[max(0,v-r):v+r+1,max(0,u-r):u+r+1];pts=xyz[max(0,v-r):v+r+1,max(0,u-r):u+r+1]
+        ok=(win>0.05)&(win<2.)
+        if ok.sum()>=3:return np.median(pts[ok],axis=0)
+    return np.full(3,np.nan)
+
+
 def run(robot,object='food',where='on the counter',tool='tongs'):
     global FOOD_NAME
     FOOD_NAME=object
-    p=robot.proprio(); F=np.eye(4);F[:3,:3]=np.diag([1.,-1.,-1.]);F[:3,3]=[.19,0.,.56]
+    # PORT: the survey pose 0.37 m higher (was z .56: on the real robot the counter is 0.43 m above the arm base, and
+    # the fingertips 0.148 below the flange went under its top); still hand down and close in, above the pole camera's
+    # line of sight to the counter
+    p=robot.proprio(); F=np.eye(4);F[:3,:3]=np.diag([1.,-1.,-1.]);F[:3,3]=[.19,0.,SURVEY_Z]
     move(robot,F,0,65)
     obs=robot.observe(['pole','wrist'])
     for name,c in obs['cameras'].items():robot.save_image('survey_'+name,c['rgb'])
@@ -302,9 +317,12 @@ def run(robot,object='food',where='on the counter',tool='tongs'):
     points={}
     for k,uv in a.items():
         u,v=np.array(uv)*[.640,.480];u=int(np.clip(u,0,639));v=int(np.clip(v,0,479))
-        points[k]=xyz[v,u]
+        points[k]=valid_point(cam,xyz,u,v)  # PORT: was xyz[v,u], the camera itself where the depth has a hole
         cv2.circle(marked,(u,v),4,(255,0,0),-1);cv2.putText(marked,k,(u+5,v),cv2.FONT_HERSHEY_SIMPLEX,.4,(255,0,0),1)
     robot.save_image('landmarks',marked);robot.log('points', {k:v.tolist() for k,v in points.items()})
+    missing=[k for k,v in points.items() if not np.all(np.isfinite(v))]  # PORT: no depth anywhere near a landmark
+    if missing:
+        return {'ok':False,'reason':'no depth at the tongs/food landmarks '+', '.join(missing)}
     food,food_top=food_geometry(robot,cam,xyz,a['food'],None if auto is None else food_dets)
     food_rgb=LAST_FOOD_RGB.copy()
     # Segment the full tool using its semantic landmarks, then estimate its support.
