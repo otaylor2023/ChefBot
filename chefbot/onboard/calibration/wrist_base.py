@@ -4,7 +4,7 @@
     python -m chefbot.onboard.calibration.wrist_base record out.json   # ready pose, then the survey's view of the card
                                                                        # (Enter for each), then ~16 views (Enter once)
     python -m chefbot.onboard.calibration.wrist_base record out.json --from-here   # from where the arm is (put it
-        # where the wrist camera sees both markers: launch.sh/arm.sh's f floats it, h holds it), then the views
+        # where the wrist camera sees both markers: launch.sh/arm.sh's f floats it, h holds it), then the views (it solves at the end)
     python -m chefbot.onboard.calibration.wrist_base look       # which of the card's markers the wrist camera sees, live
     python -m chefbot.onboard.calibration.wrist_base solve out.json [--skip 3]
 
@@ -153,6 +153,11 @@ def record(out: Path, from_here: bool = False) -> None:
             arm.move_to(q, "back toward the survey's view", confirm=False)
         if not from_here:
             arm.move_to(READY, "back to the ready pose", confirm=False)
+    if len(samples) >= 4:  # the fit, at once (solve again with --skip to drop views)
+        print("\nsolving:", flush=True)
+        solve(out)
+    else:
+        print(f"only {len(samples)} views: not enough to solve")
 
 
 def look() -> None:

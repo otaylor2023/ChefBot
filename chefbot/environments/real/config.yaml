@@ -10,18 +10,18 @@ max_state_age_s: 0.5         # older than this, get_state fails: the link is dow
 # parent "base" (floor under the base center, x forward) or "flange". Names match the onboard
 # config's cameras.
 cameras:
-  # The wrist D405 (onboard/calibration/wrist_base.py, 2026-11-03: the card glued on the base by the pole, its size
-  # known, 13 views, 5.3 px rms): 46.4 deg about the flange's z, its view axis 1.0 deg off the flange's z. Checked on a
-  # table marker against the pole camera: 21 mm apart (with the one before: 52 mm, most of it sideways). Views with
-  # the wrist rolled far from the start fit worst (up to 12 px): the camera may shift a little on its holder.
-  # The one before (one 70 mm marker on the table, 18 views, 4.0 px rms; data_2026-11-03/wrist.json, 61.5 deg):
-  #   [[0.47729, -0.87865, -0.01297, 0.03757], [0.87848, 0.47746, -0.01743, -0.04361],
-  #    [0.02151, -0.00308, 0.99976, 0.01946], [0, 0, 0, 1]]
+  # The wrist D405 (onboard/calibration/wrist_base.py --from-here, 2026-11-06: the card glued on the base by the pole,
+  # 10 views, 2.96 px rms; data_2026-11-06/wrist_base.json): 44.1 deg about the flange's z, its view axis 3.1 deg off
+  # the flange's z. Against the 2026-11-03 one it moves the counter's height under the hand 1.5 cm up (the first
+  # kitchen_use run's depth: 0.405 -> 0.420 m in the root frame; the fingertips stopped on it at ~0.440: 2 cm still
+  # to account for) and the egg 1 cm forward, 1.2 cm sideways. The 2026-11-03 one (13 views, 5.3 px rms):
+  #   [[0.69022, -0.7236, 0.00324, 0.03342], [0.72354, 0.69008, -0.01689, -0.04302],
+  #    [0.00998, 0.01401, 0.99985, 0.02362], [0, 0, 0, 1]]
   wrist:
     parent: flange
-    T: [[0.69022, -0.7236, 0.00324, 0.03342],
-        [0.72354, 0.69008, -0.01689, -0.04302],
-        [0.00998, 0.01401, 0.99985, 0.02362],
+    T: [[0.71758, -0.69476, 0.04874, 0.01687],
+        [0.69623, 0.71742, -0.02386, -0.04067],
+        [-0.01839, 0.05105, 0.99853, 0.02533],
         [0, 0, 0, 1]]
   # The pole D455 (onboard/calibration/pole.py --card, 2026-11-05, after the camera was moved on the pole: the hand
   # card, 17 poses (the camera's frames stopped at the 18th), 0.81 px rms, 1.37 px the worst pose;
