@@ -279,8 +279,11 @@ class KitchenMap:
                 def area(o):
                     e = o.get("extent")
                     return 0.0 if not e else (e[2] - e[0]) * (e[3] - e[1])
-                vlm_sized = [o for o in kept if o["label"] in spec["sizes"]]
-                if len(vlm_sized) < len(kept):  # the VLM didn't size them all: by footprint
+                from collections import Counter as _C
+
+                vlm_sizes = _C(o["label"] for o in kept)
+                fits = all(n <= spec["sizes"].count(lab) for lab, n in vlm_sizes.items() if lab in spec["sizes"])
+                if not fits or any(o["label"] not in spec["sizes"] for o in kept):  # the VLM's sizes don't fit the list: by footprint
                     for o, size in zip(sorted(kept, key=lambda o: -area(o)), spec["sizes"]):
                         o["label"] = size
 

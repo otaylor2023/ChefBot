@@ -310,7 +310,7 @@ class MemoryMap:
             hit = np.median(win, axis=0)
             if np.linalg.norm(hit) < np.linalg.norm(pc) - OCCLUDED_M:
                 continue  # something in front of the spot
-            top = next(c.height for c in self.counters if c.name == e.counter)
+            top = self._local_top(xyz_cam, T_wc, u, v, next(c.height for c in self.counters if c.name == e.counter))
             dz = to_world(T_wc, hit[None])[0][2] - top
             if dz > EMPTY_TOP_M:
                 continue  # something stands there (the detector missed it, or something else sits there now)
@@ -325,6 +325,23 @@ class MemoryMap:
                 self._event(e, t, f"not at its spot on {e.counter} ({e.last_xyz[0]:.2f}, {e.last_xyz[1]:.2f}): position unknown")
         for j in reversed(drop):
             del self.entries[j]
+
+    @staticmethod
+    def _local_top(xyz_cam, T_wc, u, v, nominal: float, r0: int = 30, r1: int = 60) -> float:
+        """The counter top's height around a spot as this frame measures it (the median z of the depth in a ring
+        r0-r1 px round it, within 0.10 m of the map's height), else the map's: the chain's few-cm height bias
+        (2026-11-08: the stove counter read 0.86 m against the spec's 0.81) then cancels out of the gone-test."""
+        H, W = xyz_cam.shape[:2]
+        y0, y1, x0, x1 = max(0, int(v) - r1), min(H, int(v) + r1 + 1), max(0, int(u) - r1), min(W, int(u) + r1 + 1)
+        vv, uu = np.mgrid[y0:y1, x0:x1]
+        d2 = (uu - u) ** 2 + (vv - v) ** 2
+        ring = xyz_cam[y0:y1, x0:x1][(d2 >= r0 * r0) & (d2 <= r1 * r1)]
+        ring = ring[~np.isnan(ring[:, 2])]
+        if len(ring) < 50:
+            return nominal
+        z = to_world(T_wc, ring)[:, 2]
+        z = z[np.abs(z - nominal) < 0.10]
+        return float(np.median(z)) if len(z) >= 50 else nominal
 
     # -- files --------------------------------------------------------------------------------------------------------
 
