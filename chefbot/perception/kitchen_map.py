@@ -253,7 +253,8 @@ class KitchenMap:
         if self.layout is not None:
             self._apply_layout(out)
         count: dict = {}
-        for o in sorted(out, key=lambda o: (o["first_seen"], o["id"])):
+        rank = {"seen": 0, "extra": 1}  # names to what is there now first: the moved tomato is "tomato"
+        for o in sorted(out, key=lambda o: (rank.get(o["status"], 2), o["first_seen"], o["id"])):
             count[o["label"]] = count.get(o["label"], 0) + 1
             o["name"] = o["label"] if count[o["label"]] == 1 else f"{o['label']} {count[o['label']]}"
         return sorted(out, key=lambda o: (o["label"], o["name"]))
@@ -274,6 +275,10 @@ class KitchenMap:
             mine.sort(key=lambda o: -o["n_views"])
             for o in mine[spec["count"]:]:
                 o["status"] = "extra"
+            if len(mine) >= spec["count"]:  # all its copies seen elsewhere: a lost copy is one of them, moved
+                for o in objs:
+                    if o["item"] == item and o["status"] == "unknown":
+                        o["status"], o["moved_to"] = "moved", [m["name"] for m in mine[: spec["count"]]]
             kept = mine[: spec["count"]]
             if spec["sizes"]:
                 def area(o):
@@ -291,7 +296,7 @@ class KitchenMap:
         """The entry called `name` ("tomato", "tomato 2", "tomato_2"); LookupError if none, several or no position."""
         from chefbot.perception.goto import resolve
 
-        objs = [o for o in self.objects() if o["status"] not in ("rejected", "extra")]
+        objs = [o for o in self.objects() if o["status"] not in ("rejected", "extra", "moved")]
         return resolve(objs, name.replace("_", " ").strip().lower())
 
     def to_json(self, meta: dict | None = None) -> dict:
