@@ -185,7 +185,7 @@ class Vision:
 
 def model_menu() -> dict:
     return {"llm": {m: {"input_per_mtok": p[0], "output_per_mtok": p[1]} for m, p in GEMINI_PRICES.items()},
-            "vision": {"detect": ["owlv2", "grounding-dino"], "segment": ["sam2"]}}  # fmt: skip
+            "vision": {"detect": ["owlv2", "grounding-dino", "yoloe"], "segment": ["sam2"]}}  # fmt: skip
 
 
 def gemini_key_present() -> bool:

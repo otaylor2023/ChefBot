@@ -4,8 +4,12 @@ so it runs as a plain script:
 
     <vision env>/bin/python chefbot/runtime/vision_server.py --port 8777     # then VISION_URL=http://127.0.0.1:8777
 
-POST /detect  {"image": <.npy path>, "queries": [...], "model": "owlv2" | "grounding-dino", "threshold": 0.1}
-              -> {"detections": [{"label", "score", "box": [x0, y0, x1, y1]}]}
+POST /detect  {"image": <.npy path>, "queries": [...], "model": "owlv2" | "grounding-dino" | "yoloe", "threshold": 0.1,
+               "imgsz": 1280 (yoloe only)}
+              -> {"detections": [{"label", "score", "box": [x0, y0, x1, y1]}]}; yoloe's also carry "poly": its mask's
+                 outline [[x, y], ...] (the kitchen map's points come from it), one frame for the whole vocabulary
+                 (YOLOE-26 text prompts, ultralytics: weights YOLOE_MODEL in YOLOE_WEIGHTS, default
+                 yoloe-26s-seg.pt in ~/.cache/yoloe; ~0.14 s a 1280 frame on an M1's MPS)
 POST /segment {"image": <.npy path>, "boxes": [[x0, y0, x1, y1], ...] | null, "points": [[x, y], ...] | null,
                "point_labels": [1, 0, ...] | null, "model": "sam2"}
               -> {"masks": <.npy path of (N, H, W) bool>}
@@ -27,6 +31,8 @@ from pathlib import Path
 
 import numpy as np
 
+YOLOE_WEIGHTS = Path(os.environ.get("YOLOE_WEIGHTS", Path.home() / ".cache" / "yoloe"))
+YOLOE_MODEL = os.environ.get("YOLOE_MODEL", "yoloe-26s-seg.pt")
 CHECKPOINTS = {"owlv2": "google/owlv2-base-patch16-ensemble", "grounding-dino": "IDEA-Research/grounding-dino-tiny",
                "sam2": os.environ.get("SAM2_CHECKPOINT", "facebook/sam2.1-hiera-small")}  # fmt: skip
 _models: dict = {}
@@ -65,11 +71,52 @@ def _image(path: str):
     return Image.fromarray(np.load(path).astype(np.uint8)).convert("RGB")
 
 
-def detect(image: str, queries: list[str], model: str = "owlv2", threshold: float = 0.1) -> dict:
+class _InDir:
+    """YOLOE fetches its weights and its text encoder (mobileclip) into the working directory: there, then back."""
+
+    def __enter__(self):
+        self.was = os.getcwd()
+        YOLOE_WEIGHTS.mkdir(parents=True, exist_ok=True)
+        os.chdir(YOLOE_WEIGHTS)
+
+    def __exit__(self, *exc):
+        os.chdir(self.was)
+
+
+def _yoloe(queries: tuple[str, ...]):
+    """The YOLOE model, its text prompts set to `queries` (re-set only when they change: ~0.1 s a vocabulary)."""
+    if "yoloe" not in _models:
+        with _InDir():
+            from ultralytics import YOLOE
+
+            _models["yoloe"] = [YOLOE(YOLOE_MODEL), None]
+    m = _models["yoloe"]
+    if queries and m[1] != queries:
+        with _InDir():
+            m[0].set_classes(list(queries))
+        m[1] = queries
+    return m[0]
+
+
+def detect_yoloe(image: str, queries: list[str], threshold: float = 0.15, imgsz: int = 1280) -> dict:
+    net = _yoloe(tuple(queries))
+    rgb = np.load(image).astype(np.uint8)
+    r = net.predict(rgb[..., ::-1], imgsz=imgsz, conf=threshold, device=_device(), verbose=False)[0]  # BGR in
+    polys = r.masks.xy if r.masks is not None else [None] * len(r.boxes)
+    dets = [{"label": r.names[int(b.cls)], "score": round(float(b.conf), 4), "box": [round(float(v), 1) for v in b.xyxy[0].tolist()],
+             "poly": [] if poly is None else [[round(float(x), 1), round(float(y), 1)] for x, y in poly]}
+            for b, poly in zip(r.boxes, polys)]  # fmt: skip
+    dets.sort(key=lambda d: -d["score"])
+    return {"detections": dets[:100]}
+
+
+def detect(image: str, queries: list[str], model: str = "owlv2", threshold: float = 0.1, imgsz: int = 1280) -> dict:
+    if model == "yoloe":
+        return detect_yoloe(image, queries, threshold, imgsz)
     import torch
 
     if model not in ("owlv2", "grounding-dino"):
-        raise ValueError(f"detect models: owlv2, grounding-dino (not {model!r})")
+        raise ValueError(f"detect models: owlv2, grounding-dino, yoloe (not {model!r})")
     (proc, net), dev, dtype = _load(model)
     img = _image(image)
     size = torch.tensor([img.size[::-1]])
@@ -144,10 +191,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8777)
     ap.add_argument("--lazy", action="store_true", help="load each model on first use (the first episode then pays for it)")
+    ap.add_argument("--models", nargs="+", default=[*CHECKPOINTS, "yoloe"],
+                    help="what to load at startup (default all; an env without transformers: --models yoloe)")
     args = ap.parse_args()
     if not args.lazy:
-        for name in CHECKPOINTS:
-            _load(name)
+        for name in args.models:
+            _yoloe(()) if name == "yoloe" else _load(name)
     print(f"vision server on 127.0.0.1:{args.port} ({_device()})", flush=True)
     ThreadingHTTPServer(("127.0.0.1", args.port), Handler).serve_forever()
     return 0

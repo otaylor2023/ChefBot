@@ -84,7 +84,7 @@ class Host:
 def test_its_registry_and_session():
     s = Session.open(agents.load("real_kitchen"), env="real")
     assert [(x.name, x.path) for x in s.skills] == [
-        ("go_to", "go_to/host_v1"), ("find", "find/host_v1"), ("ready", "ready/host_v1"),
+        ("go_to", "go_to/host_v1"), ("explore", "explore/host_v1"), ("find", "find/host_v1"), ("ready", "ready/host_v1"),
         ("pick_up", "kitchen_use/run1_v155_fr3"), ("place_in", "place_in/v1")]  # fmt: skip
     pick = next(x for x in s.skills if x.name == "pick_up").schema["function"]
     assert pick["parameters"]["required"] == ["object"]  # use: hold and the rest by its registry's defaults

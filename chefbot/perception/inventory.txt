@@ -1,0 +1,36 @@
+# What is in this kitchen: the detector's text prompts (YOLOE) and the naming model's hint (Gemini).
+# DRAFT 2026-11-07 from what the 11-05 passes showed (Gemini's names over 3 layouts). JACK: edit to the real list of
+# tools and ingredients you cook with: one per line, the name you'll ask goto for. Delete what isn't ours.
+# Short common names work best for the detector ("tongs", not "silicone-tipped tongs").
+# --- tools
+frying pan
+pot
+tongs
+wooden spoon
+spoon
+whisk
+spatula
+knife
+cutting board
+bowl
+plate
+coffee cup
+measuring tape
+# --- ingredients
+tomato
+egg
+onion
+lemon
+spice jar
+# --- cleaning
+sponge
+dish soap bottle
+# --- other things on the counters (not for cooking, but name them so they aren't mistaken for tools)
+laptop
+computer mouse
+game controller
+cell phone
+tennis ball
+lego brick
+water bottle
+power adapter

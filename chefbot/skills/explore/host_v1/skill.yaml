@@ -1,0 +1,23 @@
+name: explore
+version: host_v1
+entry: main.py:run
+interface: host-v1
+envs: [real]
+sandboxed: false
+description: >-
+  Drive a fixed sweep past the counters (route south: the stove counter, then the island's south side; stove: the
+  stove counter only; full: round the island first, from its north side) and map what is on them with the pole
+  camera. Afterwards the KITCHEN map lists each object and its counter, and go_to takes an object's name ("tomato")
+  to park in front of it. Takes about a minute or two. Returns {ok, objects: ["tomato on island", ...], stops}.
+robot: tidybot_fr3
+cameras: [pole]
+args:
+  route: {type: string, doc: "south (default), stove or full (maps/src_kitchen_work/sweep.yaml)", default: south}
+models:
+  yoloe: {runs: vision_models}
+assumes: >-
+  launch.sh running (the base driver), live mocap, the arm at READY; VISION_URL's vision server with YOLOE; naming by
+  Gemini when GEMINI_API_KEY is set (else the detector's names)
+privileged: false
+provenance:
+  written: "by hand, 2026-11-08, for go_to by object (the kitchen's object map, perception/kitchen_map.py)"

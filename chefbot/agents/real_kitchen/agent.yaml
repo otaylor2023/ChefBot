@@ -9,6 +9,7 @@ interfaces: [chefbot-v1]    # its sandboxed skills, and the host-v1 skills on th
 prompts: prompts
 skills:                     # its registry: the name it calls each by -> one registered version (chefbot/skills)
   go_to: go_to/host_v1
+  explore: explore/host_v1
   find: find/host_v1
   ready: ready/host_v1
   pick_up:

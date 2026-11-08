@@ -1,0 +1,27 @@
+# Exploration routes for RealKitchen.explore (scripts/real_kitchen.py explore --route NAME): stops in order, each a
+# counter (spec.yaml box name), the side the base parks on, and a world x along it. Each stop's target sits at the
+# trained inset (0.13 m in); the base parks for it by the pick rule on the floor it can stand on (perception/goto.py),
+# looks (the cameras' frames into the object map), then drives on.
+# Jack, 2026-11-07: the stove counter is the workspace, the island the overflow (the fridge later).
+# This map's north side (island_north) and south aisle join only through the fridge aisle, facing along it (spec.yaml's
+# note says south to north did not plan on 11-06; test_real_kitchen's every-place test now plans every pair, turning
+# where there is room). `full` starts on the north side; `south` (the default) stays in the work area.
+# Practised range (11-05): x 0.3-1.55 on the island's south side and the stove counter's north side. x 2.60 on the stove
+# counter is past it: plan it first (--dry-run).
+routes:
+  full:  # round the island, then the stove counter
+    - {counter: kitchen_island_countertop, side: north, x: 0.60}
+    - {counter: kitchen_island_countertop, side: north, x: 1.40}
+    - {counter: 1-corner-countertop, side: north, x: 2.60}
+    - {counter: 1-corner-countertop, side: north, x: 1.50}
+    - {counter: 1-corner-countertop, side: north, x: 0.50}
+    - {counter: kitchen_island_countertop, side: south, x: 0.60}
+    - {counter: kitchen_island_countertop, side: south, x: 1.40}
+  south:  # the work area only: the stove counter, then the island's south side
+    - {counter: 1-corner-countertop, side: north, x: 1.50}
+    - {counter: 1-corner-countertop, side: north, x: 0.50}
+    - {counter: kitchen_island_countertop, side: south, x: 0.60}
+    - {counter: kitchen_island_countertop, side: south, x: 1.40}
+  stove:  # the workspace only
+    - {counter: 1-corner-countertop, side: north, x: 1.50}
+    - {counter: 1-corner-countertop, side: north, x: 0.50}
