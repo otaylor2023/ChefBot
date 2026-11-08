@@ -491,7 +491,7 @@ class RealKitchen:
             self._name_in_background()
         return {"ok": True, "cameras": seen, "entries": len(km.mm.entries)}
 
-    def _frame_into_map(self, cam: str, W: np.ndarray, phase: str = "stop") -> dict:
+    def _frame_into_map(self, cam: str, W: np.ndarray, phase: str = "stop", into_map: bool = True) -> dict:
         t0 = time.time()
         f = None
         for attempt in range(2):  # a camera that idled out can miss its first frame (11-08: the pole's, 5 s): once more
@@ -511,6 +511,8 @@ class RealKitchen:
         self._timing("detect", t_det - t_frame, camera=cam, model=self.options.detector, n=len(dets))
         if self.live:
             self.live.frame(cam, f.rgb, dets)
+        if not into_map:
+            return {"detections": len(dets)}
         if f.depth is None:
             return {"detections": len(dets), "error": "no depth"}
         T_wc = W @ np.asarray(f.cam_to_world)
@@ -723,6 +725,8 @@ class _DriveCapture:
 
     def __init__(self, kitchen: RealKitchen, hz: float, camera: str = "pole"):
         self.k, self.period, self.camera, self.n = kitchen, 1.0 / max(float(hz), 0.05), camera, 0
+        # the other cameras of the run's looks: shown on the live page as it drives, not mapped (the wrist swings)
+        self.shown = [c for c in kitchen.options.cameras if c != camera and c in kitchen.env.camera_mounts] if kitchen.live else []
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, name="drive-capture", daemon=True)
         self._thread.start()
@@ -735,6 +739,8 @@ class _DriveCapture:
                 W = self.k._world_from_odom() @ self.k._arm_offset()
                 self.k._frame_into_map(self.camera, W, phase="drive")
                 self.n += 1
+                for cam in self.shown:
+                    self.k._frame_into_map(cam, W, phase="drive", into_map=False)
             except Exception as e:  # noqa: BLE001  (no mocap for a moment: skip the frame, never the drive)
                 self.k._note("drive_capture", {"error": f"{type(e).__name__}: {e}"})
 
@@ -850,6 +856,8 @@ def main() -> None:
         k._sync()
 
     def one(what, arg):
+        if live is not None:
+            live.set(command=f"{what} {arg or ''}".strip())
         if what == "where":
             return k.where()
         if what == "find":

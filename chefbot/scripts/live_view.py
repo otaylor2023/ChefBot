@@ -153,38 +153,37 @@ PAGE = r"""<!doctype html>
 --robot:#1f6feb;--obj:#1a7f37;--lost:#9a9a96;--target:#d4380d;--accent:#8250df}
 @media (prefers-color-scheme:dark){:root{--bg:#141413;--panel:#1e1e1c;--ink:#ecebe7;--mute:#9b9a95;--line:#3a3935;
 --counter:#4a453c;--nogo:#4d2b27;--robot:#58a6ff;--obj:#3fb950;--lost:#6e6e6a;--target:#ff7a45;--accent:#b392f0}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 -apple-system,system-ui,sans-serif}
-header{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line)}
-h1{font-size:16px;margin:0}.pill{padding:2px 8px;border-radius:10px;background:var(--line);font-size:12px}
-.pill.ok{background:var(--obj);color:#fff}.pill.bad{background:var(--target);color:#fff}
-main{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:12px;padding:12px 16px}
-@media (max-width:820px){main{grid-template-columns:1fr}}
-section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;min-width:0}
-h2{font-size:13px;margin:0 0 6px;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-canvas{width:100%;display:block}.frames img{width:100%;border-radius:4px;display:block;margin-bottom:6px}
-table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:2px 4px;border-bottom:1px solid var(--line);text-align:left}
-td.n{text-align:right;font-variant-numeric:tabular-nums}.mute{color:var(--mute)}.ev{font-size:12px;max-height:220px;overflow:auto}
-.right{display:flex;flex-direction:column;gap:12px}
-.card{border-top:1px solid var(--line);padding:8px 0}.card img{width:49%;border-radius:4px}.card .pics{display:flex;gap:2%}
-.btn{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:6px;padding:4px 10px;margin:2px;font:inherit;cursor:pointer}
-.btn.on.yes{background:var(--obj);color:#fff}.btn.on.no{background:var(--target);color:#fff}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.35 -apple-system,system-ui,sans-serif;display:flex;flex-direction:column}
+header{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--line)}
+.cmd{font:600 20px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace}.status{font-size:16px}
+.pill{padding:2px 8px;border-radius:10px;background:var(--line);font-size:12px}.pill.ok{background:var(--obj);color:#fff}.pill.bad{background:var(--target);color:#fff}
+main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:10px;padding:10px 16px}
+.col{display:flex;flex-direction:column;gap:10px;min-height:0}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;min-width:0;min-height:0;display:flex;flex-direction:column}
+h2{font-size:12px;margin:0 0 4px;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+#mapbox{flex:1}canvas{width:100%;height:100%;display:block;min-height:0}
+.cams{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cams figure{margin:0;min-width:0}.cams img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:4px;background:var(--line);display:block}
+figcaption{font-size:12px;color:var(--mute)}
+.below{display:grid;grid-template-columns:1fr 1fr;gap:10px;flex:1;min-height:0}
+table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:1px 4px;border-bottom:1px solid var(--line);text-align:left}
+td.n{text-align:right;font-variant-numeric:tabular-nums}.mute{color:var(--mute)}.scroll{overflow:auto;min-height:0;flex:1}
+.check{font-size:15px}.yes{color:var(--obj);font-weight:600}.no{color:var(--target);font-weight:600}
+@media (max-width:900px){body{display:block}main,.below{grid-template-columns:1fr}#mapbox{height:60vh}}
 </style></head><body>
-<header><h1>Kitchen live</h1><a href="grade" style="color:inherit">grade all go_tos →</a><span id="status" class="pill">…</span><span id="mocap" class="pill">mocap …</span>
-<span id="pose" class="mute"></span><span id="stale" class="mute"></span></header>
+<header><span class="cmd" id="cmd">…</span><span class="status" id="status"></span><span id="mocap" class="pill">mocap …</span>
+<span id="pose" class="mute"></span><span id="stale" class="mute"></span><a href="grade" style="color:inherit;margin-left:auto" class="mute">grade go_tos →</a></header>
 <main>
-<div style="display:flex;flex-direction:column;gap:12px">
-<section><h2>Floor</h2><canvas id="map" height="560"></canvas>
-<div class="mute" style="font-size:12px">blue: the base (arrow = where the arm faces) · green: objects · grey ring: lost (last seen) ·
-orange: go_to target and its stance · dots: places</div></section>
-<section><h2>Objects</h2><table id="objs"></table></section>
-<section><h2>go_to checks: review each</h2><div id="score" class="mute"></div><div id="cards"></div></section>
+<div class="col">
+<section id="mapbox"><h2>Kitchen map: base (blue, arrow = arm) · objects (green) · go_to target (orange)</h2><canvas id="map"></canvas></section>
 </div>
-<div class="right">
-<section><h2>Target</h2><div id="target" class="mute">none</div></section>
-<section class="frames"><h2>Cameras</h2><div id="frames"></div></section>
-<section><h2>Timings</h2><table id="tim"></table></section>
-<section><h2>Events</h2><div id="ev" class="ev"></div></section>
-</div></main>
+<div class="col">
+<section><h2>Cameras</h2><div class="cams"><figure><img id="img_pole" alt=""><figcaption id="cap_pole">pole</figcaption></figure>
+<figure><img id="img_wrist" alt=""><figcaption id="cap_wrist">wrist</figcaption></figure></div></section>
+<section><h2>Last go_to check</h2><div id="check" class="check mute">none yet</div></section>
+<div class="below">
+<section><h2>Objects on the map</h2><div class="scroll"><table id="objs"></table></div></section>
+<section><h2>Timings · events</h2><div class="scroll"><table id="tim"></table><div id="ev" style="font-size:12px;margin-top:6px"></div></div></section>
+</div></div></main>
 <script>
 let MAP=null, S=null;
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -195,58 +194,45 @@ function box(ctx,T,c,s,yaw,fill,stroke){const [cx,cy]=c,[l,w]=s,co=Math.cos(yaw)
  ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();
  if(fill){ctx.fillStyle=fill;ctx.fill()}if(stroke){ctx.strokeStyle=stroke;ctx.stroke()}}
 function draw(){const cv=document.getElementById("map"),ctx=cv.getContext("2d");if(!MAP)return;
- const W=cv.clientWidth,H=Math.round(W*0.85);cv.width=W*devicePixelRatio;cv.height=H*devicePixelRatio;cv.style.height=H+"px";
+ const W=cv.clientWidth,H=cv.clientHeight||400;cv.width=W*devicePixelRatio;cv.height=H*devicePixelRatio;
  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);ctx.clearRect(0,0,W,H);
- // only the kitchen part with counters (the bounds reach far north): fit the fixtures' boxes plus a margin
- let xs=[],ys=[];MAP.boxes.forEach(b=>{if(!b.fixture||b.fixture==="counter")return;xs.push(b.center[0]-b.size[0]/2-.6,b.center[0]+b.size[0]/2+.6);ys.push(b.center[1]-1.6,b.center[1]+1.6)});
- if(S&&S.robot&&S.robot.pose){xs.push(S.robot.pose[0]-.5,S.robot.pose[0]+.5);ys.push(S.robot.pose[1]-.5,S.robot.pose[1]+.5)}
+ let xs=[],ys=[];MAP.boxes.forEach(b=>{if(!b.fixture||!["island","stove_counter"].includes(b.fixture))return;xs.push(b.center[0]-b.size[0]/2-.35,b.center[0]+b.size[0]/2+.35);ys.push(b.center[1]-b.size[1]/2-.35,b.center[1]+b.size[1]/2+.35)});
+ if(S&&S.robot&&S.robot.pose){xs.push(S.robot.pose[0]-.45,S.robot.pose[0]+.45);ys.push(S.robot.pose[1]-.45,S.robot.pose[1]+.45)}
  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),k=Math.min(W/(x1-x0),H/(y1-y0));
  const T=(x,y)=>[(x-x0)*k+(W-(x1-x0)*k)/2,H-((y-y0)*k+(H-(y1-y0)*k)/2)];
- const [[bx0,by0],[bx1,by1]]=MAP.bounds;ctx.strokeStyle=css("--line");ctx.setLineDash([4,4]);
- ctx.strokeRect(...T(bx0,by1),(bx1-bx0)*k,(by1-by0)*k);ctx.setLineDash([]);
  MAP.boxes.forEach(b=>{const no=b.name.startsWith("nogo");box(ctx,T,b.center,b.size,b.yaw,no?css("--nogo"):css("--counter"),css("--line"));
-  if(b.fixture){const p=T(...b.center);ctx.fillStyle=css("--mute");ctx.font="11px system-ui";ctx.textAlign="center";ctx.fillText(b.fixture,p[0],p[1]+4)}});
- Object.entries(MAP.places).forEach(([n,p])=>{const q=T(p[0],p[1]);ctx.fillStyle=css("--mute");ctx.beginPath();ctx.arc(q[0],q[1],2.5,0,7);ctx.fill();
-  ctx.font="10px system-ui";ctx.textAlign="left";ctx.fillText(n,q[0]+4,q[1]-3)});
+  if(b.fixture){const p=T(...b.center);ctx.fillStyle=css("--mute");ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText(b.fixture.replace("_"," "),p[0],p[1]+4)}});
  if(!S)return;
- if(S.path&&S.path.length>1){ctx.strokeStyle=css("--robot");ctx.globalAlpha=.4;ctx.lineWidth=2;ctx.beginPath();
+ if(S.path&&S.path.length>1){ctx.strokeStyle=css("--robot");ctx.globalAlpha=.45;ctx.lineWidth=2;ctx.beginPath();
   S.path.forEach((p,i)=>{const q=T(p[0],p[1]);i?ctx.lineTo(...q):ctx.moveTo(...q)});ctx.stroke();ctx.globalAlpha=1;ctx.lineWidth=1}
- const t=S.target;if(t){if(t.stance){const [sx,sy,syaw]=t.stance;ctx.setLineDash([5,3]);box(ctx,T,[sx+Math.cos(syaw)*0,sy],[0.56,0.48],syaw,null,css("--target"));ctx.setLineDash([])}
-  if(t.xy){const q=T(...t.xy);ctx.strokeStyle=css("--target");ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(q[0]-6,q[1]-6);ctx.lineTo(q[0]+6,q[1]+6);ctx.moveTo(q[0]+6,q[1]-6);ctx.lineTo(q[0]-6,q[1]+6);ctx.stroke();ctx.lineWidth=1}}
- (S.objects||[]).forEach(o=>{const p=o.xyz||o.last_xyz;if(!p)return;const q=T(p[0],p[1]);const lost=!o.xyz;
-  ctx.strokeStyle=lost?css("--lost"):css("--obj");ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=o.tentative?1:2;ctx.beginPath();ctx.arc(q[0],q[1],5,0,7);
-  if(!lost&&!o.tentative)ctx.fill();else ctx.stroke();ctx.lineWidth=1;ctx.font="11px system-ui";ctx.textAlign="left";ctx.fillStyle=css("--ink");ctx.fillText(o.name,q[0]+7,q[1]+4)});
+ const t=S.target;if(t){if(t.stance){ctx.setLineDash([5,3]);box(ctx,T,[t.stance[0],t.stance[1]],[0.56,0.48],t.stance[2],null,css("--target"));ctx.setLineDash([])}
+  if(t.xy){const q=T(...t.xy);ctx.strokeStyle=css("--target");ctx.lineWidth=3;ctx.beginPath();ctx.arc(q[0],q[1],11,0,7);ctx.stroke();ctx.lineWidth=1}}
+ (S.objects||[]).forEach(o=>{if(["rejected","extra","moved"].includes(o.status))return;const p=o.xyz||o.last_xyz;if(!p)return;const q=T(p[0],p[1]);const lost=!o.xyz;
+  ctx.strokeStyle=lost?css("--lost"):css("--obj");ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=2;ctx.beginPath();ctx.arc(q[0],q[1],5,0,7);
+  if(!lost&&!o.tentative)ctx.fill();else ctx.stroke();ctx.lineWidth=1;ctx.font=(o.tentative?"10px":"12px")+" system-ui";ctx.textAlign="left";
+  ctx.fillStyle=o.tentative?css("--mute"):css("--ink");ctx.fillText(o.name+(lost?" (lost)":""),q[0]+7,q[1]+4)});
  const r=S.robot;if(r&&r.pose){const [x,y,yaw]=r.pose;box(ctx,T,[x,y],[0.56,0.48],yaw,css("--robot")+"33",css("--robot"));
-  const a=T(x,y),b=T(x+Math.cos(yaw)*.45,y+Math.sin(yaw)*.45);ctx.strokeStyle=css("--robot");ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();ctx.lineWidth=1}}
-function render(){if(!S)return;const st=document.getElementById("status");st.textContent=S.status;
- st.className="pill "+(/fail|error|stopp/.test(S.status)?"bad":/finish|done|reached/.test(S.status)?"ok":"");
+  const a=T(x,y),b=T(x+Math.cos(yaw)*.45,y+Math.sin(yaw)*.45);ctx.strokeStyle=css("--robot");ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();ctx.lineWidth=1}}
+const shown={};
+function render(){if(!S)return;
+ document.getElementById("cmd").textContent=S.command?"> "+S.command:"";
+ document.getElementById("status").textContent=S.status||"";
  const r=S.robot||{},m=document.getElementById("mocap");m.textContent=r.live?"mocap live":"mocap NOT live";m.className="pill "+(r.live?"ok":"bad");
  document.getElementById("pose").textContent=r.pose?`x ${r.pose[0].toFixed(2)}  y ${r.pose[1].toFixed(2)}  yaw ${(r.pose[2]*180/Math.PI).toFixed(0)}°`:"";
- const age=Date.now()/1000-S.now;document.getElementById("stale").textContent=age>2?`page ${age.toFixed(0)} s old (is the run going?)`:"";
- const t=S.target;document.getElementById("target").innerHTML=t?`<b>${esc(t.name)}</b> ${esc(t.on||"")}<br>${esc(t.note||"")}${t.result?`<br>result: ${esc(t.result)}`:""}`:"none";
- const objs=(S.objects||[]).filter(o=>o.status!=="rejected");
- document.getElementById("objs").innerHTML="<tr><th>name</th><th>on</th><th class=n>views</th><th>detector said</th></tr>"+
-  objs.map(o=>`<tr><td>${esc(o.name)}${o.xyz?"":" <span class=mute>(lost)</span>"}${o.tentative?" <span class=mute>?</span>":""}</td><td>${esc(o.fixture||o.counter)}</td><td class=n>${o.n_views}</td><td class=mute>${esc(o.det_label)}</td></tr>`).join("");
- document.getElementById("frames").innerHTML=Object.entries(S.frames||{}).map(([c,f])=>`<div class=mute>${esc(c)} · ${f.n_dets} detections · ${(Date.now()/1000-f.t).toFixed(0)} s ago</div><img src="${esc(c)}.jpg?t=${f.t}">`).join("")||"<span class=mute>no frames yet</span>";
- document.getElementById("tim").innerHTML="<tr><th>what</th><th class=n>s</th><th></th></tr>"+(S.timings||[]).slice(-14).reverse().map(x=>{
-  const {t:_t,what,s,...rest}=x;return `<tr><td>${esc(what)}</td><td class=n>${s.toFixed(2)}</td><td class=mute>${esc(Object.entries(rest).map(([k,v])=>k+" "+v).join(" · "))}</td></tr>`}).join("");
- document.getElementById("ev").innerHTML=(S.events||[]).slice().reverse().map(e=>`<div><span class=mute>${new Date(e.t*1000).toLocaleTimeString()}</span> ${esc(e.text)}</div>`).join("");
+ const age=Date.now()/1000-S.now;document.getElementById("stale").textContent=age>2?`page ${age.toFixed(0)} s old`:"";
+ for(const cam of ["pole","wrist"]){const f=(S.frames||{})[cam];if(f&&shown[cam]!==f.t){shown[cam]=f.t;document.getElementById("img_"+cam).src=`${cam}.jpg?t=${f.t}`}
+  document.getElementById("cap_"+cam).textContent=f?`${cam} · ${f.n_dets} detections · ${(Date.now()/1000-f.t).toFixed(0)} s ago`:`${cam} · no frame yet`}
+ const c=(S.cards||[]).slice(-1)[0];
+ if(c){const v=(c.vlm||{}).wrist;document.getElementById("check").innerHTML=`<b>go_to ${esc(c.object)}</b> on ${esc(c.on||"")} · parked <b>${c.error_cm??"?"} cm</b> off`+
+  (v?` · wrist camera (Gemini): <span class="${v.match?"yes":"no"}">${esc(v.label||v.error)} ${v.match?"✓":"✗"}</span>`:"")+` · pole ${c.sees&&c.sees.pole?'<span class="yes">sees it</span>':'<span class="mute">no detection</span>'}`;document.getElementById("check").classList.remove("mute")}
+ const objs=(S.objects||[]).filter(o=>!["rejected","extra","moved"].includes(o.status)).sort((a,b)=>(a.tentative-b.tentative)||a.name.localeCompare(b.name));
+ document.getElementById("objs").innerHTML="<tr><th>object</th><th>on</th><th class=n>views</th></tr>"+
+  objs.map(o=>`<tr class="${o.tentative?"mute":""}"><td>${esc(o.name)}${o.xyz?"":" <span class=mute>(lost)</span>"}</td><td>${esc((o.fixture||o.counter||"").replace("_"," "))}</td><td class=n>${o.n_views}</td></tr>`).join("");
+ document.getElementById("tim").innerHTML=(S.timings||[]).slice(-8).reverse().map(x=>`<tr><td>${esc(x.what)}</td><td class=n>${x.s.toFixed(2)} s</td><td class=mute>${esc(x.to||x.camera||"")}</td></tr>`).join("");
+ document.getElementById("ev").innerHTML=(S.events||[]).slice(-8).reverse().map(e=>`<div><span class=mute>${new Date(e.t*1000).toLocaleTimeString()}</span> ${esc(e.text)}</div>`).join("");
  draw()}
-let REV={};
-async function loadRev(){try{REV=await j("reviews.json")}catch(e){REV={}}}
-async function review(id,key,val){const r=Object.assign({},REV[id]||{});r[key]=val;REV[id]=r;renderCards(true);
- await fetch("review",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({id},r))})}
-let lastCards="";
-function renderCards(force){const cs=(S&&S.cards)||[];const key=cs.map(c=>c.id).join()+JSON.stringify(REV);if(!force&&key===lastCards)return;lastCards=key;
- const b=(id,k,v,label)=>`<button class="btn ${(REV[id]||{})[k]===v?"on "+(v?"yes":"no"):""}" onclick="review('${id}','${k}',${v})">${label}</button>`;
- document.getElementById("cards").innerHTML=cs.slice().reverse().map(c=>{const s=c.sees||{};const sw=x=>x===null||x===undefined?"out of view":x?"sees it":"doesn't";
-  return `<div class=card><b>${esc(c.object)}</b> <span class=mute>${esc(c.on||"")} · parked ${c.error_cm??"?"} cm off · pole ${sw(s.pole)} · wrist ${sw(s.wrist)} · map after: ${esc(c.map_after)}</span>
-  <div class=pics>${Object.entries(c.pictures||{}).map(([cam,f])=>`<img title="${esc(cam)}" src="${esc(f)}">`).join("")}</div>
-  <div>right object? ${b(c.id,"object_ok",true,"yes")}${b(c.id,"object_ok",false,"no")} &nbsp; right spot? ${b(c.id,"spot_ok",true,"yes")}${b(c.id,"spot_ok",false,"no")}</div></div>`}).join("")||"<span class=mute>none yet</span>";
- const rv=cs.map(c=>REV[c.id]||{}),n=x=>rv.filter(r=>r[x]===true).length,m=x=>rv.filter(r=>r[x]!==undefined).length;
- document.getElementById("score").textContent=cs.length?`${cs.length} go_tos · right object ${n("object_ok")}/${m("object_ok")} · right spot ${n("spot_ok")}/${m("spot_ok")} (of those reviewed)`:""}
-async function tick(){try{S=await j("state.json")}catch(e){}render();renderCards(false);setTimeout(tick,500)}
-(async()=>{MAP=await j("map.json");await loadRev();tick();addEventListener("resize",draw)})();
+async function tick(){try{S=await j("state.json")}catch(e){}render();setTimeout(tick,400)}
+(async()=>{MAP=await j("map.json");tick();addEventListener("resize",draw)})();
 </script></body></html>
 """
 
