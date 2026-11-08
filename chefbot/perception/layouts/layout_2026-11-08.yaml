@@ -1,0 +1,16 @@
+# What is on the counters for one test layout (Jack, 2026-11-08): the closed vocabulary. The detector (YOLOE) looks only
+# for the prompts; each prompt's detections count as its item; the map keeps at most `count` of an item (the best
+# seen) and offers nothing else; the VLM names each object from the item names only ("other" = not ours).
+# `sizes`: several of one look (the bowls), told apart by their footprint on the counter, largest first.
+items:
+  frying pan: {count: 1, prompts: [frying pan, pan]}
+  tongs: {count: 1, prompts: [tongs]}
+  utensil holder: {count: 1, prompts: [utensil holder, utensil crock], note: the tongs sit in it}
+  bowl: {count: 3, prompts: [bowl, mixing bowl], sizes: [large bowl, small bowl, small bowl]}
+  tomato: {count: 1, prompts: [tomato]}
+  egg separator: {count: 1, prompts: [egg separator, egg yolk separator]}
+  egg cracker: {count: 1, prompts: [egg cracker]}
+  ladle: {count: 1, prompts: [ladle, serving spoon, spoon]}
+  baking tray: {count: 1, prompts: [baking tray, sheet pan], note: small}
+  cumin bottle: {count: 1, prompts: [spice bottle, spice jar], note: cumin}
+  whisk: {count: 1, prompts: [whisk]}

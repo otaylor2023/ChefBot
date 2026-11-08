@@ -123,14 +123,18 @@ def gemini_key(env_file: str | None = None) -> str:
     raise SystemExit("no GEMINI_API_KEY (set it, or pass --env-file)")
 
 
-def _prompt(k: int, hint) -> str:
-    h = f"Common things in this kitchen include: {', '.join(hint)}; use one of those names if it fits, otherwise your own. " if hint else ""
+def _prompt(k: int, hint, menu: bool = False) -> str:
+    if menu and hint:  # a closed list: one of these or "other"
+        h = (f"The object is one of these: {', '.join(hint)}. Answer with exactly one of those names, or \"other\" if it is "
+             "none of them. ")
+    else:
+        h = f"Common things in this kitchen include: {', '.join(hint)}; use one of those names if it fits, otherwise your own. " if hint else ""
     return PROMPT.format(k=k, hint=h)
 
 
-def ask_gemini(jpeg: bytes, k: int, model: str, hint, key: str, retries: int = 8) -> dict:
+def ask_gemini(jpeg: bytes, k: int, model: str, hint, key: str, retries: int = 8, menu: bool = False) -> dict:
     body = {"contents": [{"parts": [{"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpeg).decode()}},
-                                    {"text": _prompt(k, hint)}]}],
+                                    {"text": _prompt(k, hint, menu)}]}],
             "generationConfig": {"responseMimeType": "application/json", "responseSchema": GEMINI_SCHEMA}}  # fmt: skip
     last = None
     for attempt in range(retries):
@@ -161,13 +165,14 @@ def ask_gemini(jpeg: bytes, k: int, model: str, hint, key: str, retries: int = 8
     return {"label": "", "error": last, "model": model}
 
 
-def ask(image, k: int, model: str, hint: list[str] | None, url: str, retries: int = 3, key: str | None = None) -> dict:
+def ask(image, k: int, model: str, hint: list[str] | None, url: str, retries: int = 3, key: str | None = None,
+        menu: bool = False) -> dict:  # fmt: skip
     buf = io.BytesIO()
     image.save(buf, format="JPEG", quality=88)
     if model.startswith("gemini"):
-        return ask_gemini(buf.getvalue(), k, model, hint, key or gemini_key())
+        return ask_gemini(buf.getvalue(), k, model, hint, key or gemini_key(), menu=menu)
     h = f"Common things in this kitchen include: {', '.join(hint)}; use one of those names if it fits, otherwise your own. " if hint else ""
-    body = {"model": model, "prompt": PROMPT.format(k=k, hint=h), "images": [base64.b64encode(buf.getvalue()).decode()],
+    body = {"model": model, "prompt": _prompt(k, hint, menu), "images": [base64.b64encode(buf.getvalue()).decode()],
             "stream": False, "format": "json", "options": {"temperature": 0}}  # fmt: skip
     last = None
     for attempt in range(retries):

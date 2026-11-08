@@ -170,6 +170,8 @@ class MemoryMap:
             pw = pw[rng < np.median(rng) + 0.10]
             if len(pw) < MIN_POINTS or np.ptp(pw[:, 0]) > MAX_EXTENT_M or np.ptp(pw[:, 1]) > MAX_EXTENT_M:
                 continue
+            if getattr(self, "reject", None) is not None and self.reject(pw):
+                continue  # the robot's own body (KitchenMap: points over the base's plate)
             c = self.counter_of(pw)
             if c is None:
                 continue

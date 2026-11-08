@@ -53,11 +53,19 @@ class KitchenOptions:
     naming: str = "end"  # end (after a sweep) | background (each new object as it comes) | off
     vlm: str = "gemini-3.5-flash-lite"
     vocab: Path = VOCAB
+    layout: Path | None = None  # a closed list (perception/layouts/*.yaml): its prompts, counts and names, not vocab
+    save_frames: bool = True  # every frame's color + depth in the run's folder (frames/<camera>/), for replays and training
+
+    def load_layout(self):
+        from chefbot.perception.kitchen_map import Layout
+
+        return Layout.load(self.layout) if self.layout else None
 
     def queries(self) -> list[str]:
         from chefbot.perception.detect_frames import load_classes
 
-        return load_classes(str(self.vocab)) or []
+        L = self.load_layout()
+        return L.queries() if L else load_classes(str(self.vocab)) or []
 
 
 def _planar(p: Pose2D) -> np.ndarray:
@@ -372,11 +380,29 @@ class RealKitchen:
             self.live.frame(cam, f.rgb, dets)
         if f.depth is None:
             return {"detections": len(dets), "error": "no depth"}
-        r = self._object_map().add_frame(f.rgb, f.depth, f.intrinsics, W @ np.asarray(f.cam_to_world), dets, t=t0, camera=cam)
+        T_wc = W @ np.asarray(f.cam_to_world)
+        base = self.env.localization().mocap_pose
+        r = self._object_map().add_frame(f.rgb, f.depth, f.intrinsics, T_wc, dets, t=t0, camera=cam, base_pose=base)
+        if self.options.save_frames:
+            self._save_frame(cam, f, T_wc, dets, t0, phase, base)
         self._timing("map", time.time() - t_det, camera=cam, new=len(r["new"]))
         for name in r["new"]:
             self._event(f"new: {name} ({cam})")
         return {"detections": len(dets), "new": r["new"]}
+
+    def _save_frame(self, cam, f, T_wc, dets, t, phase, base) -> None:
+        """frames/<camera>/NNNNNN_color.jpg + _depth.png (uint16 mm) and a frames.jsonl row (pose, K, detections)."""
+        import cv2
+
+        d = self.out / "frames" / cam
+        d.mkdir(parents=True, exist_ok=True)
+        n = sum(1 for _ in d.glob("*_color.jpg"))
+        cv2.imwrite(str(d / f"{n:06d}_color.jpg"), cv2.cvtColor(np.asarray(f.rgb, np.uint8), cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
+        cv2.imwrite(str(d / f"{n:06d}_depth.png"), np.clip(np.nan_to_num(np.asarray(f.depth, float)) * 1000, 0, 65535).astype(np.uint16))
+        row = {"n": n, "t": t, "phase": phase, "T_wc": np.round(T_wc, 6).tolist(), "K": np.asarray(f.intrinsics).tolist(),
+               "base": None if base is None else [base.x, base.y, base.yaw], "dets": dets}  # fmt: skip
+        with open(d / "frames.jsonl", "a") as fh:
+            fh.write(json.dumps(row, default=float) + "\n")
 
     def _detect(self, rgb: np.ndarray) -> list[dict]:
         """The detector's detections with mask outlines ("poly"): YOLOE's own masks; Grounding DINO's or OWLv2's
@@ -398,7 +424,7 @@ class RealKitchen:
         if self.objects is None:
             from chefbot.perception.kitchen_map import KitchenMap
 
-            self.objects = KitchenMap(self.map_dir / "spec.yaml", log=self.log)
+            self.objects = KitchenMap(self.map_dir / "spec.yaml", log=self.log, layout=self.options.load_layout())
         return self.objects
 
     def name_objects(self) -> dict | None:
@@ -553,7 +579,7 @@ class RealKitchen:
 
 def _opts(o: KitchenOptions) -> dict:
     return {"cameras": list(o.cameras), "detector": o.detector, "capture": o.capture, "capture_hz": o.capture_hz,
-            "naming": o.naming, "vlm": o.vlm, "vocab": str(o.vocab)}  # fmt: skip
+            "naming": o.naming, "vlm": o.vlm, "vocab": str(o.vocab), "layout": str(o.layout) if o.layout else None}  # fmt: skip
 
 
 class _DriveCapture:
@@ -653,6 +679,8 @@ def main() -> None:
     ap.add_argument("--naming", default="end", choices=("end", "background", "off"))
     ap.add_argument("--vlm", default="gemini-3.5-flash-lite", help="the naming model (gemini-..., or an ollama model)")
     ap.add_argument("--vocab", type=Path, default=VOCAB, help="the detector's text prompts and the naming hint")
+    ap.add_argument("--layout", type=Path, default=None,
+                    help="a closed list of what is out (chefbot/perception/layouts/*.yaml): only those, at most their counts")
     ap.add_argument("--live", type=Path, default=repo / "runs" / "live", help="the live page's folder (scripts/live_view.py)")
     ap.add_argument("--no-live", action="store_true")
     ap.add_argument("--base-speed", default="max", help="the base's speed profile (default max: the robot's cap, 0.25 m/s, 0.8 rad/s)")
@@ -665,12 +693,12 @@ def main() -> None:
     host = RealHost(robot, profile, out, dry_run=a.dry_run, confirm=True, cameras=["pole", "wrist"])
     url = os.environ.get("VISION_URL")
     opts = KitchenOptions(cameras=tuple(a.cameras), detector=a.detector, capture=a.capture, capture_hz=a.capture_hz,
-                          naming=a.naming, vlm=a.vlm, vocab=a.vocab)  # fmt: skip
+                          naming=a.naming, vlm=a.vlm, vocab=a.vocab, layout=a.layout)  # fmt: skip
     objects = None
     if a.objects is not None:
         from chefbot.perception.kitchen_map import KitchenMap
 
-        objects = KitchenMap.load(a.map / "spec.yaml", a.objects)
+        objects = KitchenMap.load(a.map / "spec.yaml", a.objects, layout=opts.load_layout())
     live = None
     if not a.no_live:
         from chefbot.scripts.live_view import LiveFeed

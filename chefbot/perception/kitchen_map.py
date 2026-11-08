@@ -40,6 +40,41 @@ class _Cam:
     color: Intrinsics
 
 
+@dataclass
+class Layout:
+    """A test layout's closed vocabulary (perception/layouts/*.yaml): what the detector looks for, how many of each."""
+
+    items: dict  # item -> {count, prompts, sizes?}
+
+    @classmethod
+    def load(cls, path) -> "Layout":
+        import yaml
+
+        raw = yaml.safe_load(Path(path).read_text())["items"]
+        return cls({k: {"count": int((v or {}).get("count", 1)), "prompts": list((v or {}).get("prompts") or [k]),
+                        "sizes": list((v or {}).get("sizes") or [])} for k, v in raw.items()})  # fmt: skip
+
+    def queries(self) -> list[str]:
+        return list(dict.fromkeys(q for v in self.items.values() for q in v["prompts"]))
+
+    def labels(self) -> dict:
+        """MemoryMap's labels: each prompt counted as its item; anything else ignored."""
+        return {"rename": {q: k for k, v in self.items.items() for q in v["prompts"]}, "keep_only": list(self.items)}
+
+    def names(self) -> list[str]:
+        """The names the VLM may give: the items, each size name in place of its item."""
+        out = []
+        for k, v in self.items.items():
+            out += list(dict.fromkeys(v["sizes"])) or [k]
+        return out
+
+    def item_of(self, name: str) -> str | None:
+        for k, v in self.items.items():
+            if name == k or name in v["sizes"]:
+                return k
+        return None
+
+
 def xyz_image(depth: np.ndarray, K: np.ndarray, near: float = 0.1, far: float = 3.0) -> np.ndarray:
     """Depth (H x W, metres, registered to the color image) -> camera points H x W x 3, NaN where there is none."""
     H, W = depth.shape
@@ -49,11 +84,31 @@ def xyz_image(depth: np.ndarray, K: np.ndarray, near: float = 0.1, far: float = 
     return np.stack([(u - K[0, 2]) * z / K[0, 0], (v - K[1, 2]) * z / K[1, 1], z], axis=-1)
 
 
+def _on_the_robot(base_pose, margin: float = 0.12):
+    """A test for world points (N x 3): their median over the base's plate (+ margin), i.e. the robot itself (its pole,
+    its bins, the arm over it), seen by its own camera."""
+    from chefbot.perception.goto import PLATE_X, PLATE_Y
+
+    x, y, yaw = (float(v) for v in ((base_pose.x, base_pose.y, base_pose.yaw) if hasattr(base_pose, "yaw") else base_pose[:3]))
+    c, s = math.cos(yaw), math.sin(yaw)
+
+    def reject(pw) -> bool:
+        m = np.median(pw[:, :2], axis=0) - (x, y)
+        a, b = c * m[0] + s * m[1], -s * m[0] + c * m[1]
+        return PLATE_X[0] - margin <= a <= PLATE_X[1] + margin and PLATE_Y[0] - margin <= b <= PLATE_Y[1] + margin
+
+    return reject
+
+
 class KitchenMap:
-    def __init__(self, spec_path, labels: dict | None = None, min_views: int = MIN_VIEWS, log=print):
+    def __init__(self, spec_path, labels: dict | None = None, min_views: int = MIN_VIEWS, log=print,
+                 layout: "Layout | None" = None):  # fmt: skip
+        """`layout`: a closed vocabulary (the detector's labels mapped to its items, at most `count` of each offered,
+        the VLM naming from its names only)."""
         self.spec_path = Path(spec_path)
         self.counters = [c for c in load_counters(self.spec_path) if c.height < 1.2]  # counter tops, not the fridge
-        self.mm = MemoryMap(self.counters, labels)
+        self.layout = layout
+        self.mm = MemoryMap(self.counters, layout.labels() if layout else labels)
         self.min_views = int(min_views)
         self.views: dict[int, list] = {}  # entry id -> [(quality, jpeg bytes, distance m)], best first
         self.vlm: dict[int, dict] = {}  # entry id -> the VLM's answer
@@ -63,7 +118,8 @@ class KitchenMap:
 
     # -- frames -------------------------------------------------------------------------------------------------------
 
-    def add_frame(self, rgb, depth, K, T_wc, dets, t: float | None = None, camera: str = "pole", xyz=None) -> dict:
+    def add_frame(self, rgb, depth, K, T_wc, dets, t: float | None = None, camera: str = "pole", xyz=None,
+                  base_pose=None) -> dict:  # fmt: skip
         """One frame into the map: depth registered to the color image (metres), or its points already (`xyz`,
         H x W x 3 in the color camera, NaN where none: a recording's PoleCamera.aligned_xyz). Returns {n,
         observations, new, entries, ms}."""
@@ -77,6 +133,7 @@ class KitchenMap:
             self.n += 1
             before = {e.id for e in self.mm.entries}
             self.mm._pass = camera
+            self.mm.reject = None if base_pose is None else _on_the_robot(base_pose)
             obs = self.mm.update(dets, xyz, np.asarray(T_wc, dtype=float), self.n, t, cam)
             seen = [e for e in self.mm.entries if e.last_seen == t and e.xyz is not None]
             for e in seen:
@@ -157,6 +214,8 @@ class KitchenMap:
         def one(job):
             i, im = job
             n = im.size[0] // VIEW_PX
+            if self.layout is not None:
+                return i, ask(im, n, model, self.layout.names(), url, key=key, menu=True)
             return i, ask(im, n, model, hint, url, key=key)
 
         answers = {}
@@ -191,17 +250,45 @@ class KitchenMap:
             for k in ("history", "sightings", "extents"):
                 o.pop(k, None)
             out.append(o)
+        if self.layout is not None:
+            self._apply_layout(out)
         count: dict = {}
         for o in sorted(out, key=lambda o: (o["first_seen"], o["id"])):
             count[o["label"]] = count.get(o["label"], 0) + 1
             o["name"] = o["label"] if count[o["label"]] == 1 else f"{o['label']} {count[o['label']]}"
         return sorted(out, key=lambda o: (o["label"], o["name"]))
 
+    def _apply_layout(self, objs: list[dict]) -> None:
+        """At most `count` of each item offered (the most seen; the rest status "extra"); "other" from the VLM ->
+        rejected; an item with sizes named by footprint, largest first (a VLM size name stands)."""
+        L = self.layout
+        for o in objs:
+            if o["label"] == "other":
+                o["status"] = "rejected"
+            item = L.item_of(o["label"])
+            if item is None and o["status"] != "rejected":
+                o["status"] = "rejected"  # the VLM named something not on the list
+            o["item"] = item
+        for item, spec in L.items.items():
+            mine = [o for o in objs if o["item"] == item and o["status"] == "seen" and not o["tentative"]]
+            mine.sort(key=lambda o: -o["n_views"])
+            for o in mine[spec["count"]:]:
+                o["status"] = "extra"
+            kept = mine[: spec["count"]]
+            if spec["sizes"]:
+                def area(o):
+                    e = o.get("extent")
+                    return 0.0 if not e else (e[2] - e[0]) * (e[3] - e[1])
+                vlm_sized = [o for o in kept if o["label"] in spec["sizes"]]
+                if len(vlm_sized) < len(kept):  # the VLM didn't size them all: by footprint
+                    for o, size in zip(sorted(kept, key=lambda o: -area(o)), spec["sizes"]):
+                        o["label"] = size
+
     def resolve(self, name: str) -> dict:
         """The entry called `name` ("tomato", "tomato 2", "tomato_2"); LookupError if none, several or no position."""
         from chefbot.perception.goto import resolve
 
-        objs = [o for o in self.objects() if o["status"] != "rejected"]
+        objs = [o for o in self.objects() if o["status"] not in ("rejected", "extra")]
         return resolve(objs, name.replace("_", " ").strip().lower())
 
     def to_json(self, meta: dict | None = None) -> dict:
@@ -219,8 +306,11 @@ class KitchenMap:
         return path
 
     def _memory(self) -> dict:
+        import base64
+
         with self.lock:
             d = self.mm.to_json({"frames": self.n})
+            d["views"] = {str(i): [[q, base64.b64encode(b).decode(), dist] for q, b, dist in v] for i, v in self.views.items()}
         d["vlm"] = {str(k): v for k, v in self.vlm.items()}
         return d
 
@@ -230,7 +320,10 @@ class KitchenMap:
         km = cls(spec_path, **kw)
         d = json.loads(Path(memory_path).read_text())
         km.mm = MemoryMap.from_json(d, km.counters, km.mm.labels)
+        import base64
+
         km.vlm = {int(k): v for k, v in (d.get("vlm") or {}).items()}
+        km.views = {int(i): [(q, base64.b64decode(b), dist) for q, b, dist in v] for i, v in (d.get("views") or {}).items()}
         km.n = int(d.get("frames", 0))
         return km
 
