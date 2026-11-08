@@ -169,7 +169,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}.mute{color:var(--mute)}
 .btn{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:6px;padding:4px 10px;margin:2px;font:inherit;cursor:pointer}
 .btn.on.yes{background:var(--obj);color:#fff}.btn.on.no{background:var(--target);color:#fff}
 </style></head><body>
-<header><h1>Kitchen live</h1><span id="status" class="pill">…</span><span id="mocap" class="pill">mocap …</span>
+<header><h1>Kitchen live</h1><a href="grade" style="color:inherit">grade all go_tos →</a><span id="status" class="pill">…</span><span id="mocap" class="pill">mocap …</span>
 <span id="pose" class="mute"></span><span id="stale" class="mute"></span></header>
 <main>
 <div style="display:flex;flex-direction:column;gap:12px">
@@ -251,7 +251,61 @@ async function tick(){try{S=await j("state.json")}catch(e){}render();renderCards
 """
 
 
-def serve(dir: Path, map_dir: Path, host: str = "127.0.0.1", port: int = 8780) -> None:
+GRADE = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grade go_tos</title>
+<style>
+:root{--bg:#f6f5f2;--panel:#fff;--ink:#1d1d1b;--mute:#6b6a66;--line:#d9d6cf;--yes:#1a7f37;--no:#cf222e}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--panel:#1e1e1c;--ink:#ecebe7;--mute:#9b9a95;--line:#3a3935;--yes:#3fb950;--no:#ff7b72}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,system-ui,sans-serif}
+header{position:sticky;top:0;background:var(--bg);padding:10px 16px;border-bottom:1px solid var(--line);display:flex;gap:16px;flex-wrap:wrap;align-items:baseline;z-index:2}
+h1{font-size:17px;margin:0}.mute{color:var(--mute)}main{padding:12px 16px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px}.card.cur{outline:3px solid #8250df}
+.card.done{opacity:.6}.pics{display:flex;gap:8px}.pics img{width:50%;min-width:0;border-radius:4px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.btn{border:2px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:8px 18px;font:inherit;font-weight:600;cursor:pointer}
+.btn.on.yes{background:var(--yes);border-color:var(--yes);color:#fff}.btn.on.no{background:var(--no);border-color:var(--no);color:#fff}
+</style></head><body>
+<header><h1>Grade the go_tos</h1><span id="score"></span>
+<span class="mute">keys: 1/2 right object yes/no · 3/4 right spot yes/no · j/k next/previous · saved on each click</span></header>
+<main id="list"></main>
+<script>
+let C=[],R={},cur=0;
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function j(u){const r=await fetch(u,{cache:"no-store"});return r.json()}
+async function set(i,k,v){const c=C[i];const r=Object.assign({},R[c.id]||{});r[k]=v;R[c.id]=r;
+ await fetch("review",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({id:c.id,object:c.object,run:c.run},r))});
+ if(r.object_ok!==undefined&&r.spot_ok!==undefined&&i===cur&&cur<C.length-1)cur++;draw()}
+function draw(){const b=(i,k,v,l)=>{const on=(R[C[i].id]||{})[k]===v;return `<button class="btn ${on?"on "+(v?"yes":"no"):""}" onclick="set(${i},'${k}',${v})">${l}</button>`};
+ document.getElementById("list").innerHTML=C.map((c,i)=>{const r=R[c.id]||{},done=r.object_ok!==undefined&&r.spot_ok!==undefined;const s=c.sees||{};
+  const sw=x=>x===null||x===undefined?"out of view":x?"detects it":"no detection";
+  return `<div class="card ${i===cur?"cur":""} ${done?"done":""}" id="c${i}"><b>${i+1}. ${esc(c.object)}</b> <span class=mute>${esc(c.on||"")} · ${esc(c.run)} · parked ${c.error_cm??"?"} cm off · pole ${sw(s.pole)} · wrist ${sw(s.wrist)}</span>
+  <div class=pics>${Object.entries(c.pictures||{}).map(([cam,f])=>`<img title="${esc(cam)}: the circle is where the map puts it" src="${esc(f)}">`).join("")}</div>
+  <div class=row>Right object at the circle? ${b(i,"object_ok",true,"Yes")}${b(i,"object_ok",false,"No")} &nbsp; Base parked in front of it? ${b(i,"spot_ok",true,"Yes")}${b(i,"spot_ok",false,"No")}</div></div>`}).join("")||"<span class=mute>no go_to cards yet</span>";
+ const rv=C.map(c=>R[c.id]||{}),y=k=>rv.filter(r=>r[k]===true).length,n=k=>rv.filter(r=>r[k]!==undefined).length;
+ document.getElementById("score").innerHTML=`<b>${C.length}</b> go_tos · graded ${rv.filter(r=>r.object_ok!==undefined&&r.spot_ok!==undefined).length} · right object <b>${y("object_ok")}/${n("object_ok")}</b> · right spot <b>${y("spot_ok")}/${n("spot_ok")}</b>`;
+ const el=document.getElementById("c"+cur);if(el)el.scrollIntoView({block:"center",behavior:"smooth"})}
+addEventListener("keydown",e=>{if(!C.length)return;const m={"1":["object_ok",true],"2":["object_ok",false],"3":["spot_ok",true],"4":["spot_ok",false]}[e.key];
+ if(m)set(cur,...m);else if(e.key==="j"){cur=Math.min(C.length-1,cur+1);draw()}else if(e.key==="k"){cur=Math.max(0,cur-1);draw()}});
+(async()=>{C=await j("cards.json");R=await j("reviews.json");cur=Math.max(0,C.findIndex(c=>!(R[c.id]&&R[c.id].object_ok!==undefined&&R[c.id].spot_ok!==undefined)));draw()})();
+</script></body></html>
+"""
+
+
+def all_cards(runs: Path, pictures: Path) -> list[dict]:
+    """Every go_to card of every run (runs/real_kitchen/*/events.jsonl), oldest first, those whose pictures still exist."""
+    out = []
+    for ev in sorted(Path(runs).glob("*/events.jsonl")):
+        for line in ev.read_text().splitlines():
+            if '"kind": "card"' not in line:
+                continue
+            c = json.loads(line)
+            if all((pictures / f).exists() for f in (c.get("pictures") or {}).values()):
+                out.append(dict(c, run=ev.parent.name))
+    return sorted(out, key=lambda c: c.get("t", 0))
+
+
+def serve(dir: Path, map_dir: Path, host: str = "127.0.0.1", port: int = 8780, runs: Path | None = None) -> None:
     dir = Path(dir).resolve()
     dir.mkdir(parents=True, exist_ok=True)
     mapj = json.dumps(map_json(Path(map_dir))).encode()
@@ -288,6 +342,10 @@ def serve(dir: Path, map_dir: Path, host: str = "127.0.0.1", port: int = 8780) -
             name = self.path.split("?")[0].lstrip("/") or "index.html"
             if name == "index.html":
                 body, ctype = PAGE.encode(), "text/html; charset=utf-8"
+            elif name == "grade":
+                body, ctype = GRADE.encode(), "text/html; charset=utf-8"
+            elif name == "cards.json":
+                body, ctype = json.dumps(all_cards(runs or dir.parent / "real_kitchen", dir), default=float).encode(), "application/json"
             elif name == "map.json":
                 body, ctype = mapj, "application/json"
             elif name == "reviews.json":
@@ -322,8 +380,9 @@ def main() -> None:
     ap.add_argument("--map", type=Path, default=repo / "maps" / "src_kitchen_work")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8780)
+    ap.add_argument("--runs", type=Path, default=repo / "runs" / "real_kitchen", help="the runs whose go_to cards /grade lists")
     a = ap.parse_args()
-    serve(a.dir, a.map, a.host, a.port)
+    serve(a.dir, a.map, a.host, a.port, a.runs.resolve())
 
 
 if __name__ == "__main__":
