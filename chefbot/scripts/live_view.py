@@ -39,7 +39,7 @@ class LiveFeed:
         self.env, self.period_s = env, float(period_s)
         self.log_path = Path(log_dir) / "events.jsonl" if log_dir else None
         self.state: dict = {"run_start": time.time(), "status": "starting", "events": [], "timings": [], "objects": [],
-                            "target": None, "path": None, "frames": {}}  # fmt: skip
+                            "target": None, "path": None, "frames": {}, "cards": []}  # fmt: skip
         self.lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, name="live-feed", daemon=True)
@@ -65,6 +65,12 @@ class LiveFeed:
         keep = ("name", "label", "det_label", "xyz", "last_xyz", "counter", "fixture", "status", "n_views", "tentative", "extent")
         with self.lock:
             self.state["objects"] = [{k: o.get(k) for k in keep} for o in objs]
+
+    def card(self, card: dict) -> None:
+        """A go_to to review on the page (its pictures already in the folder): right object? right spot?"""
+        with self.lock:
+            self.state["cards"] = (self.state["cards"] + [card])[-60:]
+        self._log("card", card)
 
     def frame(self, camera: str, rgb: np.ndarray, dets: list[dict] | None = None) -> None:
         """The camera's last frame with its detections drawn, as <camera>.jpg (atomic)."""
@@ -159,6 +165,9 @@ canvas{width:100%;display:block}.frames img{width:100%;border-radius:4px;display
 table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:2px 4px;border-bottom:1px solid var(--line);text-align:left}
 td.n{text-align:right;font-variant-numeric:tabular-nums}.mute{color:var(--mute)}.ev{font-size:12px;max-height:220px;overflow:auto}
 .right{display:flex;flex-direction:column;gap:12px}
+.card{border-top:1px solid var(--line);padding:8px 0}.card img{width:49%;border-radius:4px}.card .pics{display:flex;gap:2%}
+.btn{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:6px;padding:4px 10px;margin:2px;font:inherit;cursor:pointer}
+.btn.on.yes{background:var(--obj);color:#fff}.btn.on.no{background:var(--target);color:#fff}
 </style></head><body>
 <header><h1>Kitchen live</h1><span id="status" class="pill">…</span><span id="mocap" class="pill">mocap …</span>
 <span id="pose" class="mute"></span><span id="stale" class="mute"></span></header>
@@ -168,6 +177,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}.mute{color:var(--mute)}
 <div class="mute" style="font-size:12px">blue: the base (arrow = where the arm faces) · green: objects · grey ring: lost (last seen) ·
 orange: go_to target and its stance · dots: places</div></section>
 <section><h2>Objects</h2><table id="objs"></table></section>
+<section><h2>go_to checks: review each</h2><div id="score" class="mute"></div><div id="cards"></div></section>
 </div>
 <div class="right">
 <section><h2>Target</h2><div id="target" class="mute">none</div></section>
@@ -222,8 +232,21 @@ function render(){if(!S)return;const st=document.getElementById("status");st.tex
   const {t:_t,what,s,...rest}=x;return `<tr><td>${esc(what)}</td><td class=n>${s.toFixed(2)}</td><td class=mute>${esc(Object.entries(rest).map(([k,v])=>k+" "+v).join(" · "))}</td></tr>`}).join("");
  document.getElementById("ev").innerHTML=(S.events||[]).slice().reverse().map(e=>`<div><span class=mute>${new Date(e.t*1000).toLocaleTimeString()}</span> ${esc(e.text)}</div>`).join("");
  draw()}
-async function tick(){try{S=await j("state.json")}catch(e){}render();setTimeout(tick,500)}
-(async()=>{MAP=await j("map.json");tick();addEventListener("resize",draw)})();
+let REV={};
+async function loadRev(){try{REV=await j("reviews.json")}catch(e){REV={}}}
+async function review(id,key,val){const r=Object.assign({},REV[id]||{});r[key]=val;REV[id]=r;renderCards(true);
+ await fetch("review",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({id},r))})}
+let lastCards="";
+function renderCards(force){const cs=(S&&S.cards)||[];const key=cs.map(c=>c.id).join()+JSON.stringify(REV);if(!force&&key===lastCards)return;lastCards=key;
+ const b=(id,k,v,label)=>`<button class="btn ${(REV[id]||{})[k]===v?"on "+(v?"yes":"no"):""}" onclick="review('${id}','${k}',${v})">${label}</button>`;
+ document.getElementById("cards").innerHTML=cs.slice().reverse().map(c=>{const s=c.sees||{};const sw=x=>x===null||x===undefined?"out of view":x?"sees it":"doesn't";
+  return `<div class=card><b>${esc(c.object)}</b> <span class=mute>${esc(c.on||"")} · parked ${c.error_cm??"?"} cm off · pole ${sw(s.pole)} · wrist ${sw(s.wrist)} · map after: ${esc(c.map_after)}</span>
+  <div class=pics>${Object.entries(c.pictures||{}).map(([cam,f])=>`<img title="${esc(cam)}" src="${esc(f)}">`).join("")}</div>
+  <div>right object? ${b(c.id,"object_ok",true,"yes")}${b(c.id,"object_ok",false,"no")} &nbsp; right spot? ${b(c.id,"spot_ok",true,"yes")}${b(c.id,"spot_ok",false,"no")}</div></div>`}).join("")||"<span class=mute>none yet</span>";
+ const rv=cs.map(c=>REV[c.id]||{}),n=x=>rv.filter(r=>r[x]===true).length,m=x=>rv.filter(r=>r[x]!==undefined).length;
+ document.getElementById("score").textContent=cs.length?`${cs.length} go_tos · right object ${n("object_ok")}/${m("object_ok")} · right spot ${n("spot_ok")}/${m("spot_ok")} (of those reviewed)`:""}
+async function tick(){try{S=await j("state.json")}catch(e){}render();renderCards(false);setTimeout(tick,500)}
+(async()=>{MAP=await j("map.json");await loadRev();tick();addEventListener("resize",draw)})();
 </script></body></html>
 """
 
@@ -233,13 +256,42 @@ def serve(dir: Path, map_dir: Path, host: str = "127.0.0.1", port: int = 8780) -
     dir.mkdir(parents=True, exist_ok=True)
     mapj = json.dumps(map_json(Path(map_dir))).encode()
 
+    reviews = dir / "reviews.jsonl"
+    lock = threading.Lock()
+
+    def current_reviews() -> dict:
+        out: dict = {}
+        if reviews.exists():
+            for line in reviews.read_text().splitlines():
+                if line.strip():
+                    r = json.loads(line)
+                    out[r["id"]] = {k: v for k, v in r.items() if k not in ("id", "t")}
+        return out
+
     class H(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802  (a review: {id, object_ok, spot_ok, note}; appended, the last per id stands)
+            if self.path.split("?")[0] != "/review":
+                self.send_error(404)
+                return
+            try:
+                r = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+                assert isinstance(r.get("id"), str)
+            except Exception:  # noqa: BLE001
+                self.send_error(400)
+                return
+            with lock, open(reviews, "a") as f:
+                f.write(json.dumps({"t": time.time(), **r}) + "\n")
+            self.send_response(204)
+            self.end_headers()
+
         def do_GET(self):  # noqa: N802
             name = self.path.split("?")[0].lstrip("/") or "index.html"
             if name == "index.html":
                 body, ctype = PAGE.encode(), "text/html; charset=utf-8"
             elif name == "map.json":
                 body, ctype = mapj, "application/json"
+            elif name == "reviews.json":
+                body, ctype = json.dumps(current_reviews()).encode(), "application/json"
             elif name == "state.json" or (name.endswith(".jpg") and "/" not in name):
                 p = dir / name
                 if not p.exists():

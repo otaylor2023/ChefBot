@@ -30,27 +30,29 @@ class SeeingKitchen(FakeKitchen):
         super().__init__(**kw)
         self.kitchen = None
         self.frames = 0
+        self.tomato = TOMATO  # None: taken away
 
     def get_camera_rgbd(self, name):
         self.frames += 1
         W = self.kitchen._world_from_odom() @ self.kitchen._arm_offset()
-        rgb, depth, _ = frame(TOMATO)
+        rgb, depth, _ = frame(*([self.tomato] if self.tomato else []))
         return Frame(rgb, depth, K, np.linalg.inv(W) @ T_down())
 
 
 class Yoloe:
-    def __init__(self):
-        self.calls = []
+    def __init__(self, env=None):
+        self.calls, self.env = [], env
 
     def __call__(self, op, image, **args):
         self.calls.append((op, args.get("model")))
-        return {"detections": frame(TOMATO)[2]}
+        there = self.env is None or self.env.tomato
+        return {"detections": frame(TOMATO)[2] if there else []}
 
 
 def kitchen(tmp_path, live=True, **opts):
     env = SeeingKitchen(mocap=Pose2D(1.26, -2.94, math.radians(87)))
     feed = LiveFeed(tmp_path / "live", env, period_s=0.05) if live else None
-    k = RealKitchen(Host(env), MAP, Yoloe(), tmp_path / "run", options=KitchenOptions(naming="off", **opts),
+    k = RealKitchen(Host(env), MAP, Yoloe(env), tmp_path / "run", options=KitchenOptions(naming="off", **opts),
                     world_map=WorldMap.from_dict({}), live=feed)  # fmt: skip
     env.kitchen = k
     return k
@@ -110,3 +112,27 @@ def test_frames_while_driving_go_into_the_map_too(tmp_path, monkeypatch):
 def test_the_live_pages_map():
     m = map_json(MAP)
     assert {"island", "stove_counter"} <= {b["fixture"] for b in m["boxes"]} and "island_south" in m["places"]
+
+
+def test_a_tour_checks_each_go_to_and_puts_a_card_on_the_page(tmp_path):
+    k = kitchen(tmp_path)
+    k.explore("stove")
+    r = k.tour(n=3, seed=0)
+    assert r["n"] == 1 and r["reached"] == 1 and r["pole_sees"] == 1  # one object: never the same twice running
+    (card,) = k.live.state["cards"]
+    assert card["object"] == "tomato" and card["sees"] == {"pole": True, "wrist": None} and card["map_after"] == "seen"
+    assert (tmp_path / "live" / card["pictures"]["pole"]).exists()
+    frames = (tmp_path / "run" / "frames" / "pole" / "frames.jsonl").read_text().splitlines()
+    assert len(frames) == 3 and (tmp_path / "run" / "frames" / "pole" / "000000_depth.png").exists()
+
+
+def test_taken_away_it_goes_unknown_then_a_search_finds_it_again(tmp_path):
+    k = kitchen(tmp_path, search_route="stove")
+    k.explore("stove")
+    k.env.tomato = None  # Jack takes it away
+    k.look()
+    k.look()
+    assert k.objects.objects()[0]["status"] == "unknown"
+    k.env.tomato = TOMATO  # ... and puts it back: the search sees it
+    g = k.go_to("tomato")
+    assert g["ok"] and g["searched"] == "stove"

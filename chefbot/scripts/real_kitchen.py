@@ -54,6 +54,7 @@ class KitchenOptions:
     vlm: str = "gemini-3.5-flash-lite"
     vocab: Path = VOCAB
     layout: Path | None = None  # a closed list (perception/layouts/*.yaml): its prompts, counts and names, not vocab
+    search_route: str | None = None  # go_to an object whose position is unknown: explore this route first
     save_frames: bool = True  # every frame's color + depth in the run's folder (frames/<camera>/), for replays and training
 
     def load_layout(self):
@@ -94,6 +95,8 @@ class RealKitchen:
         self.options = options or KitchenOptions()
         self.objects, self.world_map, self.live = objects, world_map, live
         self._naming: threading.Thread | None = None
+        self._last: dict[str, dict] = {}  # each camera's last frame (rgb, T_wc, K, dets)
+        self.n_goto = 0
 
     def move_to(self, out: Path) -> None:
         self.out = Path(out)
@@ -216,7 +219,7 @@ class RealKitchen:
         """The base to a place of the map, or, if `place` names none, in front of that object of the object map."""
         if place not in self.places:
             if self.objects is not None:
-                return self.go_to_object(place)
+                return self.go_to_object(place, search_route=self.options.search_route)
             return {"ok": False, "reason": f"no place {place!r} (places: {', '.join(sorted(self.places))}) and no object map yet (explore first)"}
         p = self.places[place]
         goal = Pose2D(float(p["x"]), float(p["y"]), math.radians(float(p.get("yaw_deg", 0.0))))
@@ -239,15 +242,26 @@ class RealKitchen:
             raise ValueError(f"no stance on {counter}'s {pt['side']} side")
         return pt
 
-    def go_to_object(self, name: str) -> dict:
-        """The base in front of the object map's `name` ("tomato", "tomato 2"), squared up to its counter's side."""
+    def go_to_object(self, name: str, search_route: str | None = None) -> dict:
+        """The base in front of the object map's `name` ("tomato", "tomato 2"), squared up to its counter's side. If its
+        position is unknown (looked for where it was, not there) and `search_route` is given: that route explored
+        again first."""
         if self.objects is None:
             return {"ok": False, "reason": "no object map yet (explore first)"}
         try:
             o = self.objects.resolve(name)
+        except LookupError as e:
+            why = str(e).strip("'\"")
+            if search_route and "position unknown" in why:  # moved or taken away: look again along the route, then try
+                self._status(f"{name}: {why}; searching (route {search_route})")
+                found = self.explore(search_route)
+                self._note("search", {"object": name, "route": search_route, "objects": found["objects"]})
+                return self.go_to_object(name, search_route=None) | {"searched": search_route}
+            return {"ok": False, "reason": why}
+        try:
             pt = self.stance_for(o["xyz"], o["counter"])
-        except (LookupError, ValueError) as e:
-            return {"ok": False, "reason": str(e).strip("'\"")}
+        except ValueError as e:
+            return {"ok": False, "reason": str(e)}
         sx, sy, syaw = pt["stance"]
         goal = Pose2D(float(sx), float(sy), math.radians(float(syaw)))
         note = f"on {o.get('fixture') or o['counter']} at ({o['xyz'][0]:.2f}, {o['xyz'][1]:.2f}), seen {o['n_views']} times; park on its {pt['side']} side"
@@ -266,6 +280,104 @@ class RealKitchen:
         self._target(dict(self.live.state.get("target") or {}, result=f"{out['reason']}" + (f", {reached['error_m'] * 100:.0f} cm off the stance" if reached else ""))
                      if self.live else None)  # fmt: skip
         self._note("go_to", out)
+        return out
+
+    def check_at(self, out: dict, cameras=("pole", "wrist")) -> dict:
+        """After a go_to: a look from where it parked (the map updated: still there, or gone), and whether each camera
+        sees the item at its map spot (a detection of the same item whose box holds the spot's projection). Saves the
+        pictures (the spot marked) as a review card on the live page. Nothing moves."""
+        item = None
+        o = None
+        try:
+            o = self.objects.resolve(out["object"]) if self.objects else None
+        except LookupError:
+            pass
+        L = self.objects.layout if self.objects else None
+        if o is not None:
+            item = o.get("item") or o["label"]
+        xyz = out.get("object_xyz")
+        look = self.look(cameras)
+        sees = {}
+        self.n_goto += 1
+        gid = f"{int(time.time())}_{self.n_goto:03d}"
+        pics = {}
+        for cam in cameras:
+            f = self._last.get(cam)
+            if f is None or not look.get("ok") or "error" in (look.get("cameras") or {}).get(cam, {}):
+                sees[cam] = None
+                continue
+            p = None
+            if xyz is not None:
+                pc = np.linalg.inv(f["T_wc"]) @ np.array([*xyz[:3], 1.0])
+                if pc[2] > 0.05:
+                    p = (f["K"][0, 0] * pc[0] / pc[2] + f["K"][0, 2], f["K"][1, 1] * pc[1] / pc[2] + f["K"][1, 2])
+            h, w = f["rgb"].shape[:2]
+            if p is None or not (0 <= p[0] < w and 0 <= p[1] < h):
+                sees[cam] = None  # the spot is out of this camera's view
+            else:
+                def is_item(d):
+                    lab = (L.labels()["rename"].get(d["label"], d["label"]) if L else d["label"])
+                    return item is None or lab == item or lab == out["object"]
+                hit = [d for d in f["dets"] if is_item(d) and d["box"][0] - 20 <= p[0] <= d["box"][2] + 20 and d["box"][1] - 20 <= p[1] <= d["box"][3] + 20]
+                sees[cam] = bool(hit)
+            if self.live:
+                pics[cam] = self._card_picture(gid, cam, f, p)
+        after = None
+        if self.objects is not None:
+            try:
+                after = self.objects.resolve(out["object"])["status"]
+            except LookupError as e:
+                after = str(e)
+        card = {"id": gid, "t": time.time(), "object": out["object"], "item": item, "on": out.get("on"), "ok": out["ok"],
+                "reason": out["reason"], "error_cm": None if not out.get("reached") else round(100 * out["reached"]["error_m"], 1),
+                "sees": sees, "map_after": after, "pictures": pics, "searched": out.get("searched")}  # fmt: skip
+        if self.live:
+            self.live.card(card)
+        self._note("check", card)
+        return card
+
+    def _card_picture(self, gid: str, cam: str, f: dict, p) -> str:
+        import cv2
+
+        im = cv2.cvtColor(np.asarray(f["rgb"], np.uint8), cv2.COLOR_RGB2BGR).copy()
+        for d in f["dets"]:
+            x0, y0, x1, y1 = (int(v) for v in d["box"])
+            cv2.rectangle(im, (x0, y0), (x1, y1), (255, 0, 255), 1)
+            cv2.putText(im, d["label"], (x0, max(12, y0 - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 0, 255), 1)
+        if p is not None:
+            u, v = int(p[0]), int(p[1])
+            cv2.circle(im, (u, v), 22, (0, 200, 255), 3)
+            cv2.drawMarker(im, (u, v), (0, 200, 255), cv2.MARKER_CROSS, 18, 2)
+        name = f"card_{gid}_{cam}.jpg"
+        cv2.imwrite(str(self.live.dir / name), im, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return name
+
+    def tour(self, n: int = 10, seed: int | None = None, cameras=("pole", "wrist"), search_route: str | None = None) -> dict:
+        """go_to random objects of the map, one after another (never the same twice running), each checked from where
+        it parked (check_at: a review card on the live page). For data: how often it parks in front of the right thing."""
+        import random
+
+        rng = random.Random(seed)
+        cards, last = [], None
+        for i in range(n):
+            offered = [o["name"] for o in (self.objects.objects() if self.objects else [])
+                       if o["status"] == "seen" and o["xyz"] is not None and o["name"] != last]  # fmt: skip
+            if not offered:
+                break
+            name = rng.choice(offered)
+            self._status(f"tour {i + 1}/{n}: go_to {name}")
+            r = self.go_to_object(name, search_route=search_route)
+            last = name
+            if not r.get("ok") and r.get("moved") is not False and "timed out" in str(r.get("reason")):
+                cards.append({"object": name, "ok": False, "reason": r["reason"]})
+                break  # the base didn't move (motor power?): stop the tour
+            cards.append(self.check_at(r, cameras) if r.get("ok") else {"object": name, "ok": False, "reason": r.get("reason")})
+        ok = [c for c in cards if c.get("ok")]
+        out = {"ok": bool(ok), "n": len(cards), "reached": len(ok),
+               "pole_sees": sum(bool(c["sees"].get("pole")) for c in ok), "wrist_sees": sum(bool(c["sees"].get("wrist")) for c in ok),
+               "cards": cards}  # fmt: skip
+        (self.out / "tour.json").write_text(json.dumps(out, indent=2, default=str))
+        self._status(f"tour done: {len(ok)}/{len(cards)} reached")
         return out
 
     def sweep_stops(self, route: str = "full", sweep_file: Path | None = None) -> list[dict]:
@@ -382,6 +494,7 @@ class RealKitchen:
             return {"detections": len(dets), "error": "no depth"}
         T_wc = W @ np.asarray(f.cam_to_world)
         base = self.env.localization().mocap_pose
+        self._last[cam] = {"rgb": f.rgb, "T_wc": T_wc, "K": np.asarray(f.intrinsics, float), "dets": dets, "t": t0}
         r = self._object_map().add_frame(f.rgb, f.depth, f.intrinsics, T_wc, dets, t=t0, camera=cam, base_pose=base)
         if self.options.save_frames:
             self._save_frame(cam, f, T_wc, dets, t0, phase, base)
@@ -666,7 +779,7 @@ def main() -> None:
 
     repo = Path(__file__).resolve().parents[2]
     ap = argparse.ArgumentParser(description=main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=("find", "ready", "go_to", "where", "look", "explore", "session"))
+    ap.add_argument("what", choices=("find", "ready", "go_to", "where", "look", "explore", "session", "tour"))
     ap.add_argument("arg", nargs="?", default=None, help="the object (find), the place or object (go_to)")
     ap.add_argument("--map", type=Path, default=repo / "maps" / "src_kitchen_work")
     ap.add_argument("--dry-run", action="store_true", help="plan, drive and move nothing")
@@ -683,6 +796,10 @@ def main() -> None:
                     help="a closed list of what is out (chefbot/perception/layouts/*.yaml): only those, at most their counts")
     ap.add_argument("--live", type=Path, default=repo / "runs" / "live", help="the live page's folder (scripts/live_view.py)")
     ap.add_argument("--no-live", action="store_true")
+    ap.add_argument("-n", type=int, default=10, help="tour: how many random go_tos")
+    ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--search", default=None, help="go_to / tour: a lost object -> explore this route (south) and try again")
+    ap.add_argument("--check-cameras", nargs="+", default=["pole", "wrist"], help="tour: the cameras each check takes")
     ap.add_argument("--base-speed", default="max", help="the base's speed profile (default max: the robot's cap, 0.25 m/s, 0.8 rad/s)")
     ap.add_argument("--arm-speed", default="slow", help="the arm's speed profile (ready)")
     a = ap.parse_args()
@@ -693,7 +810,8 @@ def main() -> None:
     host = RealHost(robot, profile, out, dry_run=a.dry_run, confirm=True, cameras=["pole", "wrist"])
     url = os.environ.get("VISION_URL")
     opts = KitchenOptions(cameras=tuple(a.cameras), detector=a.detector, capture=a.capture, capture_hz=a.capture_hz,
-                          naming=a.naming, vlm=a.vlm, vocab=a.vocab, layout=a.layout)  # fmt: skip
+                          naming=a.naming, vlm=a.vlm, vocab=a.vocab, layout=a.layout,
+                          search_route=a.search)  # fmt: skip
     objects = None
     if a.objects is not None:
         from chefbot.perception.kitchen_map import KitchenMap
@@ -722,7 +840,12 @@ def main() -> None:
         if what == "explore":
             return k.explore(arg or a.route)
         if what == "go_to":
-            return k.go_to(arg)
+            r = k.go_to(arg)
+            if r.get("ok") and r.get("object"):
+                r["check"] = k.check_at(r, tuple(a.check_cameras))
+            return r
+        if what == "tour":
+            return k.tour(int(arg) if arg else a.n, a.seed, tuple(a.check_cameras), a.search)
         return {"ok": False, "reason": f"what? {what} (explore [route] / look / go_to X / where / objects / quit)"}
 
     status = "finished"
