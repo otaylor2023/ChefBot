@@ -279,7 +279,7 @@ async function set(i,k,v){const c=C[i];const r=Object.assign({},R[c.id]||{});r[k
 function draw(){const b=(i,k,v,l)=>{const on=(R[C[i].id]||{})[k]===v;return `<button class="btn ${on?"on "+(v?"yes":"no"):""}" onclick="set(${i},'${k}',${v})">${l}</button>`};
  document.getElementById("list").innerHTML=C.map((c,i)=>{const r=R[c.id]||{},done=r.object_ok!==undefined&&r.spot_ok!==undefined;const s=c.sees||{};
   const sw=x=>x===null||x===undefined?"out of view":x?"detects it":"no detection";
-  return `<div class="card ${i===cur?"cur":""} ${done?"done":""}" id="c${i}"><b>${i+1}. ${esc(c.object)}</b> <span class=mute>${esc(c.on||"")} · ${esc(c.run)} · parked ${c.error_cm??"?"} cm off · pole ${sw(s.pole)} · wrist ${sw(s.wrist)}</span>
+  return `<div class="card ${i===cur?"cur":""} ${done?"done":""}" id="c${i}"><b>${i+1}. ${esc(c.object)}</b> <span class=mute>${esc(c.on||"")} · ${esc(c.run)} · parked ${c.error_cm??"?"} cm off · pole ${sw(s.pole)} · wrist ${sw(s.wrist)}${c.vlm&&c.vlm.wrist?` · Gemini (wrist): <b>${esc(c.vlm.wrist.label||c.vlm.wrist.error)}</b> ${c.vlm.wrist.match?"✓":"✗"}`:""}</span>
   <div class=pics>${Object.entries(c.pictures||{}).map(([cam,f])=>`<img title="${esc(cam)}: the circle is where the map puts it" src="${esc(f)}">`).join("")}</div>
   <div class=row>Right object at the circle? ${b(i,"object_ok",true,"Yes")}${b(i,"object_ok",false,"No")} &nbsp; Base parked in front of it? ${b(i,"spot_ok",true,"Yes")}${b(i,"spot_ok",false,"No")}</div></div>`}).join("")||"<span class=mute>no go_to cards yet</span>";
  const rv=C.map(c=>R[c.id]||{}),y=k=>rv.filter(r=>r[k]===true).length,n=k=>rv.filter(r=>r[k]!==undefined).length;

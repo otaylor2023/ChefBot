@@ -54,6 +54,7 @@ class KitchenOptions:
     vlm: str = "gemini-3.5-flash-lite"
     vocab: Path = VOCAB
     layout: Path | None = None  # a closed list (perception/layouts/*.yaml): its prompts, counts and names, not vocab
+    wrist_vlm: bool = True  # after a go_to, the VLM names what is at the map spot in the wrist picture (from the layout)
     search_route: str | None = None  # go_to an object whose position is unknown: explore this route first
     save_frames: bool = True  # every frame's color + depth in the run's folder (frames/<camera>/), for replays and training
 
@@ -297,7 +298,7 @@ class RealKitchen:
             item = o.get("item") or o["label"]
         xyz = out.get("object_xyz")
         look = self.look(cameras)
-        sees = {}
+        sees, vlm = {}, {}
         self.n_goto += 1
         gid = f"{int(time.time())}_{self.n_goto:03d}"
         pics = {}
@@ -320,6 +321,8 @@ class RealKitchen:
                     return item is None or lab == item or lab == out["object"]
                 hit = [d for d in f["dets"] if is_item(d) and d["box"][0] - 20 <= p[0] <= d["box"][2] + 20 and d["box"][1] - 20 <= p[1] <= d["box"][3] + 20]
                 sees[cam] = bool(hit)
+                if cam == "wrist" and L is not None and self.options.wrist_vlm:
+                    vlm[cam] = self._ask_at(f, p, L)
             if self.live:
                 pics[cam] = self._card_picture(gid, cam, f, p)
         after = None
@@ -330,11 +333,29 @@ class RealKitchen:
                 after = str(e)
         card = {"id": gid, "t": time.time(), "object": out["object"], "item": item, "on": out.get("on"), "ok": out["ok"],
                 "reason": out["reason"], "error_cm": None if not out.get("reached") else round(100 * out["reached"]["error_m"], 1),
-                "sees": sees, "map_after": after, "pictures": pics, "searched": out.get("searched")}  # fmt: skip
+                "sees": sees, "map_after": after, "pictures": pics, "searched": out.get("searched"),
+                "vlm": {c: {"label": a.get("label"), "match": a.get("label") in (out["object"], item) or (L is not None and L.item_of(a.get("label") or "") == item),
+                            "ms": a.get("ms"), "error": a.get("error")} for c, a in vlm.items()}}  # fmt: skip
         if self.live:
             self.live.card(card)
         self._note("check", card)
         return card
+
+    def _ask_at(self, f: dict, p, L) -> dict:
+        """The VLM on the camera's picture round the map spot (ringed): which of the layout's items is it?"""
+        from PIL import Image, ImageDraw
+
+        from chefbot.perception.name_objects import ask
+
+        h, w = f["rgb"].shape[:2]
+        half = 150
+        x0, y0 = int(p[0]) - half, int(p[1]) - half
+        im = Image.fromarray(np.asarray(f["rgb"], np.uint8)).crop((x0, y0, x0 + 2 * half, y0 + 2 * half)).resize((256, 256))
+        ImageDraw.Draw(im).ellipse((80, 80, 176, 176), outline=(255, 0, 255), width=3)
+        try:
+            return ask(im, 1, self.options.vlm, L.names(), "", menu=True)
+        except Exception as e:  # noqa: BLE001  (no key, no network: the card says so)
+            return {"label": None, "error": f"{type(e).__name__}: {e}"}
 
     def _card_picture(self, gid: str, cam: str, f: dict, p) -> str:
         import cv2
